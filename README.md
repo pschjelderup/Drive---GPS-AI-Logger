@@ -362,10 +362,21 @@ tools/hamta-trafikverket.py kameror --visa-falt
 ## Hastighetsgränser
 
 Den skyltade hastigheten kommer från **NVDB**, Trafikverkets nationella vägdatabas.
-Sedan 2025 ligger tolv NVDB-dataset i det öppna API:et, och hela-Sverige-paket
-finns på Lastkajen. Att läsa datan kräver inget konto; att ladda ner den gör det.
+Sedan 2025 ligger den i **samma öppna API som kamerorna**, under namespace
+`vägdata.nvdb_dk_o` – samma nyckel, inget konto, ingen Lastkajen:
 
-Hela Sverige är hundratals megabyte, alltså inte flashminnesmaterial. Därför:
+```bash
+export TRV_API_KEY=din-nyckel
+tools/hamta-trafikverket.py granser --api --ut HASTIGHET.BIN
+```
+
+Hämtningen pagineras med `changeid` och tar en stund – hela Sverige är över en
+miljon sträckor. En sak är lätt att göra fel och värd att veta om: **slutet är en
+tom sida, inte en ofull.** En changeid-sida följer interna ändringsklumpar och
+kan innehålla färre poster än begärt fast mer data återstår; den som stannar där
+får med sig en bråkdel av landet och märker det inte. Verktyget gör rätt.
+
+Alternativet med nedladdad fil finns kvar:
 
 ```bash
 tools/hamta-trafikverket.py granser --in hastighet.geojson --ut HASTIGHET.BIN

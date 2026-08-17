@@ -12,6 +12,7 @@
 
 #include "cams.h"
 #include "eco.h"
+#include "stats.h"
 #include "trip.h"
 
 // Anvandarens installningar. Sparas i kortets flashminne och overlever
@@ -29,14 +30,23 @@ struct AppSettings {
   uint8_t ecoWindowIdx;
 };
 
+// Skarmarna. De fyra forsta ar sidorna i svepkarusellen - ett svep at vanster
+// gar till nasta, at hoger till forra, runt i en ring. Resten ar lagen man
+// hamnar i via en knapp och lamnar via en knapp: mitt i en fraga eller en
+// installning ska ett slarvigt svep inte kunna byta sida.
 enum Screen {
   SCREEN_MAIN,
+  SCREEN_STATS,
+  SCREEN_ECO,
+  SCREEN_MENU,
+
   SCREEN_PURPOSE,    // fragan efter en avslutad resa
   SCREEN_CUSTOMER,   // kundlistan, synkad fran webben
-  SCREEN_ECO,
   SCREEN_ECO_LIMITS,
-  SCREEN_MENU,
 };
+
+// Antal sidor i svepkarusellen - de forsta i uppraakningen ovan.
+const uint8_t kSwipePages = 4;
 
 // En ruta pa skarmen. Anvands bade for att rita knappar och for att avgora var
 // anvandaren tryckte.
@@ -87,6 +97,7 @@ void begin(Arduino_Canvas *canvas);
 
 void drawMain(const TripStatus &t, const CamWarning &w, uint8_t limitKmh,
               float speedKmh, const AppSettings &cfg);
+void drawStats(const StatsSummary &s);
 void drawPurposeAsk(const TripStatus &t, uint32_t secondsLeft);
 void drawCustomers(const char *const *names, uint8_t count, uint8_t page,
                    uint8_t pages);

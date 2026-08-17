@@ -22,6 +22,7 @@
 #include "gnss.h"
 #include "sensors.h"
 #include "sound.h"
+#include "stats.h"
 #include "trip.h"
 #include "ui.h"
 #include "websync.h"
@@ -55,6 +56,17 @@ uint32_t lastActivityMs = 0;
 uint32_t lastDrawMs = 0;
 bool wasTouched = false;
 bool lastButtonState = HIGH;
+
+// Svep mellan sidorna. Trycket registreras vid slappet, inte vid nedslaget:
+// forst da vet vi om fingret pekade eller drog. Ett svep som borjar pa en
+// knapp ska byta sida, inte trycka pa knappen.
+int16_t touchStartX = 0, touchStartY = 0;
+int16_t touchLastX = 0, touchLastY = 0;
+bool touchWokeScreen = false;
+
+// Sa langt ska fingret ha dragit for att raknas som ett svep, och draget ska
+// vara tydligt liggande - annars ar det ett slarvigt tryck.
+const int16_t kSwipeMinPx = 70;
 
 // Fragan om syftet efter en avslutad resa. Svarar man inte blir resan diffus,
 // vilket ar arligt - det var den.
@@ -248,6 +260,7 @@ void onPressMain(int16_t x, int16_t y) {
       sensors::remount();
       cams::reload();
       customers::reload();
+      stats::begin();
     } else if (t.active) {
       trip::endManual();
       sound::play(CUE_TRIP_END);
@@ -438,31 +451,63 @@ void onPressMenu(int16_t x, int16_t y) {
   if (ui::kBtnBack.contains(x, y)) screen = SCREEN_MAIN;
 }
 
+// Sidorna i svepkarusellen ligger forst i Screen-uppraakningen, i ringordning.
+void swipePage(int8_t dir) {
+  if (screen >= kSwipePages) return;  // fragor och menyer sveps inte bort
+  int8_t page = (int8_t)screen + dir;
+  if (page < 0) page = kSwipePages - 1;
+  if (page >= (int8_t)kSwipePages) page = 0;
+  screen = (Screen)page;
+  sound::play(CUE_TAP);
+  lastDrawMs = 0;  // rita nya sidan direkt
+}
+
+void dispatchTap(int16_t x, int16_t y) {
+  switch (screen) {
+    case SCREEN_MAIN: onPressMain(x, y); break;
+    case SCREEN_STATS: break;  // statistiken visar, den har inga knappar
+    case SCREEN_PURPOSE: onPressPurposeAsk(x, y); break;
+    case SCREEN_CUSTOMER: onPressCustomer(x, y); break;
+    case SCREEN_ECO: onPressEco(x, y); break;
+    case SCREEN_ECO_LIMITS: onPressEcoLimits(x, y); break;
+    case SCREEN_MENU: onPressMenu(x, y); break;
+  }
+}
+
 void handleTouch() {
   if (!touchOk) return;
 
   const TouchPoints &points = touch.getTouchPoints();
   const bool pressed = points.hasPoints();
 
-  if (pressed && !wasTouched) {
-    lastActivityMs = millis();
+  if (pressed) {
+    const TouchPoint &p = points.getPoint(0);
+    int16_t x = (int16_t)p.x;
+    int16_t y = (int16_t)p.y;
+    mapTouch(x, y);
 
-    if (!screenOn) {
+    if (!wasTouched) {
+      lastActivityMs = millis();
+      touchStartX = x;
+      touchStartY = y;
       // Forsta trycket nar skarmen ar slackt tander bara skarmen, sa att man
-      // inte rakar markera en resa av misstag.
-      setScreen(true);
-    } else {
-      const TouchPoint &p = points.getPoint(0);
-      int16_t x = (int16_t)p.x;
-      int16_t y = (int16_t)p.y;
-      mapTouch(x, y);
-      switch (screen) {
-        case SCREEN_MAIN: onPressMain(x, y); break;
-        case SCREEN_PURPOSE: onPressPurposeAsk(x, y); break;
-        case SCREEN_CUSTOMER: onPressCustomer(x, y); break;
-        case SCREEN_ECO: onPressEco(x, y); break;
-        case SCREEN_ECO_LIMITS: onPressEcoLimits(x, y); break;
-        case SCREEN_MENU: onPressMenu(x, y); break;
+      // inte rakar markera en resa av misstag. Slappet ignoreras sedan.
+      touchWokeScreen = !screenOn;
+      if (!screenOn) setScreen(true);
+    }
+    touchLastX = x;
+    touchLastY = y;
+  } else if (wasTouched) {
+    // Slappet ar handelsen. Forst nu vet vi om fingret pekade eller drog.
+    lastActivityMs = millis();
+    if (!touchWokeScreen) {
+      const int16_t dx = touchLastX - touchStartX;
+      const int16_t dy = touchLastY - touchStartY;
+      if (abs(dx) >= kSwipeMinPx && abs(dx) > abs(dy) + abs(dy) / 2) {
+        // Fingret at vanster drar in nasta sida fran hoger.
+        swipePage(dx < 0 ? 1 : -1);
+      } else {
+        dispatchTap(touchStartX, touchStartY);
       }
     }
   }
@@ -513,6 +558,7 @@ void setup() {
   applySettings();
 
   customers::reload();
+  stats::begin();
   websync::begin();
 
   // Har ar i2c-bussen uppe, sa nu gar det att se vad som faktiskt sitter pa den.
@@ -602,7 +648,8 @@ void loop() {
   // for stromen och for att en amoled inte mar bra av en stillastaende bild i
   // timmar.
   const uint16_t timeout = kScreenTimeouts[cfg.screenIdx];
-  if (screenOn && timeout > 0 && !t.active && screen == SCREEN_MAIN &&
+  if (screenOn && timeout > 0 && !t.active &&
+      (screen == SCREEN_MAIN || screen == SCREEN_STATS) &&
       millis() - lastActivityMs > (uint32_t)timeout * 1000UL) {
     setScreen(false);
   }
@@ -614,6 +661,7 @@ void loop() {
         ui::drawMain(t, cams::warning(), cams::currentLimitKmh(), t.speedKmh,
                      cfg);
         break;
+      case SCREEN_STATS: ui::drawStats(stats::summary()); break;
       case SCREEN_PURPOSE: {
         const uint32_t gone = millis() - purposeAskStartMs;
         const uint32_t left = (gone < kPurposeAskMs) ? (kPurposeAskMs - gone) : 0;
