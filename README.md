@@ -240,6 +240,42 @@ tänder bara skärmen; det märker aldrig en resa av misstag.
 
 ---
 
+## Wifi och telefonen
+
+När ingen resa pågår reser enheten ett eget wifi-nät. Det är så resorna lämnar
+bilen och datafilerna kommer in – ingen kabel, ingen kortutmatning, ingen app.
+
+1. Sätt dig i bilen med tändningen på (eller enheten på skrivbordet med USB).
+2. Anslut telefonen till nätet **DriveLogger**, lösenord **kordagbok**.
+   Båda står på skärmen när nätet är uppe.
+3. Sidan öppnas **av sig själv** – samma mekanism som får ett hotellwifi att
+   poppa upp. Öppnas den inte: gå till `http://192.168.4.1` i Safari.
+
+På sidan:
+
+| Del | Vad den gör |
+|---|---|
+| Statuskorten | Version, antal kameror, ledigt utrymme, kundlista |
+| Resorna | Nyaste först, med syftesfärg, km och kund. **GPX** hämtar spåret, **Klar** flyttar det till `UPPLADDAT` |
+| RESOR.CSV | Hela dagboken, öppnas direkt i Excel |
+| Ladda upp | `KAMEROR.BIN`, `HASTIGHET.BIN` och `KUNDER.CSV` läggs på plats – kvittot säger t.ex. *"2771 kameror inlästa"* |
+
+**Under färd är nätet släckt.** Det har inget ärende då, det drar ström, och en
+webbsida är inget man ska titta på när man kör. Nätet kommer tillbaka några
+sekunder efter att resan avslutats.
+
+Uppladdningen skrivs först till en tillfällig fil, innehållet kontrolleras mot
+filens magi, och först då byts den gamla filen ut – en halv kamerafil som redan
+ligger på sin riktiga plats vore värre än ingen alls. Filbytet sker genom ett
+handslag med avläsningstråden, så att kamerasökningen aldrig står mitt i en fil
+som byts ut.
+
+Lösenordet är ingen hemlighet utan en tröskel: utan det kan vem som helst på
+parkeringen ladda ner dina resor. Vill du byta står det i `config.h`
+(`WIFI_AP_PASSWORD`, minst åtta tecken).
+
+---
+
 ## Fartkameror
 
 ### Varningen
@@ -494,10 +530,9 @@ Två skillnader:
 
 | Vad | Läge |
 |---|---|
-| **Wifi-synk hemma** | Inte byggd. Enheten skriver bara till kortet |
-| **Bluetooth / enhetens egen websida** | Inte byggd |
+| **Bluetooth** | Struken med flit – iPhone saknar Web Bluetooth, wifi-sidan gör jobbet |
 | **Webbgränssnittet** med heatmaps och insikter | Inte byggt. Supabase + Vercel är valt |
-| **Nedsynkning av kundlista och kameror** | Inte byggd. Filerna läggs på kortet för hand |
+| **Molnsynk till Supabase** | Inte byggd. Wifi-sidan är bryggan; nästa steg är att webappen hämtar därifrån |
 | **Hastighetsfiler per ruta** | Inte byggd. Hela NVDB-exporten får duga |
 | **Resehistorik på skärmen** | Inte byggd. `RESOR.CSV` på kortet är historiken |
 | **Mätarställning** | Matas in och justeras i webappen när den byggs – enheten loggar sträckan per resa, appen räknar ackumulerat och ber om avstämning |

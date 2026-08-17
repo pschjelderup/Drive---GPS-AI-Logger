@@ -24,6 +24,7 @@
 #include "sound.h"
 #include "trip.h"
 #include "ui.h"
+#include "websync.h"
 
 // ------------------------------------------------------------- skarmen ----
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(PIN_LCD_CS, PIN_LCD_SCK, PIN_LCD_D0,
@@ -199,6 +200,7 @@ void mapTouch(int16_t &x, int16_t &y) {
 
 void openCustomers(Screen returnTo) {
   customers::reload();
+  websync::begin();
   customerPage = 0;
   customerReturn = returnTo;
   screen = SCREEN_CUSTOMER;
@@ -562,6 +564,7 @@ void loop() {
   handleButton();
   handleTouch();
   sound::tick();
+  websync::tick();
 
   const TripStatus t = trip::status();
 

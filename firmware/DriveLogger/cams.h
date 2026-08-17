@@ -44,4 +44,11 @@ uint8_t currentLimitKmh();
 
 CamWarning warning();
 
+// Handslag for filbyte. Uppladdningen sker i skarmtraden, men filerna ags av
+// avlasningstraden - hastighetsfilen halls till och med oppen dar. beginUpdate
+// ber traden slappa filerna och vantar pa kvitto; endUpdate later den lasa om.
+// Utan handslaget skulle sokningen kunna sta mitt i en fil som byts ut.
+void beginUpdate();
+void endUpdate();
+
 }  // namespace cams
