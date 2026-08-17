@@ -28,6 +28,7 @@ sensorer, samma deploykedja. Ecodrive-skärmen är flyttad hit oförändrad.
 |---|---|---|
 | Waveshare ESP32-S3-Touch-AMOLED-2.41 | Ja | Med eller utan fodral (`-B` betyder bara att fodral ingår – samma kort) |
 | u-blox-GPS, t.ex. SparkFun NEO-M9N | **Ja** | Utan position finns ingen resa att logga |
+| **GNSS-antenn** | **Ja, om kortet har U.FL** | Se nedan. Det här är det lättaste att missa |
 | Qwiic-kabel | Ja | Passar rakt in i `I2C`-porten. Ingen adapter, ingen lödning |
 | microSD-kort | Ja | 8–128 GB, formaterat som **FAT32** eller **exFAT** |
 | USB-C-kabel som klarar **data** | Ja | Många kablar är rena laddkablar och fungerar inte |
@@ -36,6 +37,30 @@ sensorer, samma deploykedja. Ecodrive-skärmen är flyttad hit oförändrad.
 
 Till skillnad från Gmate är GPS:en inte valfri. Saknas mottagaren säger skärmen
 det rakt ut vid start i stället för att tiga och spara tomma filer.
+
+### Antennen är inte valfri heller
+
+SparkFuns NEO-M9N finns i två utföranden, och de ser nästan likadana ut:
+
+| Kort | Antenn |
+|---|---|
+| **GPS-15712** – U.FL | **Ingen ombord.** Kräver extern antenn i kontakten märkt `ANT` |
+| GPS-15733 – Chip Antenna | Inbyggd chipantenn vid vänstra Qwiic-kontakten |
+
+Har du U.FL-varianten utan antenn får modulen **aldrig fix**. Skärmen svarar
+"GPS söker" i evighet, ingen resa kan starta, och loggern blir helt tyst. Det
+syns inte som ett fel i mjukvaran, för det är det inte.
+
+För bil är rätt val en **aktiv magnetmonterad GNSS-antenn** på tak eller vindruta.
+En antenn inne i kupén ser knappt satelliterna, och en logger som tappar fix i
+tunnlar och under broar är en logger som delar resor på fel ställen. De flesta
+magnetantenner har SMA-kontakt, så det behövs troligen en **U.FL-till-SMA-pigtail**
+emellan.
+
+> Sitter det ett **backupbatteri** (myntcell) på GPS-kortet minns modulen
+> satellitbanorna mellan körningar. Då tar en varmstart sekunder i stället för
+> minuter, vilket märks direkt: resan börjar där du startade bilen och inte en
+> kilometer bort.
 
 ---
 
@@ -466,7 +491,7 @@ att du inte behöver läsa av instrumentbrädan vid varje resa.
 |---|---|
 | Skärmen är svart efter flashning | Fel USB-kabel, eller kortet sitter kvar i flashläge. Tryck **RESET** |
 | **INGEN GPS** vid start | Qwiic-kabeln sitter i `UART` eller `RTC` i stället för `I2C`. Kontrollera texten vid kontakten |
-| GPS-pricken är gul och stannar gul | Mottagaren fungerar men ser inga satelliter. Flytta antennen mot fönstret. En kall start kan ta minuter |
+| GPS-pricken är gul och stannar gul | Mottagaren fungerar men ser inga satelliter. **Kontrollera först att en antenn sitter i** – U.FL-kortet har ingen ombord. Sedan: flytta antennen mot fönstret eller taket. En kall start utan backupbatteri kan ta minuter |
 | Inget minneskort | Kortet sitter inte i ordentligt, eller är formaterat som NTFS. Formatera om till FAT32 eller exFAT |
 | Ingen resa startar när jag kör | Ingen GPS-fix. Reserutan säger *väntar på GPS-fix* när det är fallet |
 | Resan delades i två | Bilen stod stilla längre än fyra minuter. Höj `TRIP_STOP_S` i `config.h` |
@@ -540,4 +565,6 @@ anger identiska pinnar, och de är dessutom provkörda i Gmate.
 - [Hämta öppen data från Trafikverket](https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/) – datautbytesportalen och Lastkajen
 - [NVDB-vägdata i det öppna API:et](https://www.nvdb.se/sv/aktuellt/nyhetsarkiv/2025/nvdb-vagdata-tillgangliga-i-trafikverkets-datautbytesportal-for-anvandning-i-oppet-api/) – hastighetsgränser
 - [Waveshare ESP32-S3-Touch-AMOLED-2.41](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.41) – kortets dokumentation
+- [SparkFun GPS Breakout NEO-M9N, U.FL (Qwiic)](https://www.sparkfun.com/sparkfun-gps-breakout-neo-m9n-u-fl-qwiic.html) – kräver extern antenn
+- [SparkFun GPS NEO-M9N Hookup Guide](https://learn.sparkfun.com/tutorials/sparkfun-gps-neo-m9n-hookup-guide/all) – inkoppling och antennval
 - [Gmate](https://github.com/pschjelderup/Gmate) – prototypen det här bygger på
