@@ -8,8 +8,13 @@ halla reda pa. En gratis API-nyckel hamtas pa https://data.trafikverket.se/.
     export TRV_API_KEY=din-nyckel
     ./hamta-trafikverket.py kameror --ut KAMEROR.BIN
 
-Hastighetsgranserna kommer fran NVDB och gar inte att hamta over samma API utan
-konto, sa de tas fran en fil du laddat ner:
+Hastighetsgranserna kommer fran NVDB, som sedan 2025 ligger i samma oppna API
+under namespace vagdata.nvdb_dk_o - samma nyckel, inget konto, ingen Lastkajen:
+
+    ./hamta-trafikverket.py granser --api --ut HASTIGHET.BIN
+
+Hamtningen pagineras med changeid och tar en stund; hela Sverige ar over en
+miljon strackor. Den som hellre utgar fran en nedladdad fil kan fortfarande:
 
     ./hamta-trafikverket.py granser --in hastighet.geojson --ut HASTIGHET.BIN
 
@@ -153,6 +158,7 @@ def parse_point(value) -> "tuple[float, float] | None":
 # ------------------------------------------------------------ hastighetsdata -
 
 LIMIT_KEYS = (
+    "Högsta_tillåtna_hastighet",
     "Hastighetsgräns",
     "Hastighetsgrans",
     "hastighetsgrans",
@@ -201,6 +207,107 @@ def densify(coords: "list[tuple[float, float]]", step_m: float):
             t += step_m / seg
         carry = (carry + seg) % step_m
     yield coords[-1]
+
+
+WKT_LINESTRING = re.compile(r"LINESTRING\s*Z?\s*\((.*)\)", re.IGNORECASE)
+
+
+def parse_wkt_line(wkt: str) -> "list[tuple[float, float]]":
+    """"LINESTRING Z (lon lat z, lon lat z, ...)" -> [(lon, lat), ...].
+
+    Ordningen ar lon fore lat, precis som i kamerornas punkter."""
+    m = WKT_LINESTRING.search(wkt or "")
+    if not m:
+        return []
+    out = []
+    for part in m.group(1).split(","):
+        nums = part.split()
+        if len(nums) >= 2:
+            try:
+                out.append((float(nums[0]), float(nums[1])))
+            except ValueError:
+                pass
+    return out
+
+
+def fetch_limits_from_api(key: str, step_m: float) -> "list[tuple[float, float, int]]":
+    """Hamtar hela Sveriges hastighetsgranser ur oppna API:et.
+
+    NVDB-datat ligger i namespace vagdata.nvdb_dk_o och pagineras med
+    changeid: varje svar bar ett LASTCHANGEID som ar nasta sidas start.
+    Samma nyckel som till kamerorna fungerar - inget konto, ingen Lastkajen."""
+    points: "list[tuple[float, float, int]]" = []
+    change = "0"
+    prev_change = None
+    page = 0
+    limit = 20000
+
+    while True:
+        page += 1
+        # Objekttypen heter Hastighetsgr\u00e4ns med a-prickar, och API:et vill ha
+        # den precis sa. Kroppen skickas som utf-8, vilket ar vad
+        # Content-Type-huvudet lovar.
+        body = (
+            f'<REQUEST><LOGIN authenticationkey="{key}"/>'
+            f'<QUERY objecttype="Hastighetsgr\u00e4ns" '
+            f'namespace="v\u00e4gdata.nvdb_dk_o" schemaversion="1.2" '
+            f'changeid="{change}" limit="{limit}">'
+            f'<INCLUDE>H\u00f6gsta_till\u00e5tna_hastighet</INCLUDE>'
+            f'<INCLUDE>Geometry.WKT-WGS84-3D</INCLUDE>'
+            f'<INCLUDE>Deleted</INCLUDE><INCLUDE>Valid_To</INCLUDE>'
+            f'</QUERY></REQUEST>'
+        ).encode("utf-8")
+
+        req = urllib.request.Request(
+            API, data=body, headers={"Content-Type": "text/xml"}
+        )
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            payload = json.load(resp)
+
+        result = payload["RESPONSE"]["RESULT"][0]
+        if "ERROR" in result:
+            raise SystemExit(f"Trafikverket: {result['ERROR']}")
+        rows = result.get("Hastighetsgr\u00e4ns", [])
+        change = result.get("INFO", {}).get("LASTCHANGEID", "")
+
+        for row in rows:
+            points.extend(limit_points_from_row(row, step_m))
+
+        print(f"  sida {page}: {len(rows)} poster, {len(points)} punkter hittills")
+
+        # Slutet ar en TOM sida eller ett changeid som star still - inte en
+        # sida med farre poster an begart. En changeid-sida foljer interna
+        # andringsklumpar och kan vara ofull mitt i datamangden, sa den som
+        # stannar dar far med sig en brakdel och marker det inte. Det ar
+        # skillnaden mellan 239 000 strackor och alla.
+        if len(rows) == 0 or not change or change == prev_change:
+            break
+        prev_change = change
+
+    return points
+
+
+def limit_points_from_row(row: dict, step_m: float) -> "list[tuple[float, float, int]]":
+    """En API-post -> punkter langs strackan. Borttagna och utgangna hoppas
+    over: en grans som slutat galla ar varre an ingen."""
+    if row.get("Deleted") in (True, "true", 1):
+        return []
+    valid_to = str(row.get("Valid_To", "9999"))
+    if valid_to < "2026":
+        return []
+
+    limit = limit_from_props(row)
+    if limit is None:
+        return []
+
+    geom = row.get("Geometry") or {}
+    wkt = geom.get("WKT-WGS84-3D") or geom.get("WKT-WGS84")
+    coords = parse_wkt_line(wkt)
+    out = []
+    for lon, lat in densify(coords, step_m):
+        if in_sweden(lat, lon):
+            out.append((lat, lon, limit))
+    return out
 
 
 def load_limit_points(path: str, step_m: float) -> "list[tuple[float, float, int]]":
@@ -384,8 +491,15 @@ def cmd_kameror(args: argparse.Namespace) -> None:
 
 
 def cmd_granser(args: argparse.Namespace) -> None:
-    print(f"laser {args.infil} ...")
-    points = load_limit_points(args.infil, args.steg)
+    if args.api:
+        key = args.key or os.environ.get("TRV_API_KEY")
+        if not key:
+            raise SystemExit("Ingen API-nyckel. Satt TRV_API_KEY eller anvand --key.")
+        print("hamtar hastighetsgranser fran Trafikverkets oppna API ...")
+        points = fetch_limits_from_api(key, args.steg)
+    else:
+        print(f"laser {args.infil} ...")
+        points = load_limit_points(args.infil, args.steg)
     if not points:
         raise SystemExit(
             "Ingen hastighet gick att lasa. Kolla vilket falt som bar hastigheten "
@@ -450,8 +564,15 @@ def main() -> None:
     )
     k.set_defaults(func=cmd_kameror)
 
-    g = sub.add_parser("granser", help="bygger hastighetsfilen ur en NVDB-export")
-    g.add_argument("--in", dest="infil", required=True, help="GeoJSON fran NVDB")
+    g = sub.add_parser("granser", help="bygger hastighetsfilen ur NVDB")
+    g.add_argument(
+        "--api",
+        action="store_true",
+        help="hamta direkt fran oppna API:et i stallet for fran en fil - "
+        "samma nyckel som till kamerorna",
+    )
+    g.add_argument("--key", help="API-nyckel (annars TRV_API_KEY)")
+    g.add_argument("--in", dest="infil", help="GeoJSON fran NVDB/Lastkajen")
     g.add_argument("--ut", default="HASTIGHET.BIN")
     g.add_argument(
         "--steg",
@@ -462,6 +583,8 @@ def main() -> None:
     g.set_defaults(func=cmd_granser)
 
     args = ap.parse_args()
+    if args.cmd == "granser" and not args.api and not args.infil:
+        ap.error("granser kraver --api eller --in FIL")
     args.func(args)
 
 

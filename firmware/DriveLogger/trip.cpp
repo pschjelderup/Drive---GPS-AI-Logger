@@ -11,6 +11,7 @@
 #include "geo.h"
 #include "gnss.h"
 #include "sensors.h"
+#include "stats.h"
 
 namespace {
 
@@ -305,6 +306,11 @@ void appendTripRow(const StateRecord &r) {
     j.flush();
     j.close();
   }
+
+  // Statistiksidan haller sina summor i minnet och far resan har, sa att den
+  // slipper lasa om dagboken.
+  stats::noteTrip(r.distanceM / 1000.0, r.movingS, r.points, r.purpose,
+                  r.speedingS, r.maxSpeedKmh);
 }
 
 // ------------------------------------------------------------------ gpx ----

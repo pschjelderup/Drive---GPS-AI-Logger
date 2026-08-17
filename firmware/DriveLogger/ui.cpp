@@ -969,6 +969,89 @@ void drawMenu(const AppSettings &cfg, const char *version) {
   gfx->flush();
 }
 
+void drawStats(const StatsSummary &s) {
+  if (!gfx) return;
+  char buf[64];
+
+  drawBackdrop();
+  printAt(16, 14, 3, C_TEXT, "STATISTIK");
+
+  // ---- det stora talet: korda kilometer. Det ar det man vill se.
+  drawBigNumber((uint32_t)(s.totalKm + 0.5), 340, 50, 96, C_TEXT);
+  printAt(352, 118, 2, C_DIM, "km");
+
+  snprintf(buf, sizeof(buf), "%lu resor", (unsigned long)s.trips);
+  printCentered(225, 160, 2, C_DIM, buf);
+
+  // ---- korningen
+  const Rect r1 = {16, 196, 418, 120};
+  glassPanel(r1, 20);
+  int16_t y = 208;
+
+  const uint32_t h = s.movingS / 3600, m = (s.movingS % 3600) / 60;
+  snprintf(buf, sizeof(buf), "Rullande tid: %lu tim %lu min", (unsigned long)h,
+           (unsigned long)m);
+  printAt(32, y, 2, C_TEXT, buf); y += 26;
+
+  snprintf(buf, sizeof(buf), "Sparpunkter: %lu", (unsigned long)s.points);
+  printAt(32, y, 2, C_TEXT, buf); y += 26;
+
+  snprintf(buf, sizeof(buf), "Högsta fart: %d km/h", (int)(s.maxSpeedKmh + 0.5f));
+  printAt(32, y, 2, C_TEXT, buf); y += 26;
+
+  // Fortkorning i rod forst nar den finns - en nolla ska inte se ut som en
+  // anmarkning.
+  snprintf(buf, sizeof(buf), "Över gränsen: %lu min",
+           (unsigned long)(s.speedingS / 60));
+  printAt(32, y, 2, s.speedingS >= 60 ? C_RED : C_DIM, buf);
+
+  // ---- per syfte. Samma farger som knapparna, sa att sprak och farg foljs at.
+  const Rect r2 = {16, 328, 418, 96};
+  glassPanel(r2, 20);
+  printAt(32, 338, 1, C_DIM, "per syfte, km");
+  y = 356;
+  snprintf(buf, sizeof(buf), "Privat: %.0f", s.privatKm);
+  printAt(32, y, 2, C_ACCENT, buf);
+  snprintf(buf, sizeof(buf), "Företag: %.0f", s.foretagKm);
+  printCentered(225, y, 2, C_GREEN, buf);
+  snprintf(buf, sizeof(buf), "Diffust: %.0f", s.diffustKm);
+  printRight(418, y, 2, C_WARN, buf);
+
+  // Andelen foretag ar det siffran alla korjournaler till slut kokar ned till.
+  if (s.totalKm >= 1.0) {
+    snprintf(buf, sizeof(buf), "företag %d%% av körda km",
+             (int)(s.foretagKm / s.totalKm * 100.0 + 0.5));
+    printCentered(225, 392, 2, C_DIM, buf);
+  }
+
+  // ---- kortet och prognosen
+  const Rect r3 = {16, 432, 418, 118};
+  glassPanel(r3, 20);
+  y = 444;
+
+  const uint32_t freeMb = (uint32_t)(s.freeBytes / (1024ULL * 1024ULL));
+  const uint32_t cardMb = (uint32_t)(s.cardBytes / (1024ULL * 1024ULL));
+  snprintf(buf, sizeof(buf), "Kort: %lu MB ledigt av %lu MB",
+           (unsigned long)freeMb, (unsigned long)cardMb);
+  printAt(32, y, 2, C_TEXT, buf); y += 26;
+
+  if (s.kmLeft >= 1000000.0) {
+    snprintf(buf, sizeof(buf), "Räcker till: över en miljon km");
+  } else {
+    snprintf(buf, sizeof(buf), "Räcker till: ~%lu km till",
+             (unsigned long)s.kmLeft);
+  }
+  printAt(32, y, 2, C_GREEN, buf); y += 26;
+
+  snprintf(buf, sizeof(buf), "~%llu punkter, %lu byte/km %s",
+           (unsigned long long)s.pointsLeft, (unsigned long)s.bytesPerKm,
+           s.measured ? "(uppmätt)" : "(antaget än så länge)");
+  printAt(32, y, 1, C_DIM, buf);
+
+  printCentered(225, 566, 1, C_FAINT, "svep för fler sidor");
+  gfx->flush();
+}
+
 void drawMessage(const char *title, const char *line1, const char *line2) {
   if (!gfx) return;
   drawBackdrop();
