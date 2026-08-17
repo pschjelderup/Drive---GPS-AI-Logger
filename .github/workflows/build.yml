@@ -146,7 +146,10 @@ jobs:
       - name: Bygg flashsidan
         run: |
           VERSION="${GITHUB_SHA::7}"
-          BUILT=$(date -u '+%Y-%m-%d %H:%M UTC')
+          # Tiden stamplas maskinlasbart och gors om till lasarens egen tidszon
+          # av sidan. Da star den i svensk tid for den som ar i Sverige, utan
+          # att bygget behover veta nagot om sommartid.
+          BUILT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           for f in index.html manifest.json; do
             sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILT__/$BUILT/g" \
               "web/$f" > "site/$f"
