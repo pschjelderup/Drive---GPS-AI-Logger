@@ -36,7 +36,6 @@ enum Screen {
   SCREEN_ECO,
   SCREEN_ECO_LIMITS,
   SCREEN_MENU,
-  SCREEN_RECOVERED,  // beskedet om en resa som stromavbrottet tog
 };
 
 // En ruta pa skarmen. Anvands bade for att rita knappar och for att avgora var
@@ -94,7 +93,6 @@ void drawCustomers(const char *const *names, uint8_t count, uint8_t page,
 void drawEco(const EcoStatus &e);
 void drawEcoLimits(const AppSettings &cfg, const EcoStatus &e);
 void drawMenu(const AppSettings &cfg, const char *version);
-void drawRecovered(const RecoveredTrip &r);
 
 // Meddelande over hela skarmen, for fel som anvandaren maste atgarda.
 void drawMessage(const char *title, const char *line1, const char *line2);

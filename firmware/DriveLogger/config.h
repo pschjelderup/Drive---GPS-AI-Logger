@@ -93,6 +93,11 @@
 // En resa borjar av sig sjalv nar bilen rullar och slutar av sig sjalv nar den
 // star stilla. Grundtanken ar att en korjournal aldrig far bero pa att nagon
 // kom ihag att trycka pa en knapp.
+//
+// Med tandningsstyrd strom - det tankta driftlaget - slutar de flesta resor i
+// praktiken med att strommen forsvinner, och da skrivs resan fardigt vid nasta
+// start (se trip.cpp). Stillastaendegransen nedan ar for resten: tomgang,
+// farjelagen, langa koer.
 
 // Sa fort maste det ga for att raknas som rorelse. Under detta ar det
 // gps-brus: en stillastaende mottagare rapporterar sallan exakt noll.

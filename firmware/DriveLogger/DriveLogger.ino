@@ -437,13 +437,6 @@ void onPressMenu(int16_t x, int16_t y) {
   if (ui::kBtnBack.contains(x, y)) screen = SCREEN_MAIN;
 }
 
-void onPressRecovered(int16_t x, int16_t y) {
-  if (ui::kBtnBack.contains(x, y)) {
-    trip::clearRecovered();
-    screen = SCREEN_MAIN;
-  }
-}
-
 void handleTouch() {
   if (!touchOk) return;
 
@@ -469,7 +462,6 @@ void handleTouch() {
         case SCREEN_ECO: onPressEco(x, y); break;
         case SCREEN_ECO_LIMITS: onPressEcoLimits(x, y); break;
         case SCREEN_MENU: onPressMenu(x, y); break;
-        case SCREEN_RECOVERED: onPressRecovered(x, y); break;
       }
     }
   }
@@ -550,10 +542,15 @@ void setup() {
     delay(4000);
   }
 
-  // En resa som stromavbrottet tog ar redan lagad har. Beskedet visas, sa att
-  // man far veta det i stallet for att undra.
-  if (trip::recovered().valid) {
-    screen = SCREEN_RECOVERED;
+  // En resa som strommen tog ar redan lagad har. Med tandningsstyrd strom ar
+  // det varje resa, sa skarmen gor inget vasen av det - saknar resan syfte
+  // staller huvudloopen fragan, annars sags ingenting. Raden nedan ar for den
+  // som felsoker over serieporten.
+  const RecoveredTrip rec = trip::recovered();
+  if (rec.valid) {
+    Serial.printf("lakt resa %lu: %.2f km, sista position %.5f,%.5f\n",
+                  (unsigned long)rec.index, rec.distanceM / 1000.0, rec.lat,
+                  rec.lon);
   }
 
   lastActivityMs = millis();
@@ -635,7 +632,6 @@ void loop() {
       case SCREEN_ECO: ui::drawEco(eco::status()); break;
       case SCREEN_ECO_LIMITS: ui::drawEcoLimits(cfg, eco::status()); break;
       case SCREEN_MENU: ui::drawMenu(cfg, FW_VERSION); break;
-      case SCREEN_RECOVERED: ui::drawRecovered(trip::recovered()); break;
     }
   }
 

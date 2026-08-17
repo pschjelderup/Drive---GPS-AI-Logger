@@ -32,7 +32,7 @@ sensorer, samma deploykedja. Ecodrive-skärmen är flyttad hit oförändrad.
 | Qwiic-kabel | Ja | Passar rakt in i `I2C`-porten. Ingen adapter, ingen lödning |
 | microSD-kort | Ja | 8–128 GB, formaterat som **FAT32** eller **exFAT** |
 | USB-C-kabel som klarar **data** | Ja | Många kablar är rena laddkablar och fungerar inte |
-| Passiv piezo | Nej | Men utan den är varningen tyst – se [Ljudet](#ljudet) |
+| Passiv piezo | Nej | Men utan den är varningen tyst – se [Ljudet](#ljudet), med köpförslag |
 | 12 V-till-USB i bilen | Nej | Batteriet räcker inte till en arbetsdag |
 
 Till skillnad från Gmate är GPS:en inte valfri. Saknas mottagaren säger skärmen
@@ -112,6 +112,14 @@ Flashsidan ligger på GitHub Pages, och det behöver slås på en gång:
 | Bilen börjar rulla, över 8 km/h i 4 sekunder | Resan startar. Ny GPX-fil, nytt nummer |
 | Bilen står stilla, under 3 km/h | Klockan börjar ticka. Resan är fortfarande igång |
 | Stillastående i 4 minuter | Resan avslutas |
+| **Tändningen slås av** | Strömmen försvinner. Resan skrivs färdigt vid nästa start – se nedan |
+
+Med **tändningsstyrd ström** – det tänkta driftläget – är den sista raden det
+normala slutet på en resa: man parkerar, vrider av, och strömmen dör innan
+fyraminutersklockan hunnit ticka klart. Det är inte ett undantag som ska
+undvikas utan huvudspåret, och hela strömavbrottsmaskineriet nedan finns för att
+det ska vara ett fullgott sätt att avsluta på. Fyraminutersregeln finns kvar för
+det som blir över: tomgångskörning, färjelägen, långa köer.
 
 Fyra minuter är valt med flit. Kortare delar rödljus och köer upp en resa i
 bitar; längre gör att ett kundbesök på tio minuter försvinner in i samma resa.
@@ -129,10 +137,15 @@ Vill du styra själv finns knapparna kvar:
 
 ### Syftet: privat, företag eller diffust
 
-Tre knappar nederst på huvudskärmen. De går att trycka **under** resan eller
-**efteråt** – när en resa avslutas frågar skärmen, och den som inte svarar inom
-en minut får resan märkt **DIFFUST**. Det är inte en gissning utan en beskrivning:
-resan *var* odefinierad, och det går att ändra efteråt.
+Tre knappar nederst på huvudskärmen. De går att trycka **under** resan, **när
+den avslutas**, eller – och det här är det vanliga med tändningsstyrd ström –
+**vid nästa start**. Slås tändningen av innan frågan hunnit ställas är den inte
+förverkad: nästa gång du vrider på möts du av *"Resa 12 · 34,5 km · Vad var
+resan till?"* med samma stora knappar, medan du ändå sitter still.
+
+Den som inte svarar inom en minut, eller kör iväg direkt, får resan märkt
+**DIFFUST**. Det är inte en gissning utan en beskrivning: resan *var*
+odefinierad, och det går att ändra i webben efteråt.
 
 Trycker du **FÖRETAG** öppnas kundlistan direkt. Att märka en resa som
 företagsresa och att säga vilken kund det gäller är i praktiken samma handling,
@@ -173,11 +186,12 @@ i den, och enheten:
 
 1. **Lagar GPX-filen** om sista raden blev halvskriven – klipper efter sista hela
    punkten och skriver avslutningen igen
-2. **Sätter målet** till sista kända position, med avslutsorsak `stromavbrott`
-3. **Skriver raden** i resedagboken, märkt diffust
+2. **Sätter målet** till sista kända position, med avslutsorsak `strom av`
+3. **Ställer syftesfrågan** om resan inte hann taggas – med tändningsstyrd ström
+   är det så frågan normalt ställs. Taggades resan under färd sägs ingenting
+   alls: den skrivs tyst och klart
 4. **Låter nästa resa börja på samma punkt** – bilen har inte flyttat sig av sig
    själv medan den var strömlös
-5. **Berättar om det** på skärmen vid start, med position och tidpunkt
 
 Punkt 1 finns för att stänga ett smalt men verkligt hål: sparpunkten skrivs genom
 filsystemets buffert, och går den bufferten över en sektorgräns mitt i en punkt
@@ -186,11 +200,9 @@ giltig XML, och en kartapp vägrar öppna den – vilket är precis det
 avslutningstricket skulle undvika. Fönstret är smalt, men det finns, så det tas
 inte i med tro.
 
-Avslutades resan men ingen hann svara på frågan om syftet innan strömmen gick,
-skrivs raden vid nästa start med syftet *diffust*. Kör du i stället vidare inom
-minuten utan att ha svarat, skrivs raden direkt när den nya resan börjar – också
-som diffust. Frågan hinner alltså aldrig gå förlorad med resan. **Ingenting
-försvinner tyst.**
+Kör du iväg utan att svara på frågan skrivs raden som *diffust* när den nya
+resan börjar. Frågan hinner alltså aldrig gå förlorad med resan. **Ingenting
+försvinner tyst, och ingenting tjatar i onödan.**
 
 ---
 
@@ -373,6 +385,24 @@ hellre använda RXD-stiftet är det GPIO44; ändra `PIN_BUZZER` i
 > passar fysiskt i båda – och i den märkta `RTC`. Kontrollera texten vid
 > kontakten. GPS:en ska i `I2C`, piezon i `UART`.
 
+### Vilken piezo ska jag köpa?
+
+En **passiv** sådan – en aktiv summer har egen oscillator, låter bara på en enda
+ton och struntar i tonerna firmware spelar. Beprövat och billigt:
+
+- [AZDelivery KY-006, 3-pack](https://www.amazon.se/AZDelivery-Piezo-summerlarmmodul-kompatibel-Raspberry-inklusive/dp/B07DPR4BTN)
+  på amazon.se, ca 60 kr med Prime. Passiv piezomodul med tre ben: signalbenet
+  (mitten eller `S`) till TXD, minus till GND, tredje benet lämnas okopplat.
+  Tre stycken betyder två i reserv den dagen ett ben bryts av.
+- Söker du något ljudstarkare: en passiv **elektromagnetisk** summermodul (ofta
+  märkt *passive buzzer 3.3V*) låter mer vid lägre frekvenser, på samma
+  inkoppling.
+
+Till inkopplingen utan lödkolv mot kortet: en **Qwiic-kabel med öppna ändar**
+(söks som *"Qwiic cable breadboard jumper"* – SparkFuns egen heter så) i
+`UART`-porten. Gul ledare är stift 4 (TXD) och svart GND; piezons signalben på
+den gula, minus på den svarta, och de två övriga ledarna isoleras och lämnas.
+
 Ljudet stängs av med **LJUD PÅ/AV** uppe till höger på huvudskärmen, eller i
 **MENY**. Valet sparas. En reselogg som tjuter när man kör med sovande barn i
 baksätet blir en reselogg man drar ur.
@@ -413,7 +443,7 @@ ett tal, och en kolumn man inte kan summera är en kolumn man inte har.
 | `start_lat`, `start_lon`, `mal_lat`, `mal_lon` | Positionerna, sju decimaler |
 | `maxfart_kmh`, `fortkorning_min` | Högsta uppmätta fart, och minuter över skyltad |
 | `ecopoang`, `harda_moment` | Från ecodrive, per resa |
-| `avslut` | `automatiskt`, `knapp`, `stromavbrott` eller `kortet fullt` |
+| `avslut` | `automatiskt`, `knapp`, `strom av` eller `kortet fullt` |
 | `gpx` | Sökväg till spåret |
 | `karta` | Färdig Google Maps-länk med start och mål |
 
@@ -470,18 +500,17 @@ Två skillnader:
 | **Nedsynkning av kundlista och kameror** | Inte byggd. Filerna läggs på kortet för hand |
 | **Hastighetsfiler per ruta** | Inte byggd. Hela NVDB-exporten får duga |
 | **Resehistorik på skärmen** | Inte byggd. `RESOR.CSV` på kortet är historiken |
-| **Mätarställning** | Medvetet utelämnad – se nedan |
+| **Mätarställning** | Matas in och justeras i webappen när den byggs – enheten loggar sträckan per resa, appen räknar ackumulerat och ber om avstämning |
 
 ### Om Skatteverket
 
-Journalen är byggd för **din egen uppföljning**, inte för en granskning av
-förmånsbil. Skatteverket vill utöver det här också se **mätarställning vid start
-och stopp**, och för tjänsteresor vilken kund eller plats som besöktes. Kunden
-finns; mätarställningen gör inte det, eftersom du valde bort den.
-
-Vill du ha den senare är den enkel att lägga till: enheten kan gissa
-mätarställningen ur den loggade sträckan och bara be dig bekräfta då och då, så
-att du inte behöver läsa av instrumentbrädan vid varje resa.
+Skatteverket vill utöver det som loggas här också se **mätarställning vid start
+och stopp**, och för tjänsteresor vilken kund som besöktes. Kunden finns redan.
+Mätarställningen är tänkt att bo i webappen: enheten loggar sträckan per resa,
+appen ackumulerar den till en löpande mätarställning, och ber om en avstämning
+mot instrumentbrädan då och då. Avvikelsen mellan GPS-sträcka och mätare är
+normalt någon procent, så avstämningarna håller journalen ärlig utan att du
+behöver läsa av bilen vid varje resa.
 
 ---
 

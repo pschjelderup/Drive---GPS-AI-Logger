@@ -958,45 +958,6 @@ void drawMenu(const AppSettings &cfg, const char *version) {
   gfx->flush();
 }
 
-void drawRecovered(const RecoveredTrip &r) {
-  if (!gfx) return;
-  char buf[64];
-
-  drawBackdrop();
-
-  printCentered(225, 60, 3, C_WARN, "STRÖMMEN FÖRSVANN");
-
-  const Rect box = {16, 130, 418, 250};
-  glassPanel(box, 26);
-
-  printCentered(225, 152, 2, C_TEXT, "Förra resan avslutades inte.");
-  printCentered(225, 182, 2, C_DIM, "Den är lagad och sparad:");
-
-  char km[16];
-  snprintf(km, sizeof(km), "%.1f", r.distanceM / 1000.0);
-  for (size_t i = 0; km[i]; i++) {
-    if (km[i] == '.') km[i] = ',';
-  }
-
-  snprintf(buf, sizeof(buf), "Resa %lu  ·  %s km", (unsigned long)r.index, km);
-  printCentered(225, 220, 2, C_TEXT, buf);
-
-  char when[24];
-  sensors::localStamp(r.endUtc, when, sizeof(when));
-  snprintf(buf, sizeof(buf), "Sista position %s", when);
-  printCentered(225, 252, 1, C_DIM, buf);
-
-  snprintf(buf, sizeof(buf), "%.5f, %.5f", r.lat, r.lon);
-  printCentered(225, 274, 2, C_ACCENT, buf);
-
-  printCentered(225, 310, 1, C_DIM, "Malet ar satt dar strommen forsvann.");
-  printCentered(225, 332, 1, C_DIM, "Nasta resa borjar pa samma plats.");
-  printCentered(225, 354, 1, C_FAINT, "Syftet blev diffust - andra det i webben.");
-
-  drawButton(kBtnBack, C_ACCENT, "OK", 3, C_BG);
-  gfx->flush();
-}
-
 void drawMessage(const char *title, const char *line1, const char *line2) {
   if (!gfx) return;
   drawBackdrop();
