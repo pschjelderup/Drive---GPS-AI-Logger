@@ -6,6 +6,7 @@
 #include <WiFi.h>
 
 #include "cams.h"
+#include "cloudsync.h"
 #include "config.h"
 #include "customers.h"
 #include "gnss.h"
@@ -107,6 +108,25 @@ input[type=file]{width:100%;color:var(--dim);font-size:.85rem}
 <input type="file" id="fkund"></label>
 <p id="status"></p>
 </div>
+
+<div class="card uppl">
+<h2>Molnsynk</h2>
+<p style="color:var(--dim);font-size:.85rem;margin-top:0">
+Ange din iPhone-hotspots namn och lösenord samt enhetens token från
+webbappens inställningar. Sedan synkar enheten själv när den har
+wifi och ingen resa pågår.</p>
+<label><span>Hotspotens namn</span>
+<input type="text" id="mssid" autocapitalize="off"></label>
+<label><span>Hotspotens lösenord</span>
+<input type="password" id="mlosen"></label>
+<label><span>Enhetens token</span>
+<input type="password" id="mtoken" autocapitalize="off"></label>
+<p>
+<button class="knapp" id="mspara">Spara</button>
+<button class="knapp grå" id="msynka">Synka nu</button>
+</p>
+<p id="mstatus" style="color:var(--dim);font-size:.85rem"></p>
+</div>
 </main>
 <script>
 const el=id=>document.getElementById(id);
@@ -163,6 +183,29 @@ function koppla(id,namn){
 koppla('fkam','KAMEROR.BIN');
 koppla('fhast','HASTIGHET.BIN');
 koppla('fkund','KUNDER.CSV');
+
+function molnlage(){
+  fetch('/api/moln').then(r=>r.json()).then(d=>{
+    if(d.ssid) el('mssid').value=el('mssid').value||d.ssid;
+    el('mstatus').textContent=d.konfigurerad
+      ? `${d.lage}${d.besked?' · '+d.besked:''} · upp: ${d.resor} resor, ${d.gpx} gpx · ned: ${d.filer} filer`
+      : 'inte konfigurerad';
+  }).catch(()=>{});
+}
+molnlage(); setInterval(molnlage, 5000);
+
+el('mspara').addEventListener('click',()=>{
+  const fd=new URLSearchParams();
+  fd.set('ssid',el('mssid').value.trim());
+  fd.set('losen',el('mlosen').value);
+  fd.set('token',el('mtoken').value.trim());
+  fetch('/moln',{method:'POST',body:fd})
+    .then(r=>r.text()).then(t=>{el('mstatus').textContent=t;});
+});
+el('msynka').addEventListener('click',()=>{
+  fetch('/moln/synka',{method:'POST'})
+    .then(r=>r.text()).then(t=>{el('mstatus').textContent=t;});
+});
 </script>
 </body>
 </html>
@@ -369,6 +412,33 @@ void handleUploadDone() {
   g_server.send(200, "text/plain; charset=utf-8", msg);
 }
 
+// ---- molnsynken: uppgifterna skrivs in har en gang och bor sedan i enhetens
+// flashminne. Token star i webbappens installningar.
+void handleMolnStatus() {
+  const CloudStatus c = cloudsync::status();
+  const char *stateName[] = {"av", "vilar", "ansluter", "synkar", "klar", "fel"};
+  char buf[320];
+  snprintf(buf, sizeof(buf),
+           "{\"konfigurerad\":%s,\"ssid\":\"%s\",\"lage\":\"%s\","
+           "\"besked\":\"%s\",\"resor\":%lu,\"gpx\":%lu,\"filer\":%lu}",
+           cloudsync::configured() ? "true" : "false",
+           cloudsync::ssid().c_str(),
+           stateName[c.state <= CLOUD_ERROR ? c.state : 0], c.detail,
+           (unsigned long)c.tripsUploaded, (unsigned long)c.gpxUploaded,
+           (unsigned long)c.filesDownloaded);
+  g_server.send(200, "application/json", buf);
+}
+
+void handleMolnSave() {
+  cloudsync::configure(g_server.arg("ssid").c_str(),
+                       g_server.arg("losen").c_str(),
+                       g_server.arg("token").c_str());
+  g_server.send(200, "text/plain; charset=utf-8",
+                cloudsync::configured()
+                    ? "sparat - synkar sa fort natet nas"
+                    : "molnsynken avstangd");
+}
+
 // Allt som inte kanns igen skickas till startsidan. Det ar det som gor
 // fangstportalen: telefonen provar en kand adress, far en omdirigering i
 // stallet for det vantade svaret, och drar slutsatsen att har finns en sida
@@ -380,7 +450,9 @@ void handleNotFound() {
 }
 
 void startAp() {
-  WiFi.mode(WIFI_AP);
+  // enableAP i stallet for mode(WIFI_AP): stationssidan ags av molnsynken och
+  // far inte slackas har. Radion klarar bada rollerna samtidigt.
+  WiFi.enableAP(true);
   WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
 
   // Alla dns-fragor besvaras med var egen adress. Telefonen hittar alltsa
@@ -396,6 +468,12 @@ void startAp() {
   g_server.on("/csv", HTTP_GET, handleCsv);
   g_server.on("/api/arkivera", HTTP_POST, handleArkivera);
   g_server.on("/upp", HTTP_POST, handleUploadDone, handleUploadData);
+  g_server.on("/api/moln", HTTP_GET, handleMolnStatus);
+  g_server.on("/moln", HTTP_POST, handleMolnSave);
+  g_server.on("/moln/synka", HTTP_POST, []() {
+    cloudsync::requestSync();
+    g_server.send(200, "text/plain; charset=utf-8", "synk begärd");
+  });
   g_server.onNotFound(handleNotFound);
   g_server.begin();
 
@@ -406,7 +484,9 @@ void stopAp() {
   g_server.stop();
   g_dns.stop();
   WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_OFF);
+  // Bara accesspunkten slacks. Stationssidan ags av molnsynken, som slacker
+  // sig sjalv nar resan borjar.
+  WiFi.enableAP(false);
   g_up = false;
 }
 

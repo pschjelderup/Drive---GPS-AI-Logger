@@ -16,6 +16,7 @@
 #include <Wire.h>
 
 #include "cams.h"
+#include "cloudsync.h"
 #include "config.h"
 #include "customers.h"
 #include "eco.h"
@@ -560,6 +561,7 @@ void setup() {
   customers::reload();
   stats::begin();
   websync::begin();
+  cloudsync::begin();
 
   // Har ar i2c-bussen uppe, sa nu gar det att se vad som faktiskt sitter pa den.
   // Saknas 0x42 ar det kabeln eller kontakten, inte satelliterna.

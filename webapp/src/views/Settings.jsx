@@ -1,7 +1,50 @@
 // Installningarna: AI-nyckeln, kundlistan och exporten till enheten.
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
+import { fmtDateTime } from "../lib/fmt.js";
 import { AI_KEY_STORAGE } from "./Ai.jsx";
+
+function DeviceCard() {
+  const [devices, setDevices] = useState([]);
+  const [shown, setShown] = useState(false);
+
+  useEffect(() => {
+    supabase.from("drive_devices").select("*").order("id")
+      .then(({ data }) => setDevices(data ?? []));
+  }, []);
+
+  return (
+    <div className="card">
+      <h2>Enheten och molnsynken</h2>
+      <p style={{ color: "var(--dim)", marginTop: 0 }}>
+        Skriv in token nedan på enhetens wifi-sida under <b>Molnsynk</b>,
+        tillsammans med din iPhone-hotspots namn och lösenord. Sedan laddar
+        enheten upp resor och hämtar datafiler själv, varje gång den har wifi
+        och ingen resa pågår.
+      </p>
+      {devices.map((d) => (
+        <div key={d.id} style={{ marginBottom: ".6rem" }}>
+          <b>{d.name ?? d.id}</b>{" "}
+          <span className="status">
+            senast sedd {d.last_seen ? fmtDateTime(d.last_seen) : "aldrig"} ·
+            synkad t.o.m. resa {d.last_synced_trip}
+          </span>
+          <div style={{ display: "flex", gap: ".5rem", marginTop: ".3rem" }}>
+            <code style={{
+              background: "#0d131d", padding: ".35rem .6rem",
+              borderRadius: "8px", fontSize: ".85rem",
+            }}>
+              {shown ? d.token : "••••••••••••••••"}
+            </code>
+            <button className="ghost" onClick={() => setShown((v) => !v)}>
+              {shown ? "dölj" : "visa"}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Settings() {
   const [key, setKey] = useState(localStorage.getItem(AI_KEY_STORAGE) ?? "");
@@ -57,6 +100,7 @@ export default function Settings() {
 
   return (
     <>
+      <DeviceCard />
       <div className="card">
         <h2>Anthropic-nyckel för AI-analysen</h2>
         <p style={{ color: "var(--dim)", marginTop: 0 }}>

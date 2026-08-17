@@ -274,6 +274,36 @@ Lösenordet är ingen hemlighet utan en tröskel: utan det kan vem som helst på
 parkeringen ladda ner dina resor. Vill du byta står det i `config.h`
 (`WIFI_AP_PASSWORD`, minst åtta tecken).
 
+### Molnsynken – enheten sköter sig själv
+
+Utöver den lokala sidan kan enheten ansluta till ett vanligt wifi – typiskt
+**din iPhones internetdelning** – och synka med webbappen av sig själv:
+
+- **Uppåt:** nya resor ur dagboken och GPX-filer som inte lämnat kortet.
+  Uppladdade spår flyttas till `UPPLADDAT`, de raderas aldrig.
+- **Nedåt:** kamerafilen, hastighetsfilen och kundlistan – men bara när
+  webbappen registrerat en **ny version**. En 138 MB-fil hämtas inte om för att
+  klockan gått.
+
+Engångsinställningen görs på enhetens wifi-sida under **Molnsynk**: hotspotens
+namn och lösenord, plus enhetens token som står i webbappens inställningar.
+Sedan gäller två villkor, och båda krävs: nätet ska finnas, och **ingen resa får
+pågå**. Under färd är stationsläget avstängt – det drar ström och har inget
+ärende då. En synk som avbryts av att en resa börjar är det normala, inte ett
+fel; den tas om vid nästa tillfälle.
+
+Allt går genom en edge-funktion i molnet som legitimerar enheten med dess token
+på varje anrop – tabellerna har aldrig öppna skrivrättigheter. Nedladdningar
+skrivs först till en tillfällig fil, kontrolleras mot filens magi, och byts
+först då – en halv kamerafil på riktig plats vore värre än ingen. TLS körs utan
+certifikatkontroll, med öppna ögon: en enhet i en bil kan inte få nya rotlistor
+pushade till sig, det enda hemliga i trafiken är token, och den byts med två
+klick i webbappen.
+
+I webbappens flik **Datafiler** hämtas kameror och hastighetsgränser från
+Trafikverket direkt i webbläsaren, packas till enhetens format och läggs
+versionsstämplade i molnet – därifrån hämtar enheten dem själv.
+
 ---
 
 ## Fartkameror
@@ -543,7 +573,7 @@ Två skillnader:
 |---|---|
 | **Bluetooth** | Struken med flit – iPhone saknar Web Bluetooth, wifi-sidan gör jobbet |
 | **Webbgränssnittet** med heatmaps och insikter | Inte byggt. Supabase + Vercel är valt |
-| **Molnsynk till Supabase** | Inte byggd. Wifi-sidan är bryggan; nästa steg är att webappen hämtar därifrån |
+| **Molnsynk till Supabase** | Byggd – enheten synkar själv över hotspot, se [Molnsynken](#molnsynken--enheten-sköter-sig-själv) |
 | **Hastighetsfiler per ruta** | Inte byggd. Hela NVDB-exporten får duga |
 | **Resehistorik på skärmen** | Inte byggd. `RESOR.CSV` på kortet är historiken |
 | **Mätarställning** | Matas in och justeras i webappen när den byggs – enheten loggar sträckan per resa, appen räknar ackumulerat och ber om avstämning |

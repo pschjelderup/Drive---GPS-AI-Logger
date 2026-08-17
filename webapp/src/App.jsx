@@ -8,6 +8,7 @@ import MapView from "./views/MapView.jsx";
 import Speeding from "./views/Speeding.jsx";
 import Eco from "./views/Eco.jsx";
 import Ai from "./views/Ai.jsx";
+import DataFiles from "./views/DataFiles.jsx";
 import Settings from "./views/Settings.jsx";
 
 function Login() {
@@ -46,6 +47,7 @@ const TABS = [
   { key: "eco", label: "Ecodrive" },
   { key: "ai", label: "AI-analys" },
   { key: "import", label: "Importera" },
+  { key: "data", label: "Datafiler" },
   { key: "install", label: "Inställningar" },
 ];
 
@@ -88,6 +90,7 @@ export default function App() {
       {tab === "eco" && <Eco />}
       {tab === "ai" && <Ai />}
       {tab === "import" && <Import onImported={() => setEpoch((e) => e + 1)} />}
+      {tab === "data" && <DataFiles />}
       {tab === "install" && <Settings />}
     </div>
   );
