@@ -88,7 +88,11 @@ jobs:
 
       - name: Sla ihop till flashbara delar
         run: |
-          python3 -m pip install --quiet esptool
+          # Versionen ar last av samma skal som biblioteken ar det. Utan las
+          # hamtas senaste esptool vid varje bygge, och den dagen en majorversion
+          # tar bort ett flaggnamn slutar bygget fungera utan att nagon rort
+          # koden. Ett trasigt bygge ska ha en orsak man kan peka pa.
+          python3 -m pip install --quiet esptool==5.3.1
 
           # boot_app0 ligger i kortpaketet och behovs for att kortet ska starta
           # ratt app efter flashning.
@@ -109,21 +113,21 @@ jobs:
           mkdir -p site
 
           # Del A: 0x0 bootloader + 0x8000 partitionstabell. Slutar vid 0x8C00.
-          python3 -m esptool --chip esp32s3 merge_bin \
+          python3 -m esptool --chip esp32s3 merge-bin \
             -o "site/drivelogger-$VERSION-a.bin" \
-            --flash_mode dio \
-            --flash_freq 80m \
-            --flash_size 16MB \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 16MB \
             0x0 build/DriveLogger.ino.bootloader.bin \
             0x8000 build/DriveLogger.ino.partitions.bin
 
           # Del B: 0xe000 boot-valjare + 0x10000 sjalva appen.
-          python3 -m esptool --chip esp32s3 merge_bin \
+          python3 -m esptool --chip esp32s3 merge-bin \
             -o "site/drivelogger-$VERSION-b.bin" \
             --target-offset 0xe000 \
-            --flash_mode dio \
-            --flash_freq 80m \
-            --flash_size 16MB \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 16MB \
             0xe000 "$BOOT_APP0" \
             0x10000 build/DriveLogger.ino.bin
 
