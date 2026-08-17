@@ -305,3 +305,14 @@ static const uint8_t kScreenTimeoutCount = 5;
 // Avlasningstakt for rorelsesensorn. Ecodrive behover jamna varden, inte
 // snabba: 20 Hz ar tio ganger mer an bubblan hinner visa.
 #define IMU_SAMPLE_HZ 20
+
+// ------------------------------------------------------------------ wifi ---
+// Enhetens eget nat. Uppe nar ingen resa pagar, slackt under fard - se
+// websync.h. Losenordet ar inte en hemlighet utan en trappa: utan det kan
+// vem som helst pa parkeringen ladda ner dina resor.
+#define WIFI_AP_SSID "DriveLogger"
+#define WIFI_AP_PASSWORD "kordagbok"
+
+// Natet startas forst nagra sekunder efter att resan avslutats, sa att en
+// snabb stopp-och-korning inte hinner dra igang wifi i onodan.
+#define WIFI_START_DELAY_S 5

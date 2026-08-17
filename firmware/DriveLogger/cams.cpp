@@ -65,6 +65,10 @@ uint32_t g_lastScanMs = 0;
 // Bestalld inlasning. Se reload() langst ned.
 volatile bool g_wantReload = false;
 
+// Handslaget for filbyte. Se beginUpdate() langst ned.
+volatile bool g_suspend = false;
+volatile bool g_suspended = false;
+
 // Vilken kamera vi varnar for och vilken ring som redan ljudit. Utan det skulle
 // varje avlasning ge ett nytt pip hela vagen fram till kameran.
 int32_t g_warnedCam = -1;
@@ -381,6 +385,20 @@ void reload() {
 }
 
 void tick() {
+  // Under ett filbyte slapper traden sina filer och ror ingenting forran
+  // bytet ar klart. Kvittot ar g_suspended - det ar det uppladdningen vantar
+  // pa innan den vagar rora filerna.
+  if (g_suspend) {
+    if (!g_suspended) {
+      if (g_limitFile) g_limitFile.close();
+      g_limitCount = 0;
+      freeCams();
+      g_suspended = true;
+    }
+    return;
+  }
+  g_suspended = false;
+
   if (g_wantReload) {
     g_wantReload = false;
     loadCams();
@@ -409,6 +427,20 @@ CamWarning warning() {
   CamWarning w = g_warning;
   unlock();
   return w;
+}
+
+void beginUpdate() {
+  g_suspend = true;
+  // Avlasningstraden gar ett varv pa nagra tiotal millisekunder, sa vantan ar
+  // kort. Tidsgransen finns for att en hangd trad inte ska ta webbservern med
+  // sig - da byts filen anda, och det varsta som kan handa ar att en sokning
+  // misslyckas en gang.
+  for (int i = 0; i < 200 && !g_suspended; i++) delay(10);
+}
+
+void endUpdate() {
+  g_wantReload = true;
+  g_suspend = false;
 }
 
 }  // namespace cams

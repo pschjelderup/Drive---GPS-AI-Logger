@@ -6,6 +6,7 @@
 #include "gnss.h"
 #include "sensors.h"
 #include "sound.h"
+#include "websync.h"
 
 namespace {
 
@@ -461,8 +462,18 @@ void drawTripRow(const TripStatus &t) {
       return;
     }
     printCentered(225, Y_TRIP + 14, 2, C_DIM, "Ingen resa pågår");
-    printCentered(225, Y_TRIP + 38, 1, C_FAINT,
-                  "startar av sig sjalv nar bilen rullar");
+    // Nar natet ar uppe ar det har raden hela bruksanvisningen: vilket nat,
+    // vilket losenord. Adressen behovs inte - fangstportalen oppnar sidan.
+    if (websync::clientCount() > 0) {
+      printCentered(225, Y_TRIP + 38, 1, C_GREEN, "telefon ansluten - synkar");
+    } else if (websync::isUp()) {
+      snprintf(buf, sizeof(buf), "wifi: %s · lösenord: %s", websync::ssid(),
+               WIFI_AP_PASSWORD);
+      printCentered(225, Y_TRIP + 38, 1, C_ACCENT, buf);
+    } else {
+      printCentered(225, Y_TRIP + 38, 1, C_FAINT,
+                    "startar av sig sjalv nar bilen rullar");
+    }
     return;
   }
 
