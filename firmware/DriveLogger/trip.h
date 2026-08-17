@@ -31,7 +31,8 @@ enum TripEndReason : uint8_t {
   END_NONE = 0,
   END_AUTO = 1,        // bilen stod stilla lange nog
   END_MANUAL = 2,      // knappen pa skarmen
-  END_POWERLOSS = 3,   // stromavbrott, lakt vid nasta start
+  END_POWERLOSS = 3,   // strommen forsvann - med tandningsstyrd strom det
+                       // normala avslutet. Lakt vid nasta start
   END_NO_SPACE = 4,    // kortet blev fullt
 };
 
@@ -66,8 +67,9 @@ struct TripStatus {
   double awaitingKm;
 };
 
-// En resa som stromavbrottet tog, lakt vid nasta start. Skarmen berattar om
-// den, sa att man far veta att den gick forlorad i stallet for att undra.
+// En resa som strommen tog, lakt vid nasta start. Ingen egen skarm - med
+// tandningsstyrd strom ar det har varje resa - men uppgifterna finns kvar for
+// serieporten och felsokningen.
 struct RecoveredTrip {
   bool valid;
   uint32_t index;

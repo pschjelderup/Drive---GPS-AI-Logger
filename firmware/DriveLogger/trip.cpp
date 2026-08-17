@@ -251,7 +251,7 @@ void appendTripRow(const StateRecord &r) {
   switch (r.endReason) {
     case END_AUTO: slut = "automatiskt"; break;
     case END_MANUAL: slut = "knapp"; break;
-    case END_POWERLOSS: slut = "stromavbrott"; break;
+    case END_POWERLOSS: slut = "strom av"; break;
     case END_NO_SPACE: slut = "kortet fullt"; break;
     default: slut = "okant"; break;
   }
@@ -607,16 +607,20 @@ void repairGpx(uint32_t index) {
   w.close();
 }
 
-// En resa som stromavbrottet tog. Sista kanda position blir malet, och nasta
-// resa borjar dar.
+// En resa som stromen tog. I en bil med tandningsstyrd strom ar det har inte
+// ett haveri utan det normala sattet en resa slutar pa: man parkerar, vrider av
+// tandningen, och strommen forsvinner innan nagon fraga hunnit stallas.
+//
+// Sista kanda position blir malet, och nasta resa borjar dar. Ar syftet inte
+// satt stalls fragan vid nasta start i stallet for att gissas till diffust -
+// att tvangsmarka varje resa som ingen hann tagga vore att gora det normala
+// avslutet till ett samre avslut.
 void healInterrupted(const StateRecord &r) {
   repairGpx(r.index);
 
   StateRecord fixed = r;
   fixed.endReason = END_POWERLOSS;
   fixed.open = 0;
-  if (fixed.purpose == PURPOSE_UNSET) fixed.purpose = PURPOSE_DIFFUST;
-  appendTripRow(fixed);
 
   g_recovered.valid = true;
   g_recovered.index = fixed.index;
@@ -626,16 +630,34 @@ void healInterrupted(const StateRecord &r) {
   g_recovered.distanceM = fixed.distanceM;
 
   // Dar stromen forsvann borjar nasta resa. Bilen har inte flyttat sig av sig
-  // sjalv medan den var strom-los.
+  // sjalv medan den var stromlos.
   if (fixed.lastLat != 0.0 || fixed.lastLon != 0.0) {
     g_havePendingStart = true;
     g_pendingLat = fixed.lastLat;
     g_pendingLon = fixed.lastLon;
   }
 
-  g_state = fixed;
-  g_state.recordWritten = 1;
-  writeState();
+  if (fixed.purpose == PURPOSE_UNSET) {
+    // Raden vantar pa svaret. Samma maskineri som efter ett vanligt avslut tar
+    // hand om resten: ett svar skriver raden, tystnad i en minut skriver den
+    // som diffust, och kor man ivag direkt skrivs den nar nasta resa borjar.
+    fixed.recordWritten = 0;
+    g_state = fixed;
+    writeState();
+
+    lock();
+    g_status.awaitingPurpose = true;
+    g_status.awaitingIndex = fixed.index;
+    g_status.awaitingKm = fixed.distanceM / 1000.0;
+    unlock();
+  } else {
+    // Syftet taggades under resan - da finns inget att fraga om, och skarmen
+    // behover inte saga nagonting alls vid start.
+    appendTripRow(fixed);
+    fixed.recordWritten = 1;
+    g_state = fixed;
+    writeState();
+  }
 }
 
 }  // namespace
@@ -673,17 +695,19 @@ void begin() {
   g_slot = slot;
 
   if (r.open) {
-    // Resan avslutades aldrig. Stromen forsvann mitt i den.
+    // Resan avslutades aldrig. Stromen forsvann mitt i den - vilket i en bil
+    // med tandningsstyrd strom ar det vanliga slutet pa en resa.
     healInterrupted(r);
   } else if (!r.recordWritten) {
-    // Resan avslutades, men fragan om syftet hann inte besvaras innan stromen
-    // gick. Da blev den diffus - vilket ar arligt, for det var den.
-    StateRecord fixed = r;
-    if (fixed.purpose == PURPOSE_UNSET) fixed.purpose = PURPOSE_DIFFUST;
-    appendTripRow(fixed);
-    g_state = fixed;
-    g_state.recordWritten = 1;
-    writeState();
+    // Resan avslutades snyggt, men fragan om syftet hann inte besvaras innan
+    // strommen forsvann. Fragan ar inte forverkad for det - den stalls nu, vid
+    // start, nar foraren anda sitter framfor skarmen.
+    g_state = r;
+    lock();
+    g_status.awaitingPurpose = true;
+    g_status.awaitingIndex = r.index;
+    g_status.awaitingKm = r.distanceM / 1000.0;
+    unlock();
   } else {
     g_state = r;
   }
