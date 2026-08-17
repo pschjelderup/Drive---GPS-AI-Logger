@@ -200,7 +200,6 @@ void mapTouch(int16_t &x, int16_t &y) {
 
 void openCustomers(Screen returnTo) {
   customers::reload();
-  websync::begin();
   customerPage = 0;
   customerReturn = returnTo;
   screen = SCREEN_CUSTOMER;
@@ -514,6 +513,7 @@ void setup() {
   applySettings();
 
   customers::reload();
+  websync::begin();
 
   // Har ar i2c-bussen uppe, sa nu gar det att se vad som faktiskt sitter pa den.
   // Saknas 0x42 ar det kabeln eller kontakten, inte satelliterna.
