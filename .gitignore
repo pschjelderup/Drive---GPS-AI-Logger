@@ -1,0 +1,20 @@
+# Byggresultat. Firmware byggs av GitHub Actions, och en binar i historiken ar
+# en binar nagon forr eller senare flashar i tron att den ar aktuell.
+build/
+site/
+*.bin
+*.elf
+*.map
+
+# Datafiler som hamtas fran Trafikverket. De ar stora, de aldras, och de finns
+# alltid att hamta pa nytt - se tools/hamta-trafikverket.py.
+KAMEROR.BIN
+HASTIGHET.BIN
+*.geojson
+*.gpkg
+
+# Kundlistan kan innehalla riktiga kundnamn.
+KUNDER.CSV
+
+__pycache__/
+.DS_Store

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DriveLogger – installera</title>
+    <script
+      type="module"
+      src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"
+    ></script>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0a0e15;
+        --panel: #141a24;
+        --line: #232c39;
+        --text: #e6edf3;
+        --dim: #9aa7b4;
+        --accent: #3c9dff;
+        --warn: #ffb84d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 2rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+          sans-serif;
+        line-height: 1.6;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 2.1rem;
+        margin: 0 0 0.25rem;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 0 0 0.75rem;
+      }
+      .lead {
+        color: var(--dim);
+        margin: 0 0 2rem;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+      }
+      ol,
+      ul {
+        padding-left: 1.25rem;
+        margin: 0;
+      }
+      li {
+        margin-bottom: 0.6rem;
+      }
+      .install {
+        text-align: center;
+        padding: 2rem 1.5rem;
+      }
+      .note {
+        font-size: 0.9rem;
+        color: var(--dim);
+      }
+      code {
+        background: #060a10;
+        padding: 0.1rem 0.4rem;
+        border-radius: 5px;
+        font-size: 0.9em;
+      }
+      .unsupported {
+        color: var(--warn);
+      }
+      .version {
+        margin-top: 1rem;
+        font-size: 0.85rem;
+        color: var(--dim);
+      }
+      .version a {
+        color: var(--accent);
+      }
+      .version.fel {
+        color: var(--warn);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.4rem 0.5rem 0.4rem 0;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      th {
+        color: var(--dim);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DriveLogger</h1>
+      <p class="lead">
+        Reselogg för Waveshare ESP32-S3-Touch-AMOLED-2.41. Loggar varje resa till
+        en GPX-fil, märker den som privat, företag eller diffus, och varnar för
+        fartkameror. Installeras direkt från webbläsaren – inget program behöver
+        installeras.
+      </p>
+
+      <div class="card install">
+        <esp-web-install-button manifest="manifest.json">
+          <button slot="activate">Installera DriveLogger på kortet</button>
+          <span slot="unsupported" class="unsupported">
+            Den här webbläsaren kan inte prata med kortet. Använd Chrome eller
+            Edge på en dator.
+          </span>
+          <span slot="not-allowed" class="unsupported">
+            Sidan måste öppnas över https för att få prata med kortet.
+          </span>
+        </esp-web-install-button>
+
+        <p class="version" id="version">Hämtar versionsuppgifter …</p>
+      </div>
+
+      <div class="card">
+        <h2>Så gör du</h2>
+        <ol>
+          <li>Anslut kortet till datorn med en USB-C-kabel som klarar data.</li>
+          <li>Klicka på knappen ovan.</li>
+          <li>
+            Välj kortets serieport i listan som dyker upp. Den heter oftast något
+            med <code>USB JTAG</code> eller <code>CH343</code>.
+          </li>
+          <li>Vänta tills det står att installationen är klar.</li>
+        </ol>
+        <p class="note">
+          Hittas ingen port: håll inne <strong>BOOT</strong>-knappen, tryck och
+          släpp <strong>RESET</strong>, släpp sedan BOOT. Då lägger sig kortet i
+          ett läge där det alltid går att flasha. Prova också en annan USB-kabel –
+          många kablar är enbart laddkablar och saknar dataledare.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Vad som måste sitta i</h2>
+        <table>
+          <tr>
+            <th>Sak</th>
+            <th>Varför</th>
+          </tr>
+          <tr>
+            <td><strong>u-blox GPS</strong> på <code>I2C</code>-porten</td>
+            <td>
+              Krävs. En reselogg utan position har ingenting att logga. En vanlig
+              Qwiic-kabel passar rakt in – ingen adapter, ingen lödning.
+            </td>
+          </tr>
+          <tr>
+            <td><strong>microSD-kort</strong>, FAT32 eller exFAT</td>
+            <td>Här hamnar GPX-filerna och resedagboken.</td>
+          </tr>
+          <tr>
+            <td><strong>Piezo</strong> på <code>UART</code>-portens TXD</td>
+            <td>
+              Valfri, men utan den är fartkameravarningen tyst – kortet har ingen
+              högtalare. Också en JST SH 1,0 mm-kontakt, så piezon löds till en
+              kabel och inte till kortet.
+            </td>
+          </tr>
+        </table>
+        <p class="note">
+          Porten märkt <code>I2C</code> har stiftordningen GND · 3V3 · SDA · SCL
+          och matar 3,3 V. Porten märkt <code>UART</code> har GND · 3V3 · TXD ·
+          RXD. En Qwiic-kabel passar fysiskt i båda – och i den märkta
+          <code>RTC</code> – så kontrollera texten vid kontakten innan du kopplar.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Efter installationen</h2>
+        <p>
+          Sätt i minneskortet och kör. Resan startar av sig själv när bilen rullar
+          och avslutas när den stått stilla en stund – du behöver inte trycka på
+          något. Filerna hamnar i mappen <code>DRIVE</code> på kortet:
+          <code>GPX/</code> med ett spår per resa, och
+          <code>RESOR.CSV</code> som öppnas direkt i Excel.
+        </p>
+        <p class="note">
+          För att kunna varna för fartkameror behöver
+          <code>DRIVE/KAMEROR.BIN</code> ligga på kortet. Den skapas med
+          <code>tools/hamta-trafikverket.py</code> ur Trafikverkets öppna data.
+          Saknas filen säger skärmen det rakt ut i stället för att tiga och låta
+          som om vägen var fri.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Om <em>Erase device</em></h2>
+        <p class="note">
+          Du behöver <strong>inte</strong> kryssa i den. Firmwaren skrivs i två
+          delar med ett hål emellan, precis där kortet sparar sina inställningar
+          &ndash; ljudval, skärmtimeout, ecodrive-gränser, tarat monteringsläge,
+          inlärd framåtriktning och resenumret. De överlever alltså varje
+          omflashning.
+        </p>
+        <p class="note">
+          Kryssa i den bara när du <em>vill</em> börja om från noll. Då raderas
+          hela kortet, och nästa resa börjar om på nummer 1 – vilket ger två resor
+          med samma nummer om gamla filer ligger kvar på minneskortet.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Får du en gammal version?</h2>
+        <p class="note">
+          Kontrollera versionsraden vid knappen och jämför med den som står under
+          <strong>MENY</strong> på skärmen. Stämmer de inte har din webbläsare
+          sparat en gammal kopia av sidan: ladda om med
+          <code>Ctrl</code>+<code>F5</code>
+          (<code>Cmd</code>+<code>Shift</code>+<code>R</code> på Mac). Själva
+          firmwarefilen byter namn vid varje bygge och kan aldrig komma från
+          cachen.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      // Manifestet hamtas alltid pa nytt. Utan det kan webblasaren lasa ett
+      // gammalt manifest ur sin cache och installera en gammal firmware, hur
+      // manga ganger vi an bygger om.
+      const fraskt = "manifest.json?t=" + Date.now();
+      document.querySelector("esp-web-install-button").manifest = fraskt;
+
+      // Samma manifest lases en gang till for att visa vad som faktiskt kommer
+      // att installeras. Utan den raden gar det inte att se skillnad pa ny och
+      // gammal firmware forran kortet ar flashat.
+      fetch(fraskt, { cache: "no-store" })
+        .then((r) => {
+          if (!r.ok) throw new Error(r.status);
+          return r.json();
+        })
+        .then((m) => {
+          const rad = document.getElementById("version");
+          rad.innerHTML = "";
+          rad.append("Installerar version " + m.version + " · byggd " + m.built);
+          // Filerna listas var for sig. Att de ar tva ar inte en detalj: halet
+          // mellan dem ar det som gor att installningar och resenummer overlever
+          // en omflashning.
+          const lista = document.createElement("div");
+          m.builds[0].parts.forEach((del, i) => {
+            if (i) lista.append(" · ");
+            const lank = document.createElement("a");
+            lank.href = del.path;
+            lank.textContent = del.path;
+            lista.append(lank);
+          });
+          rad.append(lista);
+        })
+        .catch(() => {
+          const rad = document.getElementById("version");
+          rad.className = "version fel";
+          rad.textContent = "Kunde inte hämta versionsuppgifterna.";
+        });
+    </script>
+  </body>
+</html>
