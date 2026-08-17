@@ -254,7 +254,19 @@
         .then((m) => {
           const rad = document.getElementById("version");
           rad.innerHTML = "";
-          rad.append("Installerar version " + m.version + " · byggd " + m.built);
+          // Byggtiden stamplas i utc och visas har i svensk tid. Gar den inte
+          // att tolka - en gammal cachead sida med det gamla formatet - visas
+          // den som den ar i stallet for som "Invalid Date".
+          let byggd = m.built;
+          const t = new Date(m.built);
+          if (!isNaN(t)) {
+            byggd = t.toLocaleString("sv-SE", {
+              timeZone: "Europe/Stockholm",
+              dateStyle: "short",
+              timeStyle: "short",
+            });
+          }
+          rad.append("Installerar version " + m.version + " · byggd " + byggd);
           // Filerna listas var for sig. Att de ar tva ar inte en detalj: halet
           // mellan dem ar det som gor att installningar och resenummer overlever
           // en omflashning.
