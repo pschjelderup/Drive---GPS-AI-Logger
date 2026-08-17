@@ -1,0 +1,193 @@
+name: Bygg firmware
+
+on:
+  # En push till en gren med oppen pull request skulle annars starta tva
+  # identiska byggen - ett for pushen och ett for pull requesten. Grenar byggs
+  # darfor via pull requesten, och main bygger for sig sjalv eftersom det ar den
+  # korningen som publicerar flashsidan.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bygg-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FQBN: esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,FlashMode=qio,PartitionScheme=huge_app,CDCOnBoot=cdc
+  SKETCH: firmware/DriveLogger
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installera arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      # Kortpaketet ar over sju gigabyte, eftersom det innehaller kompilatorer
+      # och forkompilerade bibliotek for varje chip i esp32-familjen - inte bara
+      # for S3:an vi bygger for. Att hamta det pa nytt vid varje bygge ar den
+      # enskilt langsammaste delen av kedjan, sa det sparas mellan korningar.
+      # Nyckeln innehaller versionerna nedan, sa en medveten uppgradering ger en
+      # ny cache i stallet for en gammal som ser ny ut.
+      - name: Aterstall kortpaket ur cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15/packages
+            ~/Arduino/libraries
+          key: arduino-esp32-3.3.11-gfx1.6.7-sensorlib0.4.1-ublox3.1.14
+
+      - name: Installera ESP32-kort och bibliotek
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls \
+            https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          # Versionerna ar last med flit. Ett biblioteksbyte ska vara ett
+          # medvetet beslut, inte nagot som intraffar for att nagon annan slappte
+          # en ny version samma dag som du bygger om.
+          arduino-cli core install esp32:esp32@3.3.11
+          arduino-cli lib install "GFX Library for Arduino"@1.6.7
+          arduino-cli lib install "SensorLib"@0.4.1
+          arduino-cli lib install "SparkFun u-blox GNSS v3"@3.1.14
+
+      - name: Konfigurera arduino-cli
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls \
+            https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          echo "--- installerade versioner ---"
+          arduino-cli core list
+          arduino-cli lib list
+
+      - name: Kompilera
+        run: |
+          VERSION="${GITHUB_SHA::7}"
+          # Versionen bakas in i firmware, sa att MENY kan visa vad som
+          # faktiskt sitter pa kortet. Utan den gar det inte att se om en
+          # flashning tog, och det ar den forsta fragan nar nagot beter sig
+          # gammalt.
+          arduino-cli compile \
+            --fqbn "$FQBN" \
+            --output-dir build \
+            --warnings default \
+            --build-property "compiler.cpp.extra_flags=-DFW_VERSION=\"$VERSION\"" \
+            "$SKETCH"
+          ls -la build
+
+      - name: Sla ihop till flashbara delar
+        run: |
+          # Versionen ar last av samma skal som biblioteken ar det. Utan las
+          # hamtas senaste esptool vid varje bygge, och den dagen en majorversion
+          # tar bort ett flaggnamn slutar bygget fungera utan att nagon rort
+          # koden. Ett trasigt bygge ska ha en orsak man kan peka pa.
+          python3 -m pip install --quiet esptool==5.3.1
+
+          # boot_app0 ligger i kortpaketet och behovs for att kortet ska starta
+          # ratt app efter flashning.
+          BOOT_APP0=$(find "$HOME/.arduino15/packages/esp32" -name boot_app0.bin | head -1)
+          echo "boot_app0: $BOOT_APP0"
+
+          # Tva delar, inte en. En enda sammanhangande fil fran adress 0 skulle
+          # tacka aven nvs-omradet 0x9000-0xE000, och eftersom flashningen
+          # raderar varje sektor den skriver skulle installningar, tara, inlard
+          # framatriktning och resenumret forsvinna vid varje omflashning.
+          # Delarna lamnar ett hal precis dar nvs ligger.
+          #
+          # Filnamnen innehaller byggets id. Ett fast namn ar samma adress for
+          # evigt, och en webblasare som en gang hamtat filen har ingen anledning
+          # att hamta om den - da flashas gammal firmware ur cachen hur mycket vi
+          # an bygger om.
+          VERSION="${GITHUB_SHA::7}"
+          mkdir -p site
+
+          # Del A: 0x0 bootloader + 0x8000 partitionstabell. Slutar vid 0x8C00.
+          python3 -m esptool --chip esp32s3 merge-bin \
+            -o "site/drivelogger-$VERSION-a.bin" \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 16MB \
+            0x0 build/DriveLogger.ino.bootloader.bin \
+            0x8000 build/DriveLogger.ino.partitions.bin
+
+          # Del B: 0xe000 boot-valjare + 0x10000 sjalva appen.
+          python3 -m esptool --chip esp32s3 merge-bin \
+            -o "site/drivelogger-$VERSION-b.bin" \
+            --target-offset 0xe000 \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 16MB \
+            0xe000 "$BOOT_APP0" \
+            0x10000 build/DriveLogger.ino.bin
+
+          # Halet maste finnas. Vaxer del A in i 0x9000 ar nvs inte langre
+          # skyddat, och det ska falla bygget - inte upptackas av en anvandare
+          # som undrar vart resenumret tog vagen.
+          SIZE_A=$(stat -c%s "site/drivelogger-$VERSION-a.bin")
+          echo "del A: $SIZE_A byte, nvs borjar vid 36864"
+          if [ "$SIZE_A" -gt 36864 ]; then
+            echo "FEL: del A vaxer in i nvs-omradet" >&2
+            exit 1
+          fi
+
+          ls -la site
+
+      - name: Bygg flashsidan
+        run: |
+          VERSION="${GITHUB_SHA::7}"
+          BUILT=$(date -u '+%Y-%m-%d %H:%M UTC')
+          for f in index.html manifest.json; do
+            sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILT__/$BUILT/g" \
+              "web/$f" > "site/$f"
+          done
+          echo "--- manifest.json ---"
+          cat site/manifest.json
+          # Ett stavfel i en platshallare skulle annars ge en sida som ser hel ut
+          # men laddar ner en fil som inte finns.
+          if grep -q '__VERSION__\|__BUILT__' site/index.html site/manifest.json; then
+            echo "FEL: platshallare kvar i den publicerade sidan" >&2
+            exit 1
+          fi
+          test -f "site/drivelogger-$VERSION-a.bin"
+          test -f "site/drivelogger-$VERSION-b.bin"
+
+      - name: Spara firmware som nedladdningsbar artefakt
+        # Ett fullt lagringsutrymme for artefakter ar ett kontoproblem, inte ett
+        # fel i koden. Bygget ska inte rapporteras som trasigt for det -
+        # flashsidan hamtar sin fil harifran och den byggdes klart.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: drivelogger-firmware-${{ github.sha }}
+          path: site/drivelogger-*.bin
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Paketera flashsidan
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publicera:
+    # Lagger flashsidan pa natet sa att firmware kan installeras med ett klick.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
