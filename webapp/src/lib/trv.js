@@ -242,11 +242,16 @@ export function buildHastighetBin(points, onProgress) {
   onProgress?.("sorterar …");
   const idx = sortIndex(lat, lon, n);
 
-  onProgress?.("städar dubbletter …");
+  onProgress?.("gallrar punkterna …");
+  // Enheten matchar narmaste punkt inom 60 meter, sa punkter tatare an ~20
+  // meter tillfor ingenting - de gor bara filen stor. Med gransvardet pa
+  // nagra meter blev filen 144 MB; det har tar ner den till en sjundedel,
+  // och en gransandring behaller alltid sin punkt eftersom gallringen bara
+  // sker mellan punkter med samma grans.
   const keep = [];
   let pl = -(2 ** 31), po = 0, pv = -1;
   for (const i of idx) {
-    if (lim[i] === pv && Math.abs(lat[i] - pl) < 30 && Math.abs(lon[i] - po) < 60) continue;
+    if (lim[i] === pv && Math.abs(lat[i] - pl) < 200 && Math.abs(lon[i] - po) < 400) continue;
     keep.push(i);
     pl = lat[i]; po = lon[i]; pv = lim[i];
   }
