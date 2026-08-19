@@ -29,9 +29,21 @@ const char *kBase =
 
 Preferences g_prefs;
 
-char g_ssid[33] = "";
-char g_pass[65] = "";
+char g_ssids[cloudsync::kNetMax][33] = {};
+char g_passes[cloudsync::kNetMax][65] = {};
 char g_token[64] = "";
+
+// Natet som senast bar hela vagen till molnet - det ar det som visas.
+char g_active[33] = "";
+// Tur-och-ordning-raknaren for blindforsoken, nar ingen skanning traffar.
+uint8_t g_rr = 0;
+
+bool anyNet() {
+  for (uint8_t i = 0; i < cloudsync::kNetMax; i++) {
+    if (g_ssids[i][0]) return true;
+  }
+  return false;
+}
 
 CloudStatus g_status = {};
 SemaphoreHandle_t g_mutex = nullptr;
@@ -377,7 +389,7 @@ void syncTask(void *) {
       backoffS = 120;
     }
 
-    if (g_ssid[0] == '\0') {
+    if (!anyNet()) {
       if (g_status.state != CLOUD_OFF) setState(CLOUD_OFF, "");
       continue;
     }
@@ -392,12 +404,47 @@ void syncTask(void *) {
     if (!g_syncNow && now < nextAttemptMs) continue;
     g_syncNow = false;
 
-    setState(CLOUD_CONNECTING, "soker natet");
+    // Vilket av de sparade naten finns har? En skanning ser dem som sander,
+    // och det starkaste vinner - bilen kan sta pa jobbet, hemma eller vid
+    // en paslagen hotspot, och ratt nat ar det som faktiskt hors.
+    setState(CLOUD_CONNECTING, "soker naten");
     WiFi.enableSTA(true);
-    WiFi.begin(g_ssid, g_pass);
+    int pick = -1;
+    {
+      const int16_t found = WiFi.scanNetworks();
+      int bestRssi = -1000;
+      for (int16_t i = 0; i < found; i++) {
+        const String seen = WiFi.SSID(i);
+        for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
+          if (g_ssids[s][0] && seen == g_ssids[s] && WiFi.RSSI(i) > bestRssi) {
+            bestRssi = WiFi.RSSI(i);
+            pick = s;
+          }
+        }
+      }
+      WiFi.scanDelete();
+    }
+
+    // Syntes inget: prova nasta sparade nat i tur och ordning anda. Dolda
+    // ssid syns aldrig i en skanning, och en hotspot kan annonsera glest -
+    // men bada svarar pa ett riktigt anslutningsforsok.
+    uint32_t waitS = 30;
+    if (pick < 0) {
+      for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
+        const uint8_t cand = (g_rr + s) % cloudsync::kNetMax;
+        if (g_ssids[cand][0]) { pick = cand; break; }
+      }
+      g_rr = (uint8_t)(pick + 1) % cloudsync::kNetMax;
+      waitS = 12;
+    }
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "ansluter till %s", g_ssids[pick]);
+    setState(CLOUD_CONNECTING, msg);
+    WiFi.begin(g_ssids[pick], g_passes[pick]);
 
     bool up = false;
-    for (int i = 0; i < 30; i++) {
+    for (uint32_t i = 0; i < waitS; i++) {
       if (trip::status().active) break;
       if (WiFi.status() == WL_CONNECTED) { up = true; break; }
       delay(1000);
@@ -405,20 +452,26 @@ void syncTask(void *) {
 
     if (!up) {
       WiFi.disconnect(true);
-      // Vanligaste orsakerna i den har ordningen: hotspoten sander bara pa
+      // Vanligaste orsakerna i den har ordningen: natet sander bara pa
       // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
       // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
-      setState(CLOUD_IDLE, "natet syntes inte - 2,4 GHz? hotspot pa?");
+      snprintf(msg, sizeof(msg), "%s nas inte - 2,4 GHz? hotspot pa?",
+               g_ssids[pick]);
+      setState(CLOUD_IDLE, msg);
       nextAttemptMs = now + backoffS * 1000UL;
       backoffS = min<uint32_t>(backoffS * 2, 900);
       continue;
     }
 
+    strncpy(g_active, g_ssids[pick], sizeof(g_active) - 1);
+    g_active[sizeof(g_active) - 1] = '\0';
+
     const bool ok = runSync();
     WiFi.disconnect(true);
 
     if (ok) {
-      setState(CLOUD_DONE, "synkad");
+      snprintf(msg, sizeof(msg), "synkad via %s", g_ssids[pick]);
+      setState(CLOUD_DONE, msg);
       backoffS = 120;
       nextAttemptMs = millis() + 15UL * 60UL * 1000UL;
     } else if (!trip::status().active) {
@@ -438,56 +491,91 @@ void begin() {
   if (g_mutex == nullptr) g_mutex = xSemaphoreCreateMutex();
 
   g_prefs.begin("cloud", true);
-  g_prefs.getString("ssid", g_ssid, sizeof(g_ssid));
-  g_prefs.getString("pass", g_pass, sizeof(g_pass));
+  char key[8];
+  for (uint8_t i = 0; i < kNetMax; i++) {
+    snprintf(key, sizeof(key), "ssid%u", i);
+    g_prefs.getString(key, g_ssids[i], sizeof(g_ssids[i]));
+    snprintf(key, sizeof(key), "pass%u", i);
+    g_prefs.getString(key, g_passes[i], sizeof(g_passes[i]));
+  }
+  // Aldre firmware sparade ett enda nat under "ssid"/"pass". Det flyttar in
+  // pa forsta platsen, sa att en uppgradering inte tappar uppgifterna.
+  if (!anyNet()) {
+    g_prefs.getString("ssid", g_ssids[0], sizeof(g_ssids[0]));
+    g_prefs.getString("pass", g_passes[0], sizeof(g_passes[0]));
+  }
   g_prefs.getString("tok", g_token, sizeof(g_token));
   g_prefs.end();
 
-  setState(g_ssid[0] ? CLOUD_IDLE : CLOUD_OFF, g_ssid[0] ? "redo" : "");
+  setState(anyNet() ? CLOUD_IDLE : CLOUD_OFF, anyNet() ? "redo" : "");
 
   // TLS behover rejalt med stack. Kor pa andra karnan, sa att avlasningstraden
   // pa karna 0 aldrig behover dela varv med en nedladdning.
   xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 2, nullptr, 1);
 }
 
-void configure(const char *ssid, const char *password, const char *token) {
-  strncpy(g_ssid, ssid ? ssid : "", sizeof(g_ssid) - 1);
-  g_ssid[sizeof(g_ssid) - 1] = '\0';
-  // Sidan visar aldrig lagrade hemligheter, sa faltet star tomt aven nar
-  // ett losenord finns. Ett tomt falt betyder darfor "behall det som ar" -
-  // annars raderar varje omsparning uppgifterna utan att nagon marker det.
-  // Att tomma allt gors med tomt ssid: det stanger av synken.
-  if (g_ssid[0] == '\0') {
-    g_pass[0] = '\0';
-    g_token[0] = '\0';
-  } else {
-    if (password && password[0]) {
-      strncpy(g_pass, password, sizeof(g_pass) - 1);
-      g_pass[sizeof(g_pass) - 1] = '\0';
+void configureNets(const char *ssids[kNetMax], const char *passwords[kNetMax],
+                   const char *token) {
+  // Sidan visar aldrig lagrade hemligheter, sa losenordsfalten star tomma
+  // aven nar losenord finns. Darfor: samma ssid med tomt losenord behaller
+  // det lagrade; nytt ssid tar det som skrivits (aven tomt - oppna nat
+  // finns); tomt ssid tommer platsen.
+  for (uint8_t i = 0; i < kNetMax; i++) {
+    const char *s = ssids[i] ? ssids[i] : "";
+    const char *p = passwords[i] ? passwords[i] : "";
+    const bool sameNet = strcmp(s, g_ssids[i]) == 0;
+    if (s[0] == '\0') {
+      g_ssids[i][0] = '\0';
+      g_passes[i][0] = '\0';
+    } else {
+      strncpy(g_ssids[i], s, sizeof(g_ssids[i]) - 1);
+      g_ssids[i][sizeof(g_ssids[i]) - 1] = '\0';
+      if (p[0] || !sameNet) {
+        strncpy(g_passes[i], p, sizeof(g_passes[i]) - 1);
+        g_passes[i][sizeof(g_passes[i]) - 1] = '\0';
+      }
     }
-    if (token && token[0]) {
-      strncpy(g_token, token, sizeof(g_token) - 1);
-      g_token[sizeof(g_token) - 1] = '\0';
-    }
+  }
+  // Token ar enhetens, inte natets. Tomt falt behaller den lagrade.
+  if (token && token[0]) {
+    strncpy(g_token, token, sizeof(g_token) - 1);
+    g_token[sizeof(g_token) - 1] = '\0';
   }
 
   g_prefs.begin("cloud", false);
-  g_prefs.putString("ssid", g_ssid);
-  g_prefs.putString("pass", g_pass);
+  char key[8];
+  for (uint8_t i = 0; i < kNetMax; i++) {
+    snprintf(key, sizeof(key), "ssid%u", i);
+    g_prefs.putString(key, g_ssids[i]);
+    snprintf(key, sizeof(key), "pass%u", i);
+    g_prefs.putString(key, g_passes[i]);
+  }
   g_prefs.putString("tok", g_token);
   g_prefs.end();
 
   g_reconfigured = true;
-  g_syncNow = g_ssid[0] != '\0';
+  g_syncNow = anyNet();
 }
 
-bool configured() { return g_ssid[0] != '\0'; }
-
-bool hasPassword() { return g_pass[0] != '\0'; }
+bool configured() { return anyNet(); }
 
 bool hasToken() { return g_token[0] != '\0'; }
 
-String ssid() { return String(g_ssid); }
+String netSsid(uint8_t i) {
+  return i < kNetMax ? String(g_ssids[i]) : String("");
+}
+
+bool netHasPassword(uint8_t i) {
+  return i < kNetMax && g_passes[i][0] != '\0';
+}
+
+String ssid() {
+  if (g_active[0]) return String(g_active);
+  for (uint8_t i = 0; i < kNetMax; i++) {
+    if (g_ssids[i][0]) return String(g_ssids[i]);
+  }
+  return String("");
+}
 
 void requestSync() { g_syncNow = true; }
 
