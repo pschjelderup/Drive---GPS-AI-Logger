@@ -32,24 +32,32 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const lat = parseFloat(url.searchParams.get("lat") ?? "");
   const lon = parseFloat(url.searchParams.get("lon") ?? "");
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return new Response(JSON.stringify({ error: "lat och lon krävs" }), { status: 400 });
+  const hasAnchor = Number.isFinite(lat) && Number.isFinite(lon);
+  const qRaw = (url.searchParams.get("q") ?? "").trim();
+  if (!hasAnchor && !qRaw) {
+    return new Response(
+      JSON.stringify({ error: "lat/lon eller söktext krävs" }), { status: 400 });
   }
 
   // Tva lagen: utan soktext ar det narmaste-forst inom 600 m - langre an sa
   // ar det inte platsen resan startade pa. Med soktext ar det fritextsok med
   // dragning mot positionen, sa "ICA Maxi" hittar ratt butik och inte en i
   // en annan stad.
-  const q = (url.searchParams.get("q") ?? "").trim();
+  const q = qRaw;
   const endpoint = q ? "searchText" : "searchNearby";
   const body = q
     ? {
         textQuery: q,
         pageSize: 10,
         languageCode: "sv",
-        locationBias: {
-          circle: { center: { latitude: lat, longitude: lon }, radius: 5000 },
-        },
+        // Med ankare dras traffarna mot positionen; utan ankare - som nar en
+        // kunds kontor soks upp pa namn - halls soket inom Sverige.
+        locationBias: hasAnchor
+          ? { circle: { center: { latitude: lat, longitude: lon }, radius: 5000 } }
+          : { rectangle: {
+              low: { latitude: 55.0, longitude: 10.5 },
+              high: { latitude: 69.1, longitude: 24.2 },
+            } },
       }
     : {
         maxResultCount: 15,
@@ -83,16 +91,22 @@ export default async function handler(req) {
   const R = 6371000;
   const rad = Math.PI / 180;
   const places = (data.places ?? []).map((p) => {
-    const pla = p.location?.latitude ?? lat;
-    const plo = p.location?.longitude ?? lon;
-    const dLat = (pla - lat) * rad;
-    const dLon = (plo - lon) * rad;
-    const s = Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat * rad) * Math.cos(pla * rad) * Math.sin(dLon / 2) ** 2;
+    const pla = p.location?.latitude ?? null;
+    const plo = p.location?.longitude ?? null;
+    let dist = -1;
+    if (hasAnchor && pla != null) {
+      const dLat = (pla - lat) * rad;
+      const dLon = (plo - lon) * rad;
+      const s = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat * rad) * Math.cos(pla * rad) * Math.sin(dLon / 2) ** 2;
+      dist = Math.round(2 * R * Math.asin(Math.sqrt(s)));
+    }
     return {
       name: p.displayName?.text ?? "okänd plats",
       address: p.formattedAddress ?? "",
-      distance_m: Math.round(2 * R * Math.asin(Math.sqrt(s))),
+      lat: pla,
+      lon: plo,
+      distance_m: dist,
     };
   });
 

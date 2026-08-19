@@ -309,6 +309,25 @@ button.mini { padding: .1rem .5rem; font-size: .74rem; border-radius: 6px; }
 .kv { display: flex; flex-direction: column; gap: .1rem; font-size: .86rem; }
 .kv > span { color: var(--dim); font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; }
 .kv a { color: var(--accent); }
+.minicard.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+.minicard.dis { opacity: .45; cursor: default; }
+.minicard .mc-badge {
+  position: absolute; top: 2.2rem; right: .7rem; z-index: 2;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: .68rem; font-weight: 650; border-radius: 999px;
+  padding: .05rem .5rem;
+}
+.minicard .mc-check {
+  position: absolute; top: 2.1rem; right: .7rem; z-index: 3;
+  width: 1.5rem; height: 1.5rem; border-radius: 50%;
+  border: 2px solid var(--accent); background: var(--panel);
+  color: var(--accent); display: grid; place-items: center;
+  font-size: .9rem; font-weight: 700;
+}
+.suggest {
+  margin: .5rem 0 0; padding: .45rem .6rem; border-radius: 8px;
+  background: var(--accent-soft); color: var(--text); font-size: .84rem;
+}
 
 /* Arsrapporten ska ga att skriva ut och lamna till en revisor: pa papper
  * forsvinner skalet och bara innehallet star kvar. */

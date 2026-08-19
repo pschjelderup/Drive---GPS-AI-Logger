@@ -6,6 +6,136 @@ import { supabase } from "../lib/supabase.js";
 import { fmtDateTime } from "../lib/fmt.js";
 import { RATE_KINDS, vehicleLabel } from "../lib/vehicles.js";
 
+// Kundens kontorsposition: soks upp via Places pa bolagsnamnet och gar att
+// finjustera for hand. Positionen ar det som later journalen kanna igen ett
+// kundbesok i en resas start- eller malpunkt.
+function CustomerPos({ customer, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(customer.name);
+  const [options, setOptions] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const search = async (text) => {
+    setBusy(true); setErr("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/places?q=${encodeURIComponent(text)}`, {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `svar ${res.status}`);
+      setOptions((body.places ?? []).filter((p) => p.lat != null));
+    } catch (e) {
+      setErr(e.message);
+      setOptions([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <span className="place">
+        {customer.lat != null
+          ? `${customer.lat.toFixed(4)}, ${customer.lon.toFixed(4)} `
+          : ""}
+        <button className="ghost mini"
+          onClick={() => { setOpen(true); setQ(customer.name); search(customer.name); }}>
+          {customer.lat != null ? "ändra" : "position …"}
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <div className="placepop">
+      <input autoFocus type="text" value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") search(q.trim());
+          if (e.key === "Escape") setOpen(false);
+        }} />
+      <div className="placelist">
+        {busy && <span className="status">söker …</span>}
+        {err && <span className="status error">{err}</span>}
+        {!busy && options.map((p, i) => (
+          <button key={i} type="button"
+            onClick={() => { onSave(p.lat, p.lon); setOpen(false); }}>
+            {p.name} · {p.address}
+          </button>
+        ))}
+        {customer.lat != null && (
+          <button type="button" className="danger"
+            onClick={() => { onSave(null, null); setOpen(false); }}>
+            rensa positionen
+          </button>
+        )}
+        <button type="button" onClick={() => setOpen(false)}>stäng</button>
+      </div>
+      <span className="status">eller skriv själv:</span>
+      <div style={{ display: "flex", gap: ".3rem" }}>
+        <input type="text" placeholder="lat" style={{ width: "6.5rem" }}
+          defaultValue={customer.lat ?? ""} id={`clat${customer.id}`} />
+        <input type="text" placeholder="lon" style={{ width: "6.5rem" }}
+          defaultValue={customer.lon ?? ""} id={`clon${customer.id}`} />
+        <button className="ghost mini" onClick={() => {
+          const la = parseFloat(document.getElementById(`clat${customer.id}`).value.replace(",", "."));
+          const lo = parseFloat(document.getElementById(`clon${customer.id}`).value.replace(",", "."));
+          if (Number.isFinite(la) && Number.isFinite(lo)) {
+            onSave(la, lo);
+            setOpen(false);
+          }
+        }}>spara</button>
+      </div>
+    </div>
+  );
+}
+
+// Faktureringen: det allmanna priset per mil ut till kund. Kundens eget pris
+// (i kundlistan) vinner alltid over det har.
+function BillingCard() {
+  const [rate, setRate] = useState("");
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    supabase.from("drive_settings").select("*")
+      .eq("key", "debiterat_per_mil").maybeSingle()
+      .then(({ data }) => {
+        const v = data?.value;
+        if (v != null) setRate(String(v).replace(".", ","));
+      });
+  }, []);
+
+  const save = async () => {
+    const n = parseFloat(rate.replace(",", "."));
+    const { error } = await supabase.from("drive_settings").upsert({
+      key: "debiterat_per_mil",
+      value: Number.isFinite(n) ? n : null,
+      updated_at: new Date().toISOString(),
+    });
+    setStatus(error ? error.message : "sparat");
+  };
+
+  return (
+    <div className="card">
+      <h2>Fakturering</h2>
+      <p style={{ color: "var(--dim)", marginTop: 0 }}>
+        Debiterat pris per mil ut till kund. Kunder med eget pris i
+        kundlistan använder det i stället – det här är reservvärdet, och det
+        som gäller för företagsresor utan kund.
+      </p>
+      <div style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+        <input type="text" inputMode="decimal" placeholder="kr/mil"
+          value={rate} style={{ width: "7rem" }}
+          onChange={(e) => setRate(e.target.value)} />
+        <button className="primary" onClick={save}>Spara</button>
+        <span className="status">{status}</span>
+      </div>
+    </div>
+  );
+}
+
 // Flottan: bilarna med namn, regnummer och sin ersattningstyp. Ersattningen
 // ar en egenskap hos bilen - Skatteverkets schablon beror pa om det ar egen
 // bil eller formansbil - och rapporten hamtar sitt belopp harifran.
@@ -194,6 +324,13 @@ export default function Settings() {
     load();
   };
 
+  const patchCustomer = async (id, fields) => {
+    setCustomers((xs) => xs.map((c) => (c.id === id ? { ...c, ...fields } : c)));
+    const { error } = await supabase
+      .from("drive_customers").update(fields).eq("id", id);
+    if (error) setStatus(error.message);
+  };
+
   // KUNDER.CSV i exakt det format enheten laser: ett namn per rad.
   const exportKunder = () => {
     const rows = customers.filter((c) => c.active).map((c) => c.name);
@@ -210,6 +347,7 @@ export default function Settings() {
   return (
     <>
       <FleetCard />
+      <BillingCard />
       <DeviceCard />
 
       <div className="card">
@@ -224,11 +362,30 @@ export default function Settings() {
 
       <div className="card">
         <h2>Kundlistan</h2>
+        <div style={{ overflowX: "auto" }}>
         <table className="journal">
+          <thead>
+            <tr><th>Kund</th><th>Kr/mil</th><th>Kontorets position</th><th></th></tr>
+          </thead>
           <tbody>
             {customers.map((c) => (
               <tr key={c.id}>
                 <td style={{ opacity: c.active ? 1 : 0.4 }}>{c.name}</td>
+                <td>
+                  <input type="text" inputMode="decimal" placeholder="kr/mil"
+                    style={{ width: "5.5rem" }}
+                    defaultValue={c.rate_per_mil ?? ""}
+                    onBlur={(e) => {
+                      const n = parseFloat(e.target.value.replace(",", "."));
+                      patchCustomer(c.id, {
+                        rate_per_mil: Number.isFinite(n) ? n : null,
+                      });
+                    }} />
+                </td>
+                <td>
+                  <CustomerPos customer={c}
+                    onSave={(lat, lon) => patchCustomer(c.id, { lat, lon })} />
+                </td>
                 <td style={{ textAlign: "right" }}>
                   <button className="ghost" onClick={() => toggle(c)}>
                     {c.active ? "dölj" : "visa igen"}
@@ -238,6 +395,7 @@ export default function Settings() {
             ))}
           </tbody>
         </table>
+        </div>
         <div style={{ display: "flex", gap: ".5rem", marginTop: ".8rem" }}>
           <input type="text" placeholder="ny kund" value={newName}
             onChange={(e) => setNewName(e.target.value)}
