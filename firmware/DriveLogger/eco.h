@@ -17,6 +17,19 @@
 
 struct EcoStatus {
   float score;      // 0-100, lever medan du kor
+
+  // Resans poang: tidsviktat medel av score sedan nollstallningen. Den leva
+  // poangen ovan ater sig tillbaka till hundra pa tva minuters lugn korning,
+  // sa vid resans slut star den nastan alltid pa hundra oavsett hur resan
+  // var - ett medel over hela resan ar det som faktiskt sager nagot.
+  float tripScore;
+
+  // Sant nar matningen racker for att redovisas: lodlinjen funnen och minst
+  // ECO_MEASURED_MIN_S sekunder uppmatta. En resa utan matning ska sta som
+  // omatt i dagboken, inte som noll - noll ar ett omdome, omatt ar ett
+  // konstaterande.
+  bool measured;
+  uint32_t measuredS;
   float lonG;       // vagrat, langs kortets ena axel
   float latG;       // vagrat, langs den andra
   float magG;       // total vagrat acceleration

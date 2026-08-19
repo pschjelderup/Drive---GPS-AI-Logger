@@ -11,6 +11,29 @@
 
 #include <Arduino.h>
 
+// ---------------------------------------------------------------- bygget ---
+// Versionen och pull request-numret bakas in av bygget. Tillsammans pekar de
+// ut exakt vilken kod som sitter pa kortet: "b534928 PR8" gar att sla upp pa
+// GitHub utan att gissa. Lokala byggen far "lokal" och inget PR-nummer.
+#ifndef FW_VERSION
+#define FW_VERSION "lokal"
+#endif
+#ifndef FW_PR
+#define FW_PR ""
+#endif
+
+static inline const char *fwVersionFull() {
+  static char s[24] = "";
+  if (!s[0]) {
+    if (FW_PR[0]) {
+      snprintf(s, sizeof(s), "%s PR%s", FW_VERSION, FW_PR);
+    } else {
+      snprintf(s, sizeof(s), "%s", FW_VERSION);
+    }
+  }
+  return s;
+}
+
 // ---------------------------------------------------------------- skarm ----
 // RM690B0 AMOLED via QSPI. Panelen ar 450x600 (staende) och har 16 pixlars
 // kolumnoffset.
@@ -119,6 +142,19 @@
 // Annars hade varje resa fatt fyra minuters extra parkeringstid pahangd, och
 // malpunkten hade legat i gps-bruset kring parkeringsplatsen.
 
+// ---------------------------------------------------- palitlig gps-fart ----
+// Farten anvands bara nar mottagaren sjalv star for den: fixet ska vara
+// tredimensionellt och ligga inom mottagarens egna noggrannhetsmasker, och
+// den angivna osakerheten far inte vara storre an sa har. Utan de kraven
+// slinker enstaka vansinnesvarden igenom under svag mottagning - en enda
+// sadan punkt racker for att forstora en resas maxfart for alltid.
+#define SPEED_TRUST_ACC_KMH 10.0f
+
+// Over detta ar vardet inte en bil. Taket ligger val over allt bilen kan
+// gora men langt under de skrapvarden en mottagare kan lamna under
+// uppstarten.
+#define SPEED_TRUST_MAX_KMH 250.0f
+
 // ------------------------------------------------------------- sparpunkter -
 // Tatast mojliga avstand mellan tva sparpunkter, i sekunder.
 #define TRACK_MIN_INTERVAL_S 2
@@ -182,6 +218,16 @@
 // det; 0,30 g ar en inbromsning som far passagerarna att titta upp.
 #define ECO_SOFT_G 0.15f
 #define ECO_HARD_G 0.30f
+
+// Sa lange maste vardet ligga over den harda gransen for att raknas som ett
+// hart moment. Ett potthal eller en brunnslock ger en spik pa nagra
+// hundradels sekunder; en riktig inbromsning haller i sig. Utan kravet
+// raknas vagens skick, inte korningen.
+#define ECO_EVENT_MIN_S 0.3f
+
+// Sa manga sekunder matning kravs innan resans ecopoang anses saga nagot.
+// Kortare an sa ar poangen en gissning, och da redovisas den inte alls.
+#define ECO_MEASURED_MIN_S 60
 
 // Handelsen raknas som avslutad forst har, sa att ett enda haftigt ryck inte
 // raknas som fem handelser nar vardet studsar kring gransen.
@@ -286,11 +332,12 @@ static const uint8_t kEcoPenaltyCount = 5;
 
 // ------------------------------------------------------------------ skarm --
 // Skarmen slacks efter sa har manga sekunders orordhet. 0 = slacks aldrig.
-// Under en pagaende resa ar skarmen till for att tittas pa, sa da galler den
-// langre listan langst ned.
-static const uint16_t kScreenTimeouts[] = {0, 30, 60, 300, 900};
-static const uint8_t kScreenTimeoutCount = 5;
-#define DEFAULT_SCREEN_TIMEOUT_INDEX 3  // 300 s
+// Skalan gar i hela minuter fran 1 till 45, tatt i borjan dar skillnaden
+// kanns och glesare mot slutet dar den inte gor det.
+static const uint16_t kScreenTimeouts[] = {0,   60,   120,  300,
+                                           600, 900,  1800, 2700};
+static const uint8_t kScreenTimeoutCount = 8;
+#define DEFAULT_SCREEN_TIMEOUT_INDEX 3  // 5 min
 
 // Ljudet gar att stanga av, och valet sparas. En reselogg som tjuter nar man
 // kor med sovande barn i baksatet blir en reselogg man drar ur.

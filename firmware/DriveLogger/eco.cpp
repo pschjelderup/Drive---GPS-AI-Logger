@@ -55,6 +55,12 @@ float g_peak = 0;
 float g_prevMagG = 0;
 
 bool g_inEvent = false;
+float g_overHardS = 0;  // hur lange vardet legat over harda gransen i strack
+
+// Resans medel: poangen integrerad over uppmatt tid. Det leva vardet later
+// tva lugna minuter sudda ut vad som helst; medlet glommer ingenting.
+double g_scoreIntegral = 0;
+double g_measuredS = 0;
 
 // ---- granserna ------------------------------------------------------------
 // Ligger i variabler i stallet for i konstanter sa att de gar att andra fran
@@ -218,8 +224,14 @@ void reset() {
   g_score = 100.0f;
   g_peak = 0;
   g_inEvent = false;
+  g_overHardS = 0;
+  g_scoreIntegral = 0;
+  g_measuredS = 0;
   g_startMs = millis();
   g_status.score = 100.0f;
+  g_status.tripScore = 100.0f;
+  g_status.measured = false;
+  g_status.measuredS = 0;
   g_status.peakG = 0;
   g_status.hardAccel = 0;
   g_status.hardBrake = 0;
@@ -493,32 +505,49 @@ void tick(const Sample &s) {
   if (g_score < 0) g_score = 0;
   if (g_score > 100.0f) g_score = 100.0f;
 
+  // Resans medel. Bara uppmatt tid raknas: sekunder utan palitlig lodlinje
+  // hamnar varken i taljaren eller namnaren.
+  g_scoreIntegral += (double)g_score * dt;
+  g_measuredS += dt;
+
   if (magG > g_peak) g_peak = magG;
 
   // ---- handelser ----------------------------------------------------------
+  // Ett hart moment ar nagot som haller i sig. En riktig inbromsning ligger
+  // over gransen i sekunder; ett potthal ger en spik pa nagra hundradelar.
+  // Utan tidskravet raknar dagboken vagens skick i stallet for korningen -
+  // en verklig resa fick 41 "harda moment" pa tio mil av just det skalet.
   uint32_t addAccel = 0, addBrake = 0, addTurn = 0, addTotal = 0;
-  if (!g_inEvent && magG >= hardG) {
-    g_inEvent = true;
-    if (g_haveSpeed) {
-      // Farten avgor vad handelsen var. Det kraver ingen kunskap om hur
-      // kortet ar vant i bilen, vilket ar hela poangen med att fraga GPS:en
-      // i stallet for accelerometern.
-      if (gpsLongG > 0.08f) {
-        addAccel = 1;
-      } else if (gpsLongG < -0.08f) {
-        addBrake = 1;
+  if (magG >= hardG) {
+    g_overHardS += dt;
+    if (!g_inEvent && g_overHardS >= ECO_EVENT_MIN_S) {
+      g_inEvent = true;
+      if (g_haveSpeed) {
+        // Farten avgor vad handelsen var. Det kraver ingen kunskap om hur
+        // kortet ar vant i bilen, vilket ar hela poangen med att fraga GPS:en
+        // i stallet for accelerometern.
+        if (gpsLongG > 0.08f) {
+          addAccel = 1;
+        } else if (gpsLongG < -0.08f) {
+          addBrake = 1;
+        } else {
+          addTurn = 1;
+        }
       } else {
-        addTurn = 1;
+        addTotal = 1;
       }
-    } else {
-      addTotal = 1;
     }
-  } else if (g_inEvent && magG < clearG) {
+  } else if (magG < clearG) {
+    g_overHardS = 0;
     g_inEvent = false;
   }
 
   lock();
   g_status.score = g_score;
+  g_status.tripScore =
+      (g_measuredS > 0.5) ? (float)(g_scoreIntegral / g_measuredS) : 100.0f;
+  g_status.measured = g_measuredS >= (double)ECO_MEASURED_MIN_S;
+  g_status.measuredS = (uint32_t)g_measuredS;
   g_status.lonG = lonG;
   g_status.latG = latG;
   g_status.magG = magG;

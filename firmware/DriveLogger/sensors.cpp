@@ -124,6 +124,13 @@ void syncClockFromGnss() {
   if (year < 2024) return;
 
   rtc.setDateTime(RTC_DateTime(year, month, day, hour, minute, second));
+
+  // Kretsens oscillator har visat sig kunna sta stilla: en hel resa fick
+  // samma tidsstampel pa varenda punkt, och tiden rorde sig bara nar den har
+  // synken skrev om den. Darfor kontrolleras och startas oscillatorn vid
+  // varje skrivning. Kostnaden ar en registerlasning i timmen.
+  if (!rtc.isRunning()) rtc.start();
+
   g_lastClockSyncMs = now;
   g_clockSynced = true;
 }
@@ -190,6 +197,11 @@ bool begin() {
 
   g_rtcOk = rtc.begin(Wire, PIN_I2C_SDA, PIN_I2C_SCL);
   if (g_rtcOk) {
+    // Oscillatorn kan sta stilla - antingen for att STOP-biten fastnat eller
+    // for att kretsen tappat spanning. En stillastaende klocka ser giltig ut
+    // vid en enda avlasning, sa den maste fragas uttryckligen.
+    if (!rtc.isRunning()) rtc.start();
+
     // Ett kort som aldrig fatt tiden stalld svarar med ett orimligt artal. Da
     // satter vi klockan till tidpunkten firmware byggdes, vilket ligger nara
     // nog for att resorna ska ga att sortera innan GPS:en hunnit fa fix.
@@ -254,6 +266,14 @@ uint64_t cardBytes() {
 }
 
 uint32_t unixUtc() {
+  // Forsta valet ar satellittiden, forankrad i millis(). Den tickar av
+  // processorns kristall mellan tidspaketen och kan inte sta stilla - det
+  // kan rtc-kretsen, vilket en verklig resa bevisade: varenda punkt fick
+  // samma tidsstampel tills timsynken rackte fram en ny. Rtc:n ar kvar som
+  // reserv for tiden mellan start och forsta fix.
+  const uint32_t epoch = gnss::epochUtc();
+  if (epoch != 0) return epoch + gnss::epochAgeMs() / 1000;
+
   if (!g_rtcOk) return 0;
   RTC_DateTime dt = rtc.getDateTime();
   if (dt.getYear() < 2024 || dt.getYear() > 2099) return 0;

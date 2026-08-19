@@ -76,11 +76,7 @@ uint32_t purposeAskStartMs = 0;
 
 uint8_t customerPage = 0;
 
-// Versionsstrangen kommer fran bygget. Utan den gar det inte att se om
-// flashningen tog, och det ar den forsta frågan nar nagot beter sig gammalt.
-#ifndef FW_VERSION
-#define FW_VERSION "lokal"
-#endif
+// Versionsstrangen och PR-numret kommer fran bygget, via config.h.
 
 // --------------------------------------------------------- installningar --
 
@@ -534,7 +530,8 @@ void setup() {
   delay(1500);
   Serial.println();
   Serial.println("=== DRIVELOGGER ===");
-  Serial.println("version " FW_VERSION);
+  Serial.print("version ");
+  Serial.println(fwVersionFull());
   Serial.println("byggd " __DATE__ " " __TIME__);
 
   // Skarmens matning maste sla pa forst av allt.
@@ -684,7 +681,7 @@ void loop() {
       }
       case SCREEN_ECO: ui::drawEco(eco::status()); break;
       case SCREEN_ECO_LIMITS: ui::drawEcoLimits(cfg, eco::status()); break;
-      case SCREEN_MENU: ui::drawMenu(cfg, FW_VERSION); break;
+      case SCREEN_MENU: ui::drawMenu(cfg, fwVersionFull()); break;
     }
   }
 

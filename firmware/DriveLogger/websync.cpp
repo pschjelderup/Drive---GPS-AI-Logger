@@ -29,10 +29,6 @@ const char *kUploadTmp = "/DRIVE/UPP.TMP";
 File g_upload;
 bool g_uploadOk = false;
 
-#ifndef FW_VERSION
-#define FW_VERSION "lokal"
-#endif
-
 // ------------------------------------------------------------------ sidan --
 // Hela sidan bor i flashminnet och ar fri fran beroenden: inga typsnitt, inga
 // bibliotek, ingenting som ska hamtas fran ett internet som inte finns har.
@@ -237,7 +233,7 @@ void sendJsonStatus() {
            "{\"version\":\"%s\",\"klocka\":\"%s\",\"kameror\":%lu,"
            "\"granser\":%s,\"ledigt_mb\":%lu,\"kunder\":%u,"
            "\"gps\":{\"finns\":%s,\"satelliter\":%u}}",
-           FW_VERSION, clock, (unsigned long)cams::count(),
+           fwVersionFull(), clock, (unsigned long)cams::count(),
            cams::limitsLoaded() ? "true" : "false", (unsigned long)freeMb,
            (unsigned)customers::count(), d.present ? "true" : "false",
            (unsigned)d.sats);
