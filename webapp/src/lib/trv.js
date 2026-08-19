@@ -11,25 +11,53 @@ import { supabase } from "./supabase.js";
 // token foljer med sa att proxyn kan avvisa alla som inte ar inloggade.
 const API = "/api/trv";
 
-async function query(xmlQuery) {
-  const { data: { session } } = await supabase.auth.getSession();
-  const res = await fetch(API, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/xml",
-      Authorization: `Bearer ${session?.access_token ?? ""}`,
-    },
-    body: xmlQuery,
-  });
-  if (!res.ok) {
-    let msg = `Trafikverket-proxyn svarade ${res.status}`;
-    try { msg = (await res.json()).error ?? msg; } catch { /* icke-json */ }
-    throw new Error(msg);
+// Tillfalliga fel - gateway-timeout, overbelastning, natglapp - ar vantade
+// pa en hamtning som tar en kvart, och changeid-pagineringen betyder att
+// inget ar forlorat nar en sida felar. Ratt atgard ar att vanta och fraga
+// om, inte att kasta bort tolv hamtade sidor. En verklig hamtning dog pa en
+// ensam 504 pa sida 13 - darfor bor omforsoken har inne, med stigande paus.
+// Storlekstaket ("maximum response size") ar INTE tillfalligt och slapps
+// igenom till sidloopens halvering.
+async function query(xmlQuery, onProgress) {
+  for (let attempt = 0; ; attempt++) {
+    const { data: { session } } = await supabase.auth.getSession();
+    let res;
+    try {
+      res = await fetch(API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: xmlQuery,
+      });
+    } catch (e) {
+      if (attempt < 6) {
+        const waitS = Math.min(5 * (attempt + 1), 30);
+        onProgress?.(`nätfel – väntar ${waitS} s och provar igen (${attempt + 1}/6)`);
+        await new Promise((r) => setTimeout(r, waitS * 1000));
+        continue;
+      }
+      throw e;
+    }
+    if (!res.ok) {
+      let msg = `Trafikverket-proxyn svarade ${res.status}`;
+      try { msg = (await res.json()).error ?? msg; } catch { /* icke-json */ }
+      const transient = [429, 500, 502, 503, 504].includes(res.status) &&
+        !/maximum response size/i.test(msg);
+      if (transient && attempt < 6) {
+        const waitS = Math.min(5 * (attempt + 1), 30);
+        onProgress?.(`${msg} – väntar ${waitS} s och provar igen (${attempt + 1}/6)`);
+        await new Promise((r) => setTimeout(r, waitS * 1000));
+        continue;
+      }
+      throw new Error(msg);
+    }
+    const payload = await res.json();
+    const result = payload?.RESPONSE?.RESULT?.[0];
+    if (result?.ERROR) throw new Error(result.ERROR.MESSAGE ?? "okänt API-fel");
+    return result;
   }
-  const payload = await res.json();
-  const result = payload?.RESPONSE?.RESULT?.[0];
-  if (result?.ERROR) throw new Error(result.ERROR.MESSAGE ?? "okänt API-fel");
-  return result;
 }
 
 // "POINT (lon lat)" -> [lat, lon]
@@ -87,6 +115,7 @@ export async function fetchCameras(onProgress) {
   onProgress?.("hämtar kameror …");
   const result = await query(
     `<QUERY objecttype="TrafficSafetyCamera" schemaversion="1" limit="20000"/>`,
+    onProgress,
   );
   const rows = result?.TrafficSafetyCamera ?? [];
   const cams = [];
@@ -146,6 +175,7 @@ export async function fetchLimits(onProgress) {
           `<INCLUDE>Högsta_tillåtna_hastighet</INCLUDE>` +
           `<INCLUDE>Geometry.WKT-WGS84-3D</INCLUDE>` +
           `<INCLUDE>Deleted</INCLUDE><INCLUDE>Valid_To</INCLUDE></QUERY>`,
+          onProgress,
         );
         break;
       } catch (e) {
