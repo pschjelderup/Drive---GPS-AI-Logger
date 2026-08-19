@@ -108,9 +108,16 @@ input[type=file]{width:100%;color:var(--dim);font-size:.85rem}
 <div class="card uppl">
 <h2>Molnsynk</h2>
 <p style="color:var(--dim);font-size:.85rem;margin-top:0">
-Ange din iPhone-hotspots namn och lösenord samt enhetens token från
+Ange din hotspots namn och lösenord samt enhetens token från
 webbappens inställningar. Sedan synkar enheten själv när den har
-wifi och ingen resa pågår.</p>
+wifi och ingen resa pågår. Lösenord och token visas aldrig här –
+lämna fälten tomma så behålls det som redan är sparat.</p>
+<p style="color:var(--dim);font-size:.85rem">
+Tänk på: hotspoten måste sända på 2,4&nbsp;GHz (slå på
+<b>Maximera kompatibilitet</b> på iPhone). Och är hotspoten samma
+telefon som du surfar härifrån just nu kan den inte dela ut nät
+samtidigt som den är ansluten hit – koppla ner från DriveLogger-wifit
+och slå på hotspoten, så synkar enheten själv.</p>
 <label><span>Hotspotens namn</span>
 <input type="text" id="mssid" autocapitalize="off"></label>
 <label><span>Hotspotens lösenord</span>
@@ -183,6 +190,8 @@ koppla('fkund','KUNDER.CSV');
 function molnlage(){
   fetch('/api/moln').then(r=>r.json()).then(d=>{
     if(d.ssid) el('mssid').value=el('mssid').value||d.ssid;
+    el('mlosen').placeholder=d.harLosen?'••••••  sparat – tomt behåller':'';
+    el('mtoken').placeholder=d.harToken?'••••••  sparat – tomt behåller':'';
     el('mstatus').textContent=d.konfigurerad
       ? `${d.lage}${d.besked?' · '+d.besked:''} · upp: ${d.resor} resor, ${d.gpx} gpx · ned: ${d.filer} filer`
       : 'inte konfigurerad';
@@ -196,7 +205,11 @@ el('mspara').addEventListener('click',()=>{
   fd.set('losen',el('mlosen').value);
   fd.set('token',el('mtoken').value.trim());
   fetch('/moln',{method:'POST',body:fd})
-    .then(r=>r.text()).then(t=>{el('mstatus').textContent=t;});
+    .then(r=>r.text()).then(t=>{
+      el('mstatus').textContent=t;
+      el('mlosen').value='';el('mtoken').value='';
+      molnlage();
+    });
 });
 el('msynka').addEventListener('click',()=>{
   fetch('/moln/synka',{method:'POST'})
@@ -413,26 +426,42 @@ void handleUploadDone() {
 void handleMolnStatus() {
   const CloudStatus c = cloudsync::status();
   const char *stateName[] = {"av", "vilar", "ansluter", "synkar", "klar", "fel"};
-  char buf[320];
+  char buf[384];
   snprintf(buf, sizeof(buf),
            "{\"konfigurerad\":%s,\"ssid\":\"%s\",\"lage\":\"%s\","
-           "\"besked\":\"%s\",\"resor\":%lu,\"gpx\":%lu,\"filer\":%lu}",
+           "\"besked\":\"%s\",\"resor\":%lu,\"gpx\":%lu,\"filer\":%lu,"
+           "\"harLosen\":%s,\"harToken\":%s}",
            cloudsync::configured() ? "true" : "false",
            cloudsync::ssid().c_str(),
            stateName[c.state <= CLOUD_ERROR ? c.state : 0], c.detail,
            (unsigned long)c.tripsUploaded, (unsigned long)c.gpxUploaded,
-           (unsigned long)c.filesDownloaded);
+           (unsigned long)c.filesDownloaded,
+           cloudsync::hasPassword() ? "true" : "false",
+           cloudsync::hasToken() ? "true" : "false");
   g_server.send(200, "application/json", buf);
 }
 
 void handleMolnSave() {
+  const bool nyttLosen = g_server.arg("losen").length() > 0;
+  const bool nyToken = g_server.arg("token").length() > 0;
   cloudsync::configure(g_server.arg("ssid").c_str(),
                        g_server.arg("losen").c_str(),
                        g_server.arg("token").c_str());
-  g_server.send(200, "text/plain; charset=utf-8",
-                cloudsync::configured()
-                    ? "sparat - synkar sa fort natet nas"
-                    : "molnsynken avstangd");
+
+  if (!cloudsync::configured()) {
+    g_server.send(200, "text/plain; charset=utf-8", "molnsynken avstängd");
+    return;
+  }
+  // Kvittot sager vad som faktiskt lagrades - att "sparat" i sjalva verket
+  // betydde "raderat" ar precis det missforstand som ska bort.
+  String msg = "sparat";
+  if (!nyttLosen && cloudsync::hasPassword()) msg += " – lösenordet behölls";
+  if (!nyToken && cloudsync::hasToken()) {
+    msg += nyttLosen ? " – token behölls" : ", token behölls";
+  }
+  if (!cloudsync::hasToken()) msg += " – men token saknas fortfarande";
+  else msg += " · synkar så fort nätet nås";
+  g_server.send(200, "text/plain; charset=utf-8", msg);
 }
 
 // Allt som inte kanns igen skickas till startsidan. Det ar det som gor

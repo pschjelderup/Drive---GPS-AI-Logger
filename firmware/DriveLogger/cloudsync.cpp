@@ -405,7 +405,10 @@ void syncTask(void *) {
 
     if (!up) {
       WiFi.disconnect(true);
-      setState(CLOUD_IDLE, "natet fanns inte - forsoker igen senare");
+      // Vanligaste orsakerna i den har ordningen: hotspoten sander bara pa
+      // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
+      // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
+      setState(CLOUD_IDLE, "natet syntes inte - 2,4 GHz? hotspot pa?");
       nextAttemptMs = now + backoffS * 1000UL;
       backoffS = min<uint32_t>(backoffS * 2, 900);
       continue;
@@ -450,10 +453,23 @@ void begin() {
 void configure(const char *ssid, const char *password, const char *token) {
   strncpy(g_ssid, ssid ? ssid : "", sizeof(g_ssid) - 1);
   g_ssid[sizeof(g_ssid) - 1] = '\0';
-  strncpy(g_pass, password ? password : "", sizeof(g_pass) - 1);
-  g_pass[sizeof(g_pass) - 1] = '\0';
-  strncpy(g_token, token ? token : "", sizeof(g_token) - 1);
-  g_token[sizeof(g_token) - 1] = '\0';
+  // Sidan visar aldrig lagrade hemligheter, sa faltet star tomt aven nar
+  // ett losenord finns. Ett tomt falt betyder darfor "behall det som ar" -
+  // annars raderar varje omsparning uppgifterna utan att nagon marker det.
+  // Att tomma allt gors med tomt ssid: det stanger av synken.
+  if (g_ssid[0] == '\0') {
+    g_pass[0] = '\0';
+    g_token[0] = '\0';
+  } else {
+    if (password && password[0]) {
+      strncpy(g_pass, password, sizeof(g_pass) - 1);
+      g_pass[sizeof(g_pass) - 1] = '\0';
+    }
+    if (token && token[0]) {
+      strncpy(g_token, token, sizeof(g_token) - 1);
+      g_token[sizeof(g_token) - 1] = '\0';
+    }
+  }
 
   g_prefs.begin("cloud", false);
   g_prefs.putString("ssid", g_ssid);
@@ -466,6 +482,10 @@ void configure(const char *ssid, const char *password, const char *token) {
 }
 
 bool configured() { return g_ssid[0] != '\0'; }
+
+bool hasPassword() { return g_pass[0] != '\0'; }
+
+bool hasToken() { return g_token[0] != '\0'; }
 
 String ssid() { return String(g_ssid); }
 

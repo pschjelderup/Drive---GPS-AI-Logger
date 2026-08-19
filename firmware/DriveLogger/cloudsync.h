@@ -37,9 +37,13 @@ namespace cloudsync {
 
 void begin();
 
-// Natuppgifterna, satta fran enhetens wifi-sida. Tomt ssid stanger av synken.
+// Natuppgifterna, satta fran enhetens wifi-sida. Tomt ssid stanger av synken
+// och tommer allt; tomt losenord eller token med ssid ifyllt behaller det
+// som redan ar lagrat - sidan visar ju aldrig hemligheterna.
 void configure(const char *ssid, const char *password, const char *token);
 bool configured();
+bool hasPassword();
+bool hasToken();
 String ssid();
 
 // Be om en synk sa snart villkoren tillater, i stallet for att venta ut
