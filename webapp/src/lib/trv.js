@@ -114,18 +114,38 @@ export async function fetchLimits(key, onProgress) {
   let change = "0";
   let prev = null;
   let page = 0;
-  const limit = 20000;
+
+  // Sidstorleken ar adaptiv. API:et har ett tak pa svarets storlek i byte,
+  // inte i rader: en sida dar strackorna rakar ha langa geometrier kan spranga
+  // taket fast antalet ar detsamma som alltid. Da svarar API:et med ett fel i
+  // stallet for en ofull sida - inget ar forlorat, changeid star kvar pa ratt
+  // stalle - sa ratt atgard ar att halvera och fraga om, inte att ge upp.
+  // Verklig hamtning av hela Sverige dog pa sida 12 av precis det har.
+  let limit = 20000;
 
   for (;;) {
     page++;
-    const result = await query(
-      key,
-      `<QUERY objecttype="Hastighetsgräns" namespace="vägdata.nvdb_dk_o" ` +
-      `schemaversion="1.2" changeid="${change}" limit="${limit}">` +
-      `<INCLUDE>Högsta_tillåtna_hastighet</INCLUDE>` +
-      `<INCLUDE>Geometry.WKT-WGS84-3D</INCLUDE>` +
-      `<INCLUDE>Deleted</INCLUDE><INCLUDE>Valid_To</INCLUDE></QUERY>`,
-    );
+    let result;
+    for (;;) {
+      try {
+        result = await query(
+          key,
+          `<QUERY objecttype="Hastighetsgräns" namespace="vägdata.nvdb_dk_o" ` +
+          `schemaversion="1.2" changeid="${change}" limit="${limit}">` +
+          `<INCLUDE>Högsta_tillåtna_hastighet</INCLUDE>` +
+          `<INCLUDE>Geometry.WKT-WGS84-3D</INCLUDE>` +
+          `<INCLUDE>Deleted</INCLUDE><INCLUDE>Valid_To</INCLUDE></QUERY>`,
+        );
+        break;
+      } catch (e) {
+        if (/maximum response size/i.test(String(e?.message)) && limit > 1250) {
+          limit = Math.floor(limit / 2);
+          onProgress?.(`svaret blev för stort – provar om med ${limit.toLocaleString("sv-SE")} sträckor per sida`);
+          continue;
+        }
+        throw e;
+      }
+    }
     const rows = result?.["Hastighetsgräns"] ?? [];
     change = result?.INFO?.LASTCHANGEID ?? "";
 
@@ -146,6 +166,30 @@ export async function fetchLimits(key, onProgress) {
   }
 
   return { lat: lat.subarray(0, n), lon: lon.subarray(0, n), lim: lim.subarray(0, n), n };
+}
+
+// En redan byggd HASTIGHET.BIN tillbaka till punktmolnet. Det ar det som gor
+// att "bara kamerorna" kan baka in skyltsiffror ur molnets befintliga fil i
+// stallet for att baka blint - en kamerafil utan siffror har redan skrivit
+// over en bra fil en gang, och det raknas inte som snabbt.
+export function parseHastighetBin(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength < 12 || dv.getUint32(0, true) !== 0x314c4844) return null;
+  const recSize = dv.getUint16(6, true);
+  const count = dv.getUint32(8, true);
+  if (recSize !== 10 || 12 + count * recSize > buf.byteLength) return null;
+
+  const lat = new Int32Array(count);
+  const lon = new Int32Array(count);
+  const lim = new Uint8Array(count);
+  let off = 12;
+  for (let i = 0; i < count; i++) {
+    lat[i] = dv.getInt32(off, true);
+    lon[i] = dv.getInt32(off + 4, true);
+    lim[i] = dv.getUint8(off + 8);
+    off += recSize;
+  }
+  return { lat, lon, lim, n: count };
 }
 
 // ---- sortering, stadning och packning till enhetens format

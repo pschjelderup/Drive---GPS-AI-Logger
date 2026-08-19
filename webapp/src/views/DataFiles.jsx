@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import {
-  fetchCameras, fetchLimits, buildHastighetBin, buildKamerorBin, sha8,
+  fetchCameras, fetchLimits, buildHastighetBin, buildKamerorBin,
+  parseHastighetBin, sha8,
 } from "../lib/trv.js";
 import { fmtDateTime } from "../lib/fmt.js";
 
@@ -62,16 +63,39 @@ export default function DataFiles() {
     loadMeta();
   };
 
+  // Skyltsiffrorna till kameraknappen kommer ur molnets redan uppladdade
+  // hastighetsfil, inte ur en ny hamtning fran Trafikverket - det ar det som
+  // gor knappen snabb utan att den bakar blint. En kamerafil utan siffror har
+  // en gang skrivit over en bra fil; det misstaget gors inte om.
+  const downloadPoints = async () => {
+    const meta = files.find((f) => f.name === "hastighet");
+    if (!meta) return null;
+    const chunks = [];
+    for (let p = 0; p < meta.parts; p++) {
+      const key = `HASTIGHET.PART${String(p).padStart(2, "0")}`;
+      say(`hämtar ${key} ur molnet …`);
+      const { data, error } = await supabase.storage.from("drive-data").download(key);
+      if (error || !data) return null;
+      chunks.push(await data.arrayBuffer());
+    }
+    const total = chunks.reduce((a, b) => a + b.byteLength, 0);
+    const whole = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { whole.set(new Uint8Array(c), off); off += c.byteLength; }
+    return parseHastighetBin(whole.buffer);
+  };
+
   const updateCameras = async () => {
     const key = trvKey.trim();
     if (!key) { say("lägg in Trafikverket-nyckeln först"); return; }
     setBusy(true);
     try {
       const cams = await fetchCameras(key, say);
-      // Hastigheterna bakas in ur farsk vagdata om vi har orken - annars ur
-      // ingenting, och da visas kamerorna utan siffra. Fragan stalls inte:
-      // kameralistan ar liten och vardefull aven utan siffrorna.
-      const buf = buildKamerorBin(cams, null, say);
+      const points = await downloadPoints();
+      if (!points) {
+        say("ingen hastighetsfil i molnet än – kamerorna får inga skyltsiffror. Kör \"Uppdatera allt\" för att få med dem.");
+      }
+      const buf = buildKamerorBin(cams, points, say);
       await uploadParts("KAMEROR", buf);
       await registerFile("kameror", buf, 1);
     } catch (e) {

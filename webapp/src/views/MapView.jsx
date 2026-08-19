@@ -72,6 +72,16 @@ export default function MapView() {
         `Resa ${trip.trip_no} · ${fmtKm(trip.distance_m)} km · ` +
         `${purposeLabel(trip.purpose)} · ${fmtDate(trip.start_utc)}`;
 
+      // Glow: tre lager under varandra - en bred halo i sparets egen farg, en
+      // vit kant, och sist den skarpa linjen. Det ar sa kartografer lyfter en
+      // linje ur en brokig karta; en puls hade dragit blicken hela tiden.
+      const glow = (color, weight = 3.5) => {
+        L.polyline(latlngs, { color, weight: weight + 8, opacity: 0.18 })
+          .addTo(layer);
+        L.polyline(latlngs, { color: "#ffffff", weight: weight + 3.5, opacity: 0.85 })
+          .addTo(layer);
+      };
+
       if (m === "varme") {
         const line = L.polyline(latlngs, {
           color: MAP_HEAT, weight: 7, opacity: 0.07,
@@ -79,6 +89,9 @@ export default function MapView() {
         line.addTo(layer);
         bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
       } else if (m === "fart") {
+        // Kant och halo laggs for hela sparet i ett svep; bara den fargade
+        // linjen byter farg per fartklass ovanpa.
+        glow(MAP_COLOR.omarkt, 4);
         // En polylinje per sammanhangande fartklass, inte en per segment -
         // tusentals smalinjer skulle segla ifran Leaflet.
         let runPts = [latlngs[0]];
@@ -106,9 +119,10 @@ export default function MapView() {
         }
         flush();
       } else {
+        const color = MAP_COLOR[trip.purpose] ?? MAP_COLOR.omarkt;
+        glow(color);
         const line = L.polyline(latlngs, {
-          color: MAP_COLOR[trip.purpose] ?? MAP_COLOR.omarkt,
-          weight: 3, opacity: 0.8,
+          color, weight: 3.5, opacity: 0.95,
         }).bindTooltip(tip);
         line.addTo(layer);
         bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
