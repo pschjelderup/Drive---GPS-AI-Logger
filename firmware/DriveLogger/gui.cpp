@@ -323,7 +323,10 @@ void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
 
   // Ritbufferten: en bit av skarmen i taget, i internminnet dar renderingen
   // ar snabb. Racker inte internminnet duger psram - langsammare men helt.
-  const size_t bufBytes = SCREEN_W * 80 * 2;
+  // 60 rader, inte mer: varje kilobyte har konkurrerar med molnsynkens
+  // tls-anslutningar om internminnet, och en synk som svalter ar dyrare an
+  // nagra extra flush-omgangar pa en 80 MHz-buss.
+  const size_t bufBytes = SCREEN_W * 60 * 2;
   void *buf = heap_caps_malloc(bufBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!buf) buf = ps_malloc(bufBytes);
   lv_display_set_buffers(g_disp, buf, nullptr, bufBytes,

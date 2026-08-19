@@ -474,27 +474,36 @@ static void build_drive() {
   lv_obj_align(g_tripPanel, LV_ALIGN_TOP_MID, 0, 470);
   g_tripTitle = label(g_tripPanel, &ui_font_20, COL_TEXT, "Ingen resa pågår");
   lv_obj_align(g_tripTitle, LV_ALIGN_TOP_LEFT, 14, 8);
+  lv_label_set_long_mode(g_tripTitle, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(g_tripTitle, 230);
   g_tripSub = label(g_tripPanel, &ui_font_16, COL_DIM, "");
   lv_obj_align(g_tripSub, LV_ALIGN_BOTTOM_LEFT, 14, -8);
   lv_label_set_long_mode(g_tripSub, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(g_tripSub, 270);
+  lv_obj_set_width(g_tripSub, 230);
 
-  g_tripBtn = lv_button_create(g_tripPanel);
+  // Start/stopp ar skarmens viktigaste knapp och sitter i en bil - den ska
+  // ga att traffa med tummen utan att titta. Darfor ar den stor och ligger
+  // pa skarmen, inte i panelen: en 96-pixlars knapp far inte plats i en
+  // 64 pixlar hog panel, sa den flyter over panelkanten.
+  g_tripBtn = lv_button_create(scr);
   lv_obj_remove_style_all(g_tripBtn);
-  lv_obj_set_size(g_tripBtn, 48, 48);
-  lv_obj_align(g_tripBtn, LV_ALIGN_RIGHT_MID, -6, 0);
+  lv_obj_set_size(g_tripBtn, 96, 96);
+  lv_obj_align(g_tripBtn, LV_ALIGN_TOP_RIGHT, -18, 440);
   lv_obj_set_style_radius(g_tripBtn, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_tripBtn, COL_GREEN, 0);
   lv_obj_set_style_bg_opa(g_tripBtn, LV_OPA_COVER, 0);
+  lv_obj_set_style_shadow_color(g_tripBtn, COL_GREEN, 0);
+  lv_obj_set_style_shadow_width(g_tripBtn, 24, 0);
+  lv_obj_set_style_shadow_opa(g_tripBtn, 90, 0);
   lv_obj_add_event_cb(g_tripBtn, trip_toggle_cb, LV_EVENT_CLICKED, nullptr);
-  g_tripBtnLbl = label(g_tripBtn, &lv_font_montserrat_20, lv_color_white(),
+  g_tripBtnLbl = label(g_tripBtn, &lv_font_montserrat_28, lv_color_white(),
                        LV_SYMBOL_PLAY);
   lv_obj_center(g_tripBtnLbl);
 
-  g_splitBtn = lv_button_create(g_tripPanel);
+  g_splitBtn = lv_button_create(scr);
   lv_obj_remove_style_all(g_splitBtn);
-  lv_obj_set_size(g_splitBtn, 48, 48);
-  lv_obj_align(g_splitBtn, LV_ALIGN_RIGHT_MID, -62, 0);
+  lv_obj_set_size(g_splitBtn, 64, 64);
+  lv_obj_align(g_splitBtn, LV_ALIGN_TOP_RIGHT, -126, 470);
   lv_obj_set_style_radius(g_splitBtn, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_splitBtn, COL_ACCENT, 0);
   lv_obj_set_style_bg_opa(g_splitBtn, 90, 0);
@@ -636,6 +645,7 @@ static void update_drive(const GuiModel *m) {
       set_txt(g_tripSub, buf);
     }
     lv_obj_set_style_bg_color(g_tripBtn, COL_RED, 0);
+    lv_obj_set_style_shadow_color(g_tripBtn, COL_RED, 0);
     set_txt(g_tripBtnLbl, LV_SYMBOL_STOP);
     lv_obj_clear_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -645,6 +655,7 @@ static void update_drive(const GuiModel *m) {
                       m->sdOk ? "startar själv när bilen rullar"
                               : "resor kan inte sparas utan kort");
     lv_obj_set_style_bg_color(g_tripBtn, COL_GREEN, 0);
+    lv_obj_set_style_shadow_color(g_tripBtn, COL_GREEN, 0);
     set_txt(g_tripBtnLbl, LV_SYMBOL_PLAY);
     lv_obj_add_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   }
