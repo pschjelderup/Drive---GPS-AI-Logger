@@ -8,15 +8,11 @@ import {
   fetchCameras, fetchLimits, buildHastighetBin, buildKamerorBin,
   parseHastighetBin, sha8,
 } from "../lib/trv.js";
-import { fmtDateTime } from "../lib/fmt.js";
+import { fmtDateTime, fmtBytes } from "../lib/fmt.js";
 
-const TRV_KEY_STORAGE = "drivelogger_trv_key";
 const PART_BYTES = 40 * 1024 * 1024;
 
 export default function DataFiles() {
-  const [trvKey, setTrvKey] = useState(
-    localStorage.getItem(TRV_KEY_STORAGE) ?? "",
-  );
   const [files, setFiles] = useState([]);
   const [log, setLog] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -30,11 +26,6 @@ export default function DataFiles() {
   };
   useEffect(() => { loadMeta(); }, []);
 
-  const saveKey = () => {
-    localStorage.setItem(TRV_KEY_STORAGE, trvKey.trim());
-    say("Trafikverket-nyckeln sparad i den här webbläsaren");
-  };
-
   const uploadParts = async (name, buf) => {
     const parts = Math.ceil(buf.byteLength / PART_BYTES);
     for (let p = 0; p < parts; p++) {
@@ -42,7 +33,7 @@ export default function DataFiles() {
       const key = parts === 1 && name === "KAMEROR"
         ? "KAMEROR.BIN"
         : `${name}.PART${String(p).padStart(2, "0")}`;
-      say(`laddar upp ${key} (${(slice.byteLength / 1048576).toFixed(1)} MB) …`);
+      say(`laddar upp ${key} (${fmtBytes(slice.byteLength)}) …`);
       const { error } = await supabase.storage.from("drive-data")
         .upload(key, slice, {
           upsert: true, contentType: "application/octet-stream",
@@ -86,11 +77,9 @@ export default function DataFiles() {
   };
 
   const updateCameras = async () => {
-    const key = trvKey.trim();
-    if (!key) { say("lägg in Trafikverket-nyckeln först"); return; }
     setBusy(true);
     try {
-      const cams = await fetchCameras(key, say);
+      const cams = await fetchCameras(say);
       const points = await downloadPoints();
       if (!points) {
         say("ingen hastighetsfil i molnet än – kamerorna får inga skyltsiffror. Kör \"Uppdatera allt\" för att få med dem.");
@@ -106,17 +95,15 @@ export default function DataFiles() {
   };
 
   const updateAll = async () => {
-    const key = trvKey.trim();
-    if (!key) { say("lägg in Trafikverket-nyckeln först"); return; }
     setBusy(true);
     try {
       say("Hela Sverige tar en stund – låt fliken vara öppen.");
-      const points = await fetchLimits(key, say);
+      const points = await fetchLimits(say);
       const hast = buildHastighetBin(points, say);
       const hParts = await uploadParts("HASTIGHET", hast);
       await registerFile("hastighet", hast, hParts);
 
-      const cams = await fetchCameras(key, say);
+      const cams = await fetchCameras(say);
       const kam = buildKamerorBin(cams, points, say);
       await uploadParts("KAMEROR", kam);
       await registerFile("kameror", kam, 1);
@@ -130,19 +117,6 @@ export default function DataFiles() {
   return (
     <>
       <div className="card">
-        <h2>Trafikverket-nyckel</h2>
-        <p style={{ color: "var(--dim)", marginTop: 0 }}>
-          Gratis på data.trafikverket.se. Sparas bara i den här webbläsaren.
-        </p>
-        <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
-          <input type="password" placeholder="api-nyckel" value={trvKey}
-            onChange={(e) => setTrvKey(e.target.value)}
-            style={{ flex: 1, minWidth: "16rem" }} />
-          <button className="primary" onClick={saveKey}>Spara</button>
-        </div>
-      </div>
-
-      <div className="card">
         <h2>Datafiler i molnet</h2>
         <table className="journal">
           <thead>
@@ -153,7 +127,7 @@ export default function DataFiles() {
               <tr key={f.name}>
                 <td>{f.name}</td>
                 <td><code>{f.version}</code></td>
-                <td>{(f.size_bytes / 1048576).toFixed(1)} MB
+                <td>{fmtBytes(f.size_bytes)}
                   {f.parts > 1 ? ` (${f.parts} delar)` : ""}</td>
                 <td>{fmtDateTime(f.updated_at)}</td>
               </tr>
@@ -172,6 +146,8 @@ export default function DataFiles() {
           </button>
         </div>
         <p className="status" style={{ marginTop: ".6rem" }}>
+          Trafikverket-nyckeln ligger i Vercels miljövariabler
+          (TRAFIKVERKET_API_KEY), inte i webbläsaren.
           Hastigheterna är hela NVDB – över två miljoner sträckor – och tar
           några minuter att hämta. Kör helst på en dator. Enheten laddar sedan
           ner filerna själv nästa gång den har wifi och ingen resa pågår.

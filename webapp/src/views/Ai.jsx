@@ -1,12 +1,11 @@
-// AI-analysen av kormonster. Din egen Anthropic-nyckel, inklistrad under
-// Installningar, lagrad i webblasarens localStorage - den hamnar aldrig i
-// databasen och lamnar aldrig klienten annat an i anropen till Anthropic.
-import { useEffect, useMemo, useState } from "react";
+// AI-analysen av kormonster. Anropen gar via var egen Vercel-funktion, som
+// lagger pa Anthropic-nyckeln ur sina miljovariabler - nyckeln ligger inte i
+// nagon webblasare och lamnar aldrig servern. Proxyn slapper bara fram
+// inloggade, sa sessionens token foljer med varje anrop.
+import { useEffect, useState } from "react";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "../lib/supabase.js";
 import { fmtDur, intFmt } from "../lib/fmt.js";
-
-export const AI_KEY_STORAGE = "drivelogger_anthropic_key";
 
 // Underlaget: sammandrag plus de senaste resorna, kompakt nog att aldrig bli
 // dyrt, rikt nog att sага nagot. Ravardena ur databasen, inga omdomen - de ar
@@ -65,7 +64,6 @@ export default function Ai() {
   const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const hasKey = useMemo(() => !!localStorage.getItem(AI_KEY_STORAGE), [busy]);
 
   useEffect(() => {
     supabase.from("drive_trips").select("*")
@@ -74,15 +72,19 @@ export default function Ai() {
   }, []);
 
   const analyze = async () => {
-    const apiKey = localStorage.getItem(AI_KEY_STORAGE);
-    if (!apiKey) { setError("Lägg in din Anthropic-nyckel under Inställningar först."); return; }
     if (!trips.length) { setError("Inga resor att analysera än."); return; }
 
     setBusy(true); setError(""); setOut("");
     try {
-      // Nyckeln ar anvandarens egen, sa direktanrop fran webblasaren ar just
-      // det som ar meningen - darav flaggan med det avskrackande namnet.
-      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+      // SDK:t pekas mot var proxy; x-api-key-huvudet det skickar ar en
+      // platshallare som proxyn byter ut mot den riktiga nyckeln.
+      const { data: { session } } = await supabase.auth.getSession();
+      const client = new Anthropic({
+        apiKey: "hanteras-av-vercel",
+        baseURL: `${window.location.origin}/api/anthropic`,
+        dangerouslyAllowBrowser: true,
+        defaultHeaders: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
 
       // Reservvag pa serversidan: skulle en forfragan nekas av sakerhetsskal
       // dirigeras den om till en annan modell i stallet for att bli ett fel.
@@ -111,19 +113,14 @@ export default function Ai() {
     <div className="card">
       <h2>AI-analys av körmönster</h2>
       <p style={{ color: "var(--dim)", marginTop: 0 }}>
-        Analysen körs med din egen Anthropic-nyckel, direkt från webbläsaren.
-        Underlaget är {intFmt.format(trips.length)} resor,{" "}
+        Nyckeln ligger i Vercels miljövariabler (ANTHROPIC_API_KEY), inte i
+        webbläsaren. Underlaget är {intFmt.format(trips.length)} resor,{" "}
         {fmtDur(trips.reduce((a, t) => a + (t.moving_s || 0), 0))} rullande tid.
       </p>
       <p>
-        <button className="primary" onClick={analyze} disabled={busy || !hasKey}>
+        <button className="primary" onClick={analyze} disabled={busy}>
           {busy ? "analyserar …" : "Analysera körmönster"}
         </button>
-        {!hasKey && (
-          <span className="status" style={{ marginLeft: ".8rem" }}>
-            nyckel saknas – se Inställningar
-          </span>
-        )}
       </p>
       {error && <p className="status error">{error}</p>}
       {out && <div className="ai-out">{out}</div>}
