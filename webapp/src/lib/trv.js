@@ -4,15 +4,28 @@
 // En changeid-sida kan innehalla farre poster an begart fast mer data aterstar;
 // den som stannar dar far med sig en brakdel av landet och marker det inte.
 
-const API = "https://api.trafikinfo.trafikverket.se/v2/data.json";
+import { supabase } from "./supabase.js";
 
-async function query(key, xmlQuery) {
+// Anropen gar via var egen Vercel-funktion, som lagger pa nyckeln ur sina
+// miljovariabler - den ligger inte langre i nagon webblasare. Sessionens
+// token foljer med sa att proxyn kan avvisa alla som inte ar inloggade.
+const API = "/api/trv";
+
+async function query(xmlQuery) {
+  const { data: { session } } = await supabase.auth.getSession();
   const res = await fetch(API, {
     method: "POST",
-    headers: { "Content-Type": "text/xml" },
-    body: `<REQUEST><LOGIN authenticationkey="${key}"/>${xmlQuery}</REQUEST>`,
+    headers: {
+      "Content-Type": "text/xml",
+      Authorization: `Bearer ${session?.access_token ?? ""}`,
+    },
+    body: xmlQuery,
   });
-  if (!res.ok) throw new Error(`Trafikverket svarade ${res.status}`);
+  if (!res.ok) {
+    let msg = `Trafikverket-proxyn svarade ${res.status}`;
+    try { msg = (await res.json()).error ?? msg; } catch { /* icke-json */ }
+    throw new Error(msg);
+  }
   const payload = await res.json();
   const result = payload?.RESPONSE?.RESULT?.[0];
   if (result?.ERROR) throw new Error(result.ERROR.MESSAGE ?? "okänt API-fel");
@@ -70,10 +83,9 @@ function* densify(coords, stepM = 50) {
 }
 
 // ---- kamerorna: sma nog att hamtas pa en gang
-export async function fetchCameras(key, onProgress) {
+export async function fetchCameras(onProgress) {
   onProgress?.("hämtar kameror …");
   const result = await query(
-    key,
     `<QUERY objecttype="TrafficSafetyCamera" schemaversion="1" limit="20000"/>`,
   );
   const rows = result?.TrafficSafetyCamera ?? [];
@@ -92,7 +104,7 @@ export async function fetchCameras(key, onProgress) {
 }
 
 // ---- hastighetsgranserna: pagineras med changeid tills en TOM sida kommer
-export async function fetchLimits(key, onProgress) {
+export async function fetchLimits(onProgress) {
   const CHUNK = 2_000_000;
   let lat = new Int32Array(CHUNK);
   let lon = new Int32Array(CHUNK);
@@ -129,7 +141,6 @@ export async function fetchLimits(key, onProgress) {
     for (;;) {
       try {
         result = await query(
-          key,
           `<QUERY objecttype="Hastighetsgräns" namespace="vägdata.nvdb_dk_o" ` +
           `schemaversion="1.2" changeid="${change}" limit="${limit}">` +
           `<INCLUDE>Högsta_tillåtna_hastighet</INCLUDE>` +

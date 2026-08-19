@@ -230,6 +230,58 @@ code.token {
   border-radius: 8px; font-size: .85rem;
 }
 
+/* Minikorten: de fem senaste resorna med sparet som siluett. */
+.minicards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: .7rem; margin-bottom: 1.1rem;
+}
+.minicard {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: .85rem .8rem .6rem; position: relative; overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.minicard .mc-accent { position: absolute; top: 0; left: 0; right: 0; height: 4px; }
+.minicard .mc-head {
+  display: flex; justify-content: space-between; gap: .5rem;
+  font-size: .8rem; color: var(--dim); margin-bottom: .4rem;
+}
+.minicard .mc-head b { color: var(--text); }
+.minimap {
+  width: 100%; height: 6rem; display: block;
+  background: var(--panel-2); border-radius: 8px;
+}
+.minimap.empty {
+  display: grid; place-items: center; color: var(--muted); font-size: .78rem;
+}
+.minicard .mc-stats {
+  display: flex; gap: .9rem; flex-wrap: wrap;
+  font-size: .74rem; color: var(--dim); margin-top: .5rem;
+}
+.minicard .mc-stats b {
+  font-size: .98rem; color: var(--text); font-variant-numeric: tabular-nums;
+  margin-right: .15rem;
+}
+.minicard .mc-foot { font-size: .76rem; color: var(--dim); margin-top: .3rem; }
+
+/* Platsvaljaren i journalen: sokfalt plus lista, narmast forst. */
+.place { font-size: .78rem; color: var(--dim); }
+button.mini { padding: .1rem .5rem; font-size: .74rem; border-radius: 6px; }
+.placepop {
+  display: flex; flex-direction: column; gap: .3rem;
+  min-width: 15rem; max-width: 19rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: .5rem; box-shadow: var(--shadow);
+}
+.placepop input { width: 100%; }
+.placelist { display: flex; flex-direction: column; gap: .15rem; max-height: 13rem; overflow-y: auto; }
+.placelist button {
+  text-align: left; background: transparent; border: none; cursor: pointer;
+  color: var(--text); font-size: .8rem; padding: .3rem .4rem; border-radius: 6px;
+  font-family: inherit;
+}
+.placelist button:hover { background: var(--accent-soft); color: var(--accent); }
+.placelist button.danger { color: var(--red); }
+
 /* Arsrapporten ska ga att skriva ut och lamna till en revisor: pa papper
  * forsvinner skalet och bara innehallet star kvar. */
 @media print {

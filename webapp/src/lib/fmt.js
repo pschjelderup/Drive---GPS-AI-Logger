@@ -30,6 +30,15 @@ export function fmtDate(iso) {
   });
 }
 
+// Filstorlekar med ratt enhet. Kamerafilen ar 33 kB - avrundad till "0.0 MB"
+// ser den trasig ut fast den ar precis som den ska.
+export function fmtBytes(b) {
+  if (b == null) return "–";
+  if (b < 1024) return `${b} B`;
+  if (b < 1048576) return `${Math.round(b / 1024)} kB`;
+  return `${(b / 1048576).toFixed(1)} MB`;
+}
+
 export function fmtDur(s) {
   if (!s) return "0 min";
   const h = Math.floor(s / 3600);
