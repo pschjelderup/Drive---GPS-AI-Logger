@@ -255,36 +255,33 @@ export function parseKamerorBin(buf) {
   return cams;
 }
 
-// ---- sortering, stadning och packning till enhetens format
-
-function sortIndex(lat, lon, n) {
-  const idx = new Uint32Array(n);
-  for (let i = 0; i < n; i++) idx[i] = i;
-  // Flyttalsnyckel: lat dominerar, lon skiljer grannar. Precisionen racker
-  // gott for en sorteringsordning.
-  const key = new Float64Array(n);
-  for (let i = 0; i < n; i++) key[i] = lat[i] * 4e9 + lon[i];
-  return idx.sort((a, b) => key[a] - key[b]);
-}
+// ---- gallring, sortering och packning till enhetens format
 
 export function buildHastighetBin(points, onProgress) {
   const { lat, lon, lim, n } = points;
-  onProgress?.("sorterar …");
-  const idx = sortIndex(lat, lon, n);
 
-  onProgress?.("gallrar punkterna …");
-  // Enheten matchar narmaste punkt inom 60 meter, sa punkter tatare an ~20
-  // meter tillfor ingenting - de gor bara filen stor. Med gransvardet pa
-  // nagra meter blev filen 144 MB; det har tar ner den till en sjundedel,
-  // och en gransandring behaller alltid sin punkt eftersom gallringen bara
-  // sker mellan punkter med samma grans.
+  // Gallringen ar ett rutnat: en punkt per ~17x17-metersruta och grans.
+  // Punkterna ligger redan pa ~50 meters mellanrum langs vagarna (densify),
+  // sa det har krymper inte natet - det tar bort dubbletterna dar NVDB:s
+  // strackor overlappar varandra och delar andpunkter. Filen ar stor for
+  // att Sveriges vagnat ar stort; det som gor den hamtbar ar de sma
+  // delarna och enhetens ateruppupptagning, inte gallringen.
+  onProgress?.("gallrar dubbletter …");
+  const seen = new Set();
   const keep = [];
-  let pl = -(2 ** 31), po = 0, pv = -1;
-  for (const i of idx) {
-    if (lim[i] === pv && Math.abs(lat[i] - pl) < 200 && Math.abs(lon[i] - po) < 400) continue;
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(lat[i] / 1500);   // 1500 enheter a 1,11 cm =~ 17 m
+    const col = Math.floor(lon[i] / 3000);   // dubbelt: longitud kryper ihop
+    const key = (row * 1_000_000 + col) * 131 + lim[i];
+    if (seen.has(key)) continue;
+    seen.add(key);
     keep.push(i);
-    pl = lat[i]; po = lon[i]; pv = lim[i];
   }
+
+  // Enhetens uppslagning binarsoker pa lat, sa filen maste vara sorterad.
+  // Att sortera de behallna ar mycket billigare an att sortera alla.
+  onProgress?.("sorterar …");
+  keep.sort((a, b) => (lat[a] * 4e9 + lon[a]) - (lat[b] * 4e9 + lon[b]));
 
   const buf = new ArrayBuffer(12 + keep.length * 10);
   const dv = new DataView(buf);

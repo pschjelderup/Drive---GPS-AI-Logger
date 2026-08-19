@@ -10,7 +10,11 @@ import {
 } from "../lib/trv.js";
 import { fmtDateTime, fmtBytes } from "../lib/fmt.js";
 
-const PART_BYTES = 40 * 1024 * 1024;
+// Delstorleken ar ett kontrakt med enheten (CLOUD_PART_BYTES i config.h):
+// hela delar ar giltiga aterupptagningspunkter, sa en bruten nedladdning
+// kostar en del - inte hela filen. Sma delar ar darfor poangen: 4 MB tar
+// nagra tiotal sekunder aven over en hotspot.
+const PART_BYTES = 4 * 1024 * 1024;
 
 export default function DataFiles() {
   const [files, setFiles] = useState([]);
