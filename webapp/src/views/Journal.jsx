@@ -9,51 +9,97 @@ import { PURPOSE_COLOR } from "../lib/palette.js";
 import { parseGpx } from "../lib/gpx.js";
 import { vehicleLabel, tripVehicleId } from "../lib/vehicles.js";
 
-// Sparet i miniformat: resans form som ren siluett, utan kartplattor - i den
-// har storleken ar formen det som sager nagot, och den foljer temat i stallet
-// for att lysa i kartfarger. Mercatorkorrigering pa longituden sa att formen
-// inte blir hoptryckt pa svenska breddgrader.
+// Sparet i miniformat, pa riktig kartbotten: OSM-plattorna som tacker sparets
+// rektangel raknas fram och laggs som bilder, sparet ritas ovanpa med vit
+// kant sa det lyfter ur kartbilden. Ingen kartmotor per kort - bara bilder
+// och en SVG, sa hundra kort kostar ingenting.
 function TrackMini({ pts, color }) {
+  const boxRef = useRef(null);
+  const [dim, setDim] = useState(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el) setDim({ w: el.clientWidth || 260, h: el.clientHeight || 96 });
+  }, []);
+
+  let content = null;
   if (pts === undefined) {
-    return <div className="minimap empty">hämtar spår …</div>;
-  }
-  if (!pts || pts.length < 2) {
-    return <div className="minimap empty">inget spår</div>;
-  }
-  const W = 260, H = 96, P = 10;
-  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-  for (const [la, lo] of pts) {
-    if (la < minLat) minLat = la;
-    if (la > maxLat) maxLat = la;
-    if (lo < minLon) minLon = lo;
-    if (lo > maxLon) maxLon = lo;
-  }
-  const kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
-  const spanX = Math.max((maxLon - minLon) * kx, 1e-6);
-  const spanY = Math.max(maxLat - minLat, 1e-6);
-  const sc = Math.min((W - 2 * P) / spanX, (H - 2 * P) / spanY);
-  const ox = (W - spanX * sc) / 2;
-  const oy = (H - spanY * sc) / 2;
-  const X = (lo) => ox + (lo - minLon) * kx * sc;
-  const Y = (la) => H - oy - (la - minLat) * sc;
+    content = <span className="mm-note">hämtar spår …</span>;
+  } else if (!pts || pts.length < 2) {
+    content = <span className="mm-note">inget spår</span>;
+  } else if (dim) {
+    const { w, h } = dim;
+    const merc = (lat, lon) => {
+      const x = (lon + 180) / 360;
+      const sn = Math.sin((lat * Math.PI) / 180);
+      const y = 0.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI);
+      return [x, y];
+    };
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const [la, lo] of pts) {
+      const [x, y] = merc(la, lo);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const dx = Math.max(maxX - minX, 1e-9);
+    const dy = Math.max(maxY - minY, 1e-9);
+    // Storsta zoom dar sparet ryms med lite luft.
+    const z = Math.max(3, Math.min(17, Math.floor(Math.min(
+      Math.log2((w * 0.8) / (256 * dx)),
+      Math.log2((h * 0.8) / (256 * dy)),
+    ))));
+    const world = 256 * 2 ** z;
+    const left = ((minX + maxX) / 2) * world - w / 2;
+    const top = ((minY + maxY) / 2) * world - h / 2;
 
-  const step = Math.max(1, Math.floor(pts.length / 200));
-  const d = [];
-  for (let i = 0; i < pts.length; i += step) {
-    d.push(`${i ? "L" : "M"}${X(pts[i][1]).toFixed(1)},${Y(pts[i][0]).toFixed(1)}`);
-  }
-  const last = pts[pts.length - 1];
-  d.push(`L${X(last[1]).toFixed(1)},${Y(last[0]).toFixed(1)}`);
+    const tiles = [];
+    const maxTile = 2 ** z;
+    for (let tx = Math.floor(left / 256); tx * 256 < left + w; tx++) {
+      for (let ty = Math.floor(top / 256); ty * 256 < top + h; ty++) {
+        if (ty < 0 || ty >= maxTile) continue;
+        const wx = ((tx % maxTile) + maxTile) % maxTile;
+        tiles.push(
+          <img key={`${tx}:${ty}`} alt=""
+            src={`https://tile.openstreetmap.org/${z}/${wx}/${ty}.png`}
+            style={{ left: tx * 256 - left, top: ty * 256 - top }} />,
+        );
+      }
+    }
 
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="minimap" aria-hidden="true">
-      <path d={d.join(" ")} fill="none" style={{ stroke: color }}
-        strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={X(pts[0][1])} cy={Y(pts[0][0])} r="3.5"
-        style={{ fill: "var(--panel)", stroke: color }} strokeWidth="2" />
-      <circle cx={X(last[1])} cy={Y(last[0])} r="4" style={{ fill: color }} />
-    </svg>
-  );
+    const step = Math.max(1, Math.floor(pts.length / 300));
+    const d = [];
+    const px = (la, lo) => {
+      const [x, y] = merc(la, lo);
+      return `${(x * world - left).toFixed(1)},${(y * world - top).toFixed(1)}`;
+    };
+    for (let i = 0; i < pts.length; i += step) {
+      d.push(`${i ? "L" : "M"}${px(pts[i][0], pts[i][1])}`);
+    }
+    const last = pts[pts.length - 1];
+    d.push(`L${px(last[0], last[1])}`);
+    const [sx, sy] = px(pts[0][0], pts[0][1]).split(",");
+    const [ex, ey] = px(last[0], last[1]).split(",");
+
+    content = (
+      <>
+        {tiles}
+        <svg viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+          <path d={d.join(" ")} fill="none" stroke="#ffffff" strokeWidth="5"
+            strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
+          <path d={d.join(" ")} fill="none" style={{ stroke: color }}
+            strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          <circle cx={sx} cy={sy} r="3.5" fill="#ffffff"
+            style={{ stroke: color }} strokeWidth="2" />
+          <circle cx={ex} cy={ey} r="4" style={{ fill: color }}
+            stroke="#ffffff" strokeWidth="1.5" />
+        </svg>
+        <span className="osm">© OpenStreetMap</span>
+      </>
+    );
+  }
+
+  return <div ref={boxRef} className="minimap">{content}</div>;
 }
 
 // Resorna som minikort: sparet, strackan, tiden och det vasentliga. Sex

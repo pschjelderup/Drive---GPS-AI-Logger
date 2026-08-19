@@ -247,11 +247,20 @@ code.token {
 }
 .minicard .mc-head b { color: var(--text); }
 .minimap {
-  width: 100%; height: 6rem; display: block;
-  background: var(--panel-2); border-radius: 8px;
+  width: 100%; height: 6rem; display: block; position: relative;
+  background: var(--panel-2); border-radius: 8px; overflow: hidden;
 }
-.minimap.empty {
-  display: grid; place-items: center; color: var(--muted); font-size: .78rem;
+.minimap img { position: absolute; width: 256px; height: 256px; max-width: none; }
+html[data-theme="dark"] .minimap img { filter: brightness(.72) contrast(1.05) saturate(.85); }
+.minimap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.minimap .mm-note {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: var(--muted); font-size: .78rem;
+}
+.minimap .osm {
+  position: absolute; right: .3rem; bottom: .15rem; font-size: .55rem;
+  color: rgb(60 60 60 / .8); background: rgb(255 255 255 / .55);
+  padding: 0 .25rem; border-radius: 3px;
 }
 .minicard .mc-stats {
   display: flex; gap: .9rem; flex-wrap: wrap;
