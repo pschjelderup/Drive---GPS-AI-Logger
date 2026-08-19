@@ -272,6 +272,12 @@ html[data-theme="dark"] .minimap img { filter: brightness(.72) contrast(1.05) sa
 }
 .minicard .mc-foot { font-size: .76rem; color: var(--dim); margin-top: .3rem; }
 
+/* Signaturen: produkten ar DriveLogger, huset ar Creative Enabler. */
+.byline { font-size: .72rem; font-weight: 500; color: var(--dim);
+  letter-spacing: .04em; }
+h1 .byline { margin-left: .35rem; }
+.login .byline { margin: -.4rem 0 .6rem; }
+
 /* Platsvaljaren i journalen: sokfalt plus lista, narmast forst. */
 .place { font-size: .78rem; color: var(--dim); }
 /* Den uppslagna gatuadressen - alltid dar, aven nar ingen plats ar vald. */
