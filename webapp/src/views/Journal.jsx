@@ -56,9 +56,11 @@ function TrackMini({ pts, color }) {
   );
 }
 
-// De fem senaste resorna som minikort: sparet, strackan, tiden och det
-// vasentliga - overblicken innan tabellen.
-function MiniCards({ trips }) {
+// Resorna som minikort: sparet, strackan, tiden och det vasentliga. Sex
+// visas fran borjan och "Ladda fler" tar resten i klumpar - sparen hamtas
+// bara for de kort som faktiskt visas. Ett klick pa kortet oppnar resekortet
+// med allt som finns om resan.
+function MiniCards({ trips, onOpen }) {
   const [tracks, setTracks] = useState({});
   const ids = trips.map((t) => t.id).join(",");
 
@@ -89,7 +91,9 @@ function MiniCards({ trips }) {
       {trips.map((t) => {
         const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
         return (
-          <div className="minicard" key={t.id}>
+          <div className="minicard" key={t.id} role="button" tabIndex={0}
+            onClick={() => onOpen?.(t)}
+            onKeyDown={(e) => e.key === "Enter" && onOpen?.(t)}>
             <div className="mc-accent" style={{ background: color }} />
             <div className="mc-head">
               <b>Resa {t.trip_no}</b>
@@ -202,6 +206,133 @@ function PlacePicker({ lat, lon, value, onPick }) {
   );
 }
 
+// Resekortet: hela resan pa ett stalle. Det som ar matt visas; det som ar
+// manniskans (syfte, kund, bil, platser, matarstallning, arende) andras har
+// och sparas direkt. Koordinaterna lankar till Google Maps.
+function TripModal({ trip, customers, vehicles, patch, onClose }) {
+  const [track, setTrack] = useState(undefined);
+  const gpxPath = trip?.gpx_path;
+  useEffect(() => {
+    let alive = true;
+    setTrack(undefined);
+    if (!gpxPath) { setTrack(null); return; }
+    supabase.storage.from(GPX_BUCKET).download(gpxPath).then(async ({ data }) => {
+      if (alive) setTrack(data ? parseGpx(await data.text()) : null);
+    });
+    return () => { alive = false; };
+  }, [gpxPath]);
+
+  if (!trip) return null;
+  const t = trip;
+  const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
+  const avgKmh = t.moving_s > 0 ? (t.distance_m / t.moving_s) * 3.6 : null;
+  const maps = (lat, lon) =>
+    `https://www.google.com/maps?q=${lat},${lon}`;
+
+  const kv = (label, value) => (
+    <div className="kv"><span>{label}</span><b>{value}</b></div>
+  );
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal card" onClick={(e) => e.stopPropagation()}>
+        <div className="mc-head" style={{ marginBottom: ".5rem" }}>
+          <b style={{ fontSize: "1.1rem" }}>Resa {t.trip_no}</b>
+          <button className="ghost" onClick={onClose}>stäng</button>
+        </div>
+        <TrackMini pts={track} color={color} />
+
+        <div className="kvgrid">
+          {kv("Start", <>
+            {fmtDateTime(t.start_utc)}
+            {t.start_lat ? <>{" "}
+              <a href={maps(t.start_lat, t.start_lon)} target="_blank"
+                rel="noreferrer">karta</a></> : null}
+          </>)}
+          {kv("Mål", <>
+            {fmtDateTime(t.end_utc)}
+            {t.end_lat ? <>{" "}
+              <a href={maps(t.end_lat, t.end_lon)} target="_blank"
+                rel="noreferrer">karta</a></> : null}
+          </>)}
+          {kv("Sträcka", `${fmtKm(t.distance_m)} km`)}
+          {kv("Rullande tid", t.moving_s != null ? fmtDur(t.moving_s) : "–")}
+          {kv("Medelfart", avgKmh != null ? `${Math.round(avgKmh)} km/h` : "–")}
+          {kv("Toppfart", t.max_speed_kmh ? `${Math.round(t.max_speed_kmh)} km/h` : "–")}
+          {kv("Över gränsen", t.speeding_s != null ? fmtDur(t.speeding_s) : "–")}
+          {kv("Ecopoäng", t.eco_score != null ? Math.round(t.eco_score) : "omätt")}
+          {kv("Hårda moment", t.hard_events ?? "–")}
+          {kv("Spårpunkter", t.points ?? "–")}
+          {kv("Avslut", t.end_reason ?? "–")}
+          {kv("GPX", t.gpx_name ?? "–")}
+        </div>
+
+        <div className="kvgrid" style={{ marginTop: ".6rem" }}>
+          <div className="kv"><span>Syfte</span>
+            <select value={t.purpose ?? "omarkt"}
+              onChange={(e) => patch(t.id, { purpose: e.target.value })}>
+              {t.purpose === "omarkt" && <option value="omarkt">Omärkt</option>}
+              {PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="kv"><span>Kund</span>
+            <select value={t.customer ?? ""}
+              onChange={(e) => patch(t.id, { customer: e.target.value || null })}>
+              <option value="">–</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+              {t.customer && !customers.some((c) => c.name === t.customer) && (
+                <option value={t.customer}>{t.customer}</option>
+              )}
+            </select>
+          </div>
+          {vehicles.length > 1 && (
+            <div className="kv"><span>Bil</span>
+              <select value={tripVehicleId(t, vehicles) ?? ""}
+                onChange={(e) => patch(t.id, {
+                  vehicle_id: e.target.value ? Number(e.target.value) : null,
+                })}>
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="kv"><span>Startplats</span>
+            <PlacePicker lat={t.start_lat} lon={t.start_lon}
+              value={t.start_place}
+              onPick={(name) => patch(t.id, { start_place: name })} />
+          </div>
+          <div className="kv"><span>Målplats</span>
+            <PlacePicker lat={t.end_lat} lon={t.end_lon}
+              value={t.end_place}
+              onPick={(name) => patch(t.id, { end_place: name })} />
+          </div>
+          <div className="kv"><span>Mätarställning</span>
+            <input type="text" inputMode="numeric" placeholder="km"
+              style={{ width: "7rem" }}
+              defaultValue={t.odometer_km ?? ""}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value.replace(",", "."));
+                patch(t.id, { odometer_km: Number.isFinite(v) ? v : null });
+              }} />
+          </div>
+        </div>
+
+        <div className="kv" style={{ marginTop: ".6rem" }}>
+          <span>Ärende</span>
+          <input type="text" style={{ width: "100%" }}
+            defaultValue={t.notes ?? ""}
+            onBlur={(e) => patch(t.id, { notes: e.target.value || null })} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OdometerCard({ trips, vehicle }) {
   const [readings, setReadings] = useState([]);
   const [value, setValue] = useState("");
@@ -280,6 +411,8 @@ export default function Journal() {
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [vehicleFilter, setVehicleFilter] = useState("alla");
+  const [cardCount, setCardCount] = useState(6);
+  const [selected, setSelected] = useState(null);
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
@@ -319,6 +452,7 @@ export default function Journal() {
 
   const patch = async (id, fields) => {
     setTrips((xs) => xs.map((t) => (t.id === id ? { ...t, ...fields } : t)));
+    setSelected((sel) => (sel && sel.id === id ? { ...sel, ...fields } : sel));
     const { error } = await supabase
       .from("drive_trips").update(fields).eq("id", id);
     if (error) setStatus(`kunde inte spara: ${error.message}`);
@@ -381,10 +515,19 @@ export default function Journal() {
         </div>
       )}
 
-      <MiniCards trips={shown.slice(0, 5)} />
+      <MiniCards trips={shown.slice(0, cardCount)}
+        onOpen={(t) => setSelected(t)} />
+      {shown.length > cardCount && (
+        <p className="noprint" style={{ textAlign: "center", marginTop: "-.3rem" }}>
+          <button className="ghost"
+            onClick={() => setCardCount((n) => n + 12)}>
+            Ladda fler ({shown.length - cardCount} kvar)
+          </button>
+        </p>
+      )}
 
       <div className="card">
-        <h2>Överblick</h2>
+        <h2>Totalt Summerat</h2>
         <div className="tiles">
           <div className="tile"><b>{intFmt.format(Math.round(totals.km))}</b><span>körda km</span></div>
           <div className="tile"><b>{trips.length}</b><span>resor</span></div>
@@ -496,6 +639,11 @@ export default function Journal() {
           <button className="ghost" onClick={exportCsv}>Exportera körjournal (CSV)</button>
         </p>
       </div>
+
+      {selected && (
+        <TripModal trip={selected} customers={customers} vehicles={vehicles}
+          patch={patch} onClose={() => setSelected(null)} />
+      )}
     </>
   );
 }
