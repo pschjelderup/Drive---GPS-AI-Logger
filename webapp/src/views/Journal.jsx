@@ -106,7 +106,12 @@ export default function Journal() {
     const per = { privat: 0, foretag: 0, diffust: 0, omarkt: 0 };
     for (const t of trips) per[t.purpose ?? "omarkt"] += (t.distance_m || 0) / 1000;
     const moving = trips.reduce((a, t) => a + (t.moving_s || 0), 0);
-    return { km, per, moving };
+    // Osignerade resor ar hal i bevisningen om journalen nagonsin granskas -
+    // de raknas har sa att de blir atgardade i tid, inte upptackta i efterhand.
+    const unsigned = trips.filter(
+      (t) => !t.purpose || t.purpose === "omarkt" || t.purpose === "diffust",
+    ).length;
+    return { km, per, moving, unsigned };
   }, [trips]);
 
   const exportCsv = () => {
@@ -146,6 +151,12 @@ export default function Journal() {
           <div className="tile">
             <b>{totals.km > 0 ? Math.round((totals.per.foretag / totals.km) * 100) : 0} %</b>
             <span>företag av körda km</span>
+          </div>
+          <div className="tile">
+            <b style={{ color: totals.unsigned ? "var(--warn)" : "var(--green)" }}>
+              {totals.unsigned}
+            </b>
+            <span>osignerade resor</span>
           </div>
         </div>
       </div>

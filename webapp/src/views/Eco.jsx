@@ -38,6 +38,17 @@ export default function Eco() {
     ? scored.reduce((a, t) => a + t.eco_score, 0) / scored.length
     : null;
 
+  // Harda moment per 100 km - sa mater telematikbranschen korstil, eftersom
+  // ravantal alltid pekar ut den langsta resan i stallet for den hardaste.
+  // Bara resor dar momenten faktiskt matts raknas, i bade taljare och namnare.
+  const measured = trips.filter(
+    (t) => t.hard_events != null && (t.distance_m || 0) > 500,
+  );
+  const measuredKm = measured.reduce((a, t) => a + t.distance_m / 1000, 0);
+  const per100 = measuredKm > 10
+    ? measured.reduce((a, t) => a + t.hard_events, 0) / (measuredKm / 100)
+    : null;
+
   return (
     <>
       <div className="card">
@@ -54,6 +65,10 @@ export default function Eco() {
           <div className="tile">
             <b>{scored.reduce((a, t) => a + (t.hard_events ?? 0), 0)}</b>
             <span>hårda moment totalt</span>
+          </div>
+          <div className="tile">
+            <b>{per100 != null ? per100.toFixed(1).replace(".", ",") : "–"}</b>
+            <span>hårda moment per 100 km</span>
           </div>
         </div>
       </div>

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- DriveLogger: vägen hem, ritad som spåret enheten loggar. Vägblå botten
+       (samma blå som motorvägsskylten), vägen i papper-vitt och målpunkten i
+       varselgult - körsäkerhet utan att rita en enda blåljussymbol. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e63e9"/>
+      <stop offset="1" stop-color="#11367f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#g)"/>
+  <path d="M 150 500 C 150 350, 356 330, 356 176"
+        fill="none" stroke="#f8f7f3" stroke-width="86" stroke-linecap="round"/>
+  <path d="M 150 500 C 150 350, 356 330, 356 176"
+        fill="none" stroke="#f0a400" stroke-width="13"
+        stroke-dasharray="36 44" stroke-linecap="round"/>
+  <circle cx="356" cy="150" r="46" fill="#f8f7f3"/>
+  <circle cx="356" cy="150" r="21" fill="#f0a400"/>
+</svg>

@@ -54,17 +54,18 @@ function GridLines({ max, unit }) {
           <g key={f}>
             {f > 0 && (
               <line x1={PAD.l} x2={W - PAD.r} y1={y} y2={y}
-                stroke={GRID} strokeWidth="1" />
+                style={{ stroke: GRID }} strokeWidth="1" />
             )}
             <text x={PAD.l - 6} y={y + 3} textAnchor="end" fontSize="10"
-              fill={INK_MUTED}>
+              style={{ fill: INK_MUTED }}>
               {Math.round(max * f)}{f === 1 && unit ? ` ${unit}` : ""}
             </text>
           </g>
         );
       })}
       <line x1={PAD.l} x2={W - PAD.r}
-        y1={H - PAD.b} y2={H - PAD.b} stroke={BASELINE} strokeWidth="1" />
+        y1={H - PAD.b} y2={H - PAD.b} style={{ stroke: BASELINE }}
+        strokeWidth="1" />
     </g>
   );
 }
@@ -92,12 +93,12 @@ export function BarChart({ items, unit }) {
           const y = H - PAD.b - h;
           return (
             <g key={i}>
-              <rect x={x} y={y} width={bw} height={h} fill={d.color}
-                rx="4" ry="4" />
+              <rect x={x} y={y} width={bw} height={h}
+                style={{ fill: d.color }} rx="4" ry="4" />
               {/* rundningen ska sitta i dataanden, inte i baslinjen */}
               {h > 4 && (
                 <rect x={x} y={H - PAD.b - Math.min(h, 4)} width={bw}
-                  height={Math.min(h, 4)} fill={d.color} />
+                  height={Math.min(h, 4)} style={{ fill: d.color }} />
               )}
               {/* traffytan ar storre an stapeln */}
               <rect x={PAD.l + i * step} y={PAD.t} width={step} height={innerH}
@@ -106,7 +107,7 @@ export function BarChart({ items, unit }) {
                 onMouseLeave={hide} />
               {i % every === 0 && (
                 <text x={x + bw / 2} y={H - PAD.b + 14} textAnchor="middle"
-                  fontSize="9" fill={INK_MUTED}>{d.label}</text>
+                  fontSize="9" style={{ fill: INK_MUTED }}>{d.label}</text>
               )}
             </g>
           );
@@ -138,18 +139,19 @@ export function LineChart({ items, unit, color, domainMax }) {
         {/* harkors + punkt vid svavning */}
         {hoverI != null && (
           <line x1={px(hoverI)} x2={px(hoverI)} y1={PAD.t} y2={H - PAD.b}
-            stroke={INK_MUTED} strokeWidth="1" strokeDasharray="3 3" />
+            style={{ stroke: INK_MUTED }} strokeWidth="1"
+            strokeDasharray="3 3" />
         )}
-        <path d={path} fill="none" stroke={color} strokeWidth="2"
+        <path d={path} fill="none" style={{ stroke: color }} strokeWidth="2"
           strokeLinejoin="round" strokeLinecap="round" />
         {hoverI != null && (
           <circle cx={px(hoverI)} cy={py(items[hoverI].value)} r="4"
-            fill={color} stroke={INK} strokeWidth="1.5" />
+            style={{ fill: color, stroke: INK }} strokeWidth="1.5" />
         )}
         {items.map((d, i) => (
           i % every === 0 && (
             <text key={i} x={px(i)} y={H - PAD.b + 14} textAnchor="middle"
-              fontSize="9" fill={INK_MUTED}>{d.label}</text>
+              fontSize="9" style={{ fill: INK_MUTED }}>{d.label}</text>
           )
         ))}
         <rect x={PAD.l} y={PAD.t} width={innerW} height={innerH}

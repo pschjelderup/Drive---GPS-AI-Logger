@@ -1,51 +1,148 @@
-/* Samma morka HUD som enheten, sa att appen och skarmen i bilen kanns som ett. */
+/* DriveLoggers formsprak: papper och black med vagbla som enda brandfarg -
+ * samma sprak som skarmen i bilen, sa att appen och enheten kanns som tva
+ * sidor av samma sak. Ljust ar standard; morkt ar samma tokens med inverterad
+ * skala. Temavaxlaren satter data-theme pa <html> fore forsta malningen. */
+
 :root {
-  --bg: #0a0e15;
-  --panel: #141a24;
-  --line: #232c39;
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --panel-2: #f0efe9;
+  --line: #dfddd6;
+  --text: #181c24;
+  --dim: #5d6470;
+  --muted: #9aa0a8;
+
+  --accent: #1a58d2;      /* vagbla */
+  --accent-ink: #ffffff;  /* text pa vagbla */
+  --accent-soft: #e6edfb;
+
+  --green: #0a7d4f;
+  --warn: #a87200;
+  --red: #c22f2f;
+
+  /* Diagramfarger, korda genom dataviz-valideringen pa ljus yta (PASS med
+   * krav pa etiketter - diagrammen har alltid svavarrutor och tabellvyer). */
+  --p-privat: #2a78d6;
+  --p-foretag: #1baf7a;
+  --p-diffust: #eda100;
+  --p-omarkt: #8b8984;
+  --series: #2a78d6;
+  --chart-grid: #e7e5de;
+  --chart-baseline: #d6d4cc;
+  --chart-ink: #181c24;
+  --chart-ink-muted: #8b8984;
+
+  --shadow: 0 1px 3px rgb(20 24 33 / 0.06);
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --bg: #101319;
+  --panel: #171c25;
+  --panel-2: #0d131d;
+  --line: #242c39;
   --text: #e6edf3;
   --dim: #9aa7b4;
   --muted: #5d6b7a;
-  --accent: #3c9dff;
-  --green: #28c878;
-  --warn: #ffb928;
-  --red: #f03c3c;
+
+  --accent: #4a8ae8;
+  --accent-ink: #0a1220;
+  --accent-soft: #1b2a44;
+
+  --green: #2fc47e;
+  --warn: #fab219;
+  --red: #f05252;
+
+  /* Morka diagramfarger, validerade pa mork yta. */
+  --p-privat: #3987e5;
+  --p-foretag: #199e70;
+  --p-diffust: #c98500;
+  --p-omarkt: #898781;
+  --series: #3987e5;
+  --chart-grid: #2c2c2a;
+  --chart-baseline: #383835;
+  --chart-ink: #e6edf3;
+  --chart-ink-muted: #898781;
+
+  --shadow: none;
+  color-scheme: dark;
 }
+
 * { box-sizing: border-box; }
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    system-ui, sans-serif;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 #root { min-height: 100vh; }
 
 .shell { max-width: 72rem; margin: 0 auto; padding: 1rem 1rem 4rem; }
 header.top {
-  display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
   padding: .5rem 0 1rem;
 }
-header.top h1 { font-size: 1.4rem; margin: 0; letter-spacing: -.02em; }
-header.top .who { color: var(--dim); font-size: .85rem; margin-left: auto; }
+header.top h1 { font-size: 1.35rem; margin: 0; letter-spacing: -.02em; font-weight: 700; }
+header.top .logo { width: 2rem; height: 2rem; border-radius: .55rem; display: block; }
+header.top .who { color: var(--dim); font-size: .85rem; margin-left: auto;
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+
+/* Enhetens puls: gron prick nar den varit uppkopplad nyss, annars nar den
+ * senast horde av sig. Det ar svaret pa "har resorna kommit fram?" utan att
+ * man behover leta. */
+.badge {
+  display: inline-flex; align-items: center; gap: .45rem;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: .25rem .75rem; font-size: .8rem; color: var(--dim);
+  background: var(--panel);
+}
+.badge .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--muted); }
+.badge.online { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
+.badge.online .dot { background: var(--green); animation: pulse-dot 2s ease-in-out infinite; }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .5; transform: scale(.8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge.online .dot { animation: none; }
+}
+
+/* Temavaxlaren: tre lagen som en liten radiogrupp. */
+.themetoggle {
+  display: inline-flex; gap: .15rem; border: 1px solid var(--line);
+  border-radius: 999px; padding: .15rem; background: var(--panel);
+}
+.themetoggle button {
+  border: none; background: transparent; color: var(--muted);
+  border-radius: 999px; width: 1.75rem; height: 1.75rem; cursor: pointer;
+  font-size: .85rem; line-height: 1; display: grid; place-items: center;
+}
+.themetoggle button.active { background: var(--accent-soft); color: var(--accent); }
 
 nav.tabs { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
 nav.tabs button {
   background: transparent; color: var(--dim); border: 1px solid var(--line);
   border-radius: 10px; padding: .45rem .9rem; font-size: .9rem; cursor: pointer;
+  font-family: inherit;
 }
-nav.tabs button.active { background: var(--panel); color: var(--text); border-color: var(--accent); }
+nav.tabs button.active {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  font-weight: 600;
+}
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
-  padding: 1.1rem 1.25rem; margin-bottom: 1.1rem;
+  padding: 1.1rem 1.25rem; margin-bottom: 1.1rem; box-shadow: var(--shadow);
 }
 .card h2 { font-size: .95rem; margin: 0 0 .8rem; color: var(--dim);
   text-transform: uppercase; letter-spacing: .05em; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .6rem; }
-.tile { background: #0d131d; border-radius: 10px; padding: .7rem .9rem; }
-.tile b { display: block; font-size: 1.45rem; font-weight: 650; }
+.tile { background: var(--panel-2); border-radius: 10px; padding: .7rem .9rem; }
+.tile b { display: block; font-size: 1.45rem; font-weight: 650; font-variant-numeric: tabular-nums; }
 .tile span { color: var(--dim); font-size: .78rem; }
 
 table.journal { width: 100%; border-collapse: collapse; font-size: .88rem; }
@@ -55,27 +152,30 @@ table.journal th {
   padding: .4rem .5rem; border-bottom: 1px solid var(--line);
 }
 table.journal td { padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
-table.journal tr:hover td { background: #0d131d; }
+table.journal tr:hover td { background: var(--panel-2); }
 .chip { display: inline-block; width: .6rem; height: 1.4rem; border-radius: 4px; vertical-align: middle; }
 
 select, input[type=text], input[type=number], input[type=email], input[type=password], textarea {
-  background: #0d131d; color: var(--text); border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
   border-radius: 8px; padding: .4rem .6rem; font-size: .88rem; font-family: inherit;
 }
-select:focus, input:focus, textarea:focus { outline: 1px solid var(--accent); }
+select:focus, input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 
 button.primary {
-  background: var(--accent); color: #08101c; border: none; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink); border: none; border-radius: 10px;
   padding: .55rem 1.1rem; font-weight: 650; font-size: .9rem; cursor: pointer;
+  font-family: inherit;
 }
 button.ghost {
   background: transparent; color: var(--dim); border: 1px solid var(--line);
   border-radius: 10px; padding: .5rem 1rem; font-size: .88rem; cursor: pointer;
+  font-family: inherit;
 }
 button:disabled { opacity: .45; cursor: default; }
 
 .login { max-width: 22rem; margin: 14vh auto 0; display: flex; flex-direction: column; gap: .7rem; }
-.login h1 { margin: 0; }
+.login h1 { margin: 0; display: flex; align-items: center; gap: .6rem; }
+.login .logo { width: 2.4rem; height: 2.4rem; border-radius: .6rem; }
 .login p { color: var(--dim); margin: 0 0 .6rem; }
 
 .drop {
@@ -89,24 +189,43 @@ button:disabled { opacity: .45; cursor: default; }
 .ok { color: var(--green); }
 
 .map { height: 32rem; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+/* OSM-plattorna ar ljusa; i morkt tema dampas de sa kartan inte blandar.
+ * Sparen ligger i eget SVG-lager och paverkas inte. */
+html[data-theme="dark"] .map .leaflet-tile { filter: brightness(.72) contrast(1.05) saturate(.85); }
 
 .filters { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .filters button {
   background: transparent; border: 1px solid var(--line); color: var(--dim);
   border-radius: 8px; padding: .3rem .8rem; font-size: .82rem; cursor: pointer;
+  font-family: inherit;
 }
-.filters button.active { color: var(--text); border-color: var(--accent); }
+.filters button.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
 .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .82rem; color: var(--dim); margin: .4rem 0; }
 .legend .sw { display: inline-block; width: .8rem; height: .8rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; }
 
 .ai-out {
   white-space: pre-wrap; font-size: .92rem; line-height: 1.6;
-  background: #0d131d; border-radius: 10px; padding: 1rem; min-height: 4rem;
+  background: var(--panel-2); border-radius: 10px; padding: 1rem; min-height: 4rem;
 }
 
 .charttip {
-  position: absolute; pointer-events: none; background: #0d131d;
+  position: absolute; pointer-events: none; background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 8px; padding: .35rem .6rem;
   font-size: .8rem; transform: translate(-50%, -115%); white-space: nowrap; z-index: 5;
+}
+
+code.token {
+  background: var(--panel-2); padding: .35rem .6rem;
+  border-radius: 8px; font-size: .85rem;
+}
+
+/* Arsrapporten ska ga att skriva ut och lamna till en revisor: pa papper
+ * forsvinner skalet och bara innehallet star kvar. */
+@media print {
+  body { background: #fff; color: #000; }
+  .shell { max-width: none; padding: 0; }
+  header.top, nav.tabs, .noprint { display: none !important; }
+  .card { border: none; box-shadow: none; padding: 0; margin-bottom: 1.5rem; }
+  table.journal td, table.journal th { border-color: #ccc; }
 }
