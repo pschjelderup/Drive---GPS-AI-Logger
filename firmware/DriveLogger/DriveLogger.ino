@@ -5,9 +5,10 @@
 // sjalv, eftersom en korjournal som bara innehaller de resor nagon kom ihag att
 // trycka igang inte ar en korjournal.
 //
-// Skarmen visar under fard hastigheten, den skyltade hastigheten, hur mycket
-// over eller under man ligger, och varnar for fartkameror ur Trafikverkets
-// oppna data. Ecodrive-skarmen fran Gmate finns kvar som en egen vy.
+// Skarmarna ritas med LVGL och bor i gui_screens; det har ar bara uppstarten,
+// installningarna och serieportens felsokningsrader. Hemskarmen ar en appmeny
+// i telefonstil, korskarmen en renderad matare, och ett svep uppat fran
+// underkanten leder alltid hem.
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
@@ -21,11 +22,11 @@
 #include "customers.h"
 #include "eco.h"
 #include "gnss.h"
+#include "gui.h"
 #include "sensors.h"
 #include "sound.h"
 #include "stats.h"
 #include "trip.h"
-#include "ui.h"
 #include "websync.h"
 
 // ------------------------------------------------------------- skarmen ----
@@ -36,11 +37,6 @@ Arduino_RM690B0 *panel =
     new Arduino_RM690B0(bus, PIN_LCD_RST, 0 /* rotation */, SCREEN_W, SCREEN_H,
                         LCD_COL_OFFSET, 0, LCD_COL_OFFSET, 0);
 
-// Allt ritas forst i en bildbuffert i psram och skickas sedan till skarmen i ett
-// svep. Det ger en bild utan flimmer - och det ar ocksa det som gor de
-// genomskinliga lagren mojliga, eftersom en buffert gar att lasa tillbaka.
-Arduino_Canvas *gfx = new Arduino_Canvas(SCREEN_W, SCREEN_H, panel, 0, 0, 0);
-
 TouchDrvFT6X36 touch;
 bool touchOk = false;
 
@@ -50,31 +46,7 @@ AppSettings cfg = {DEFAULT_SCREEN_TIMEOUT_INDEX, DEFAULT_SOUND_ON,
                    DEFAULT_ECO_BUBBLE_INDEX,     DEFAULT_ECO_PENALTY_INDEX,
                    DEFAULT_ECO_WINDOW_INDEX};
 
-Screen screen = SCREEN_MAIN;
-Screen customerReturn = SCREEN_MAIN;
-bool screenOn = true;
-uint32_t lastActivityMs = 0;
-uint32_t lastDrawMs = 0;
-bool wasTouched = false;
 bool lastButtonState = HIGH;
-
-// Svep mellan sidorna. Trycket registreras vid slappet, inte vid nedslaget:
-// forst da vet vi om fingret pekade eller drog. Ett svep som borjar pa en
-// knapp ska byta sida, inte trycka pa knappen.
-int16_t touchStartX = 0, touchStartY = 0;
-int16_t touchLastX = 0, touchLastY = 0;
-bool touchWokeScreen = false;
-
-// Sa langt ska fingret ha dragit for att raknas som ett svep, och draget ska
-// vara tydligt liggande - annars ar det ett slarvigt tryck.
-const int16_t kSwipeMinPx = 70;
-
-// Fragan om syftet efter en avslutad resa. Svarar man inte blir resan diffus,
-// vilket ar arligt - det var den.
-const uint32_t kPurposeAskMs = 60000;
-uint32_t purposeAskStartMs = 0;
-
-uint8_t customerPage = 0;
 
 // Versionsstrangen och PR-numret kommer fran bygget, via config.h.
 
@@ -173,349 +145,11 @@ void printStatusLine() {
       (unsigned long)cams::count());
 }
 
-// -------------------------------------------------------- skarm av och pa --
-
-void setScreen(bool on) {
-  if (on == screenOn) return;
-  screenOn = on;
-  if (on) {
-    panel->displayOn();
-    panel->setBrightness(235);
-    lastDrawMs = 0;  // tvinga omritning direkt
-  } else {
-    panel->setBrightness(0);
-    panel->displayOff();
-  }
-  lastActivityMs = millis();
-}
-
-// ------------------------------------------------------------- pekskarm ---
-
-// Oversatter fran pekskarmens koordinater till skarmens, ifall panelen ar
-// monterad speglad eller vriden.
-void mapTouch(int16_t &x, int16_t &y) {
-#if TOUCH_SWAP_XY
-  const int16_t t = x;
-  x = y;
-  y = t;
-#endif
-#if TOUCH_FLIP_X
-  x = SCREEN_W - 1 - x;
-#endif
-#if TOUCH_FLIP_Y
-  y = SCREEN_H - 1 - y;
-#endif
-}
-
-void openCustomers(Screen returnTo) {
-  customers::reload();
-  customerPage = 0;
-  customerReturn = returnTo;
-  screen = SCREEN_CUSTOMER;
-}
-
-void toggleSound() {
-  cfg.soundOn = cfg.soundOn ? 0 : 1;
-  applySettings();
-  saveSettings();
-  // Kvittot spelas bara nar ljudet slas pa. Ett pip som bekraftar att ljudet ar
-  // avstangt vore ett pip for mycket.
-  if (cfg.soundOn) sound::play(CUE_TAP);
-}
-
-void onPressMain(int16_t x, int16_t y) {
-  if (ui::kBtnSoundToggle.contains(x, y)) {
-    toggleSound();
-    return;
-  }
-
-  if (ui::kBtnPrivat.contains(x, y)) {
-    trip::setPurpose(PURPOSE_PRIVAT);
-    sound::play(CUE_TAP);
-    return;
-  }
-
-  if (ui::kBtnForetag.contains(x, y)) {
-    // Att markera en resa som foretagsresa och att saga vilken kund det galler
-    // ar samma handling i praktiken, sa listan oppnas direkt. Vill man ingen
-    // kund finns knappen "INGEN KUND" dar.
-    trip::setPurpose(PURPOSE_FORETAG);
-    sound::play(CUE_TAP);
-    openCustomers(SCREEN_MAIN);
-    return;
-  }
-
-  if (ui::kBtnDiffust.contains(x, y)) {
-    trip::setPurpose(PURPOSE_DIFFUST);
-    sound::play(CUE_TAP);
-    return;
-  }
-
-  if (ui::kBtnTripAction.contains(x, y)) {
-    const TripStatus t = trip::status();
-    if (!sensors::sdMounted()) {
-      sensors::remount();
-      cams::reload();
-      customers::reload();
-      stats::begin();
-    } else if (t.active) {
-      trip::endManual();
-      sound::play(CUE_TRIP_END);
-    } else {
-      if (trip::startManual()) {
-        sound::play(CUE_TRIP_START);
-      } else {
-        sound::play(CUE_ERROR);
-      }
-    }
-    return;
-  }
-
-  if (ui::kBtnEco.contains(x, y)) {
-    screen = SCREEN_ECO;
-    return;
-  }
-
-  if (ui::kBtnMiddle.contains(x, y)) {
-    const TripStatus t = trip::status();
-    if (t.active) {
-      // Dela resan: den pagaende avslutas och en ny borjar pa samma punkt, sa
-      // att inget glapp uppstar. Anvands nar man svanger in till en kund pa
-      // vagen hem och vill ha tva rader i journalen.
-      trip::splitHere();
-      sound::play(CUE_TRIP_START);
-    } else {
-      openCustomers(SCREEN_MAIN);
-    }
-    return;
-  }
-
-  if (ui::kBtnMenu.contains(x, y)) {
-    screen = SCREEN_MENU;
-    return;
-  }
-}
-
-void onPressPurposeAsk(int16_t x, int16_t y) {
-  if (ui::kBtnAskPrivat.contains(x, y)) {
-    trip::setPurpose(PURPOSE_PRIVAT);
-    sound::play(CUE_TAP);
-    screen = SCREEN_MAIN;
-    return;
-  }
-  if (ui::kBtnAskForetag.contains(x, y)) {
-    trip::setPurpose(PURPOSE_FORETAG);
-    sound::play(CUE_TAP);
-    openCustomers(SCREEN_MAIN);
-    return;
-  }
-  if (ui::kBtnAskDiffust.contains(x, y)) {
-    trip::setPurpose(PURPOSE_DIFFUST);
-    sound::play(CUE_TAP);
-    screen = SCREEN_MAIN;
-    return;
-  }
-}
-
-void onPressCustomer(int16_t x, int16_t y) {
-  const uint8_t total = customers::count();
-  const uint8_t perPage = 6;
-  const uint8_t pages = total ? (uint8_t)((total + perPage - 1) / perPage) : 1;
-  const uint8_t first = customerPage * perPage;
-  const uint8_t shown =
-      (total > first) ? (uint8_t)min((int)perPage, (int)(total - first)) : 0;
-
-  for (uint8_t i = 0; i < shown; i++) {
-    if (!ui::customerRow(i).contains(x, y)) continue;
-    trip::setCustomer(customers::name(first + i));
-    sound::play(CUE_TAP);
-    screen = customerReturn;
-    return;
-  }
-
-  if (ui::kBtnCustomerNone.contains(x, y)) {
-    // Foretagsresa utan namngiven kund. Markningen behalls, kundfaltet lamnas
-    // tomt - hellre tomt an en kund som inte var med.
-    trip::setCustomer("");
-    trip::setPurpose(PURPOSE_FORETAG);
-    sound::play(CUE_TAP);
-    screen = customerReturn;
-    return;
-  }
-
-  if (pages > 1) {
-    if (ui::kBtnCustomerPrev.contains(x, y)) {
-      customerPage = customerPage > 0 ? customerPage - 1 : pages - 1;
-      return;
-    }
-    if (ui::kBtnCustomerNext.contains(x, y)) {
-      customerPage = (uint8_t)((customerPage + 1) % pages);
-      return;
-    }
-  } else if (ui::kBtnCustomerPrev.contains(x, y)) {
-    screen = customerReturn;
-    return;
-  }
-}
-
-void onPressEco(int16_t x, int16_t y) {
-  if (ui::kBtnEcoReset.contains(x, y)) {
-    eco::reset();
-    return;
-  }
-  if (ui::kBtnEcoLimits.contains(x, y)) {
-    screen = SCREEN_ECO_LIMITS;
-    return;
-  }
-  if (ui::kBtnEcoBack.contains(x, y)) screen = SCREEN_MAIN;
-}
-
-// Granserna gar att andra aven under pagaende resa. De paverkar bara hur skarmen
-// bedomer korningen - resans innehall ar detsamma oavsett var de star, sa det
-// finns ingen fil som kan bli inkonsekvent.
-void onPressEcoLimits(int16_t x, int16_t y) {
-  for (uint8_t row = 0; row < 5; row++) {
-    const bool minus = ui::ecoMinus(row).contains(x, y);
-    const bool plus = ui::ecoPlus(row).contains(x, y);
-    if (!minus && !plus) continue;
-
-    uint8_t *value = nullptr;
-    uint8_t count = 0;
-    switch (row) {
-      case 0: value = &cfg.ecoSoftIdx; count = kEcoSoftCount; break;
-      case 1: value = &cfg.ecoHardIdx; count = kEcoHardCount; break;
-      case 2: value = &cfg.ecoBubbleIdx; count = kEcoBubbleCount; break;
-      case 3: value = &cfg.ecoPenaltyIdx; count = kEcoPenaltyCount; break;
-      case 4: value = &cfg.ecoWindowIdx; count = kEcoWindowCount; break;
-    }
-    if (!value) continue;
-
-    if (minus && *value > 0) {
-      (*value)--;
-    } else if (plus && *value + 1 < count) {
-      (*value)++;
-    } else {
-      return;
-    }
-
-    applySettings();
-    saveSettings();
-    return;
-  }
-
-  if (ui::kBtnEcoBack.contains(x, y)) screen = SCREEN_ECO;
-}
-
-void onPressMenu(int16_t x, int16_t y) {
-  for (uint8_t row = 0; row < 2; row++) {
-    const bool minus = ui::menuMinus(row).contains(x, y);
-    const bool plus = ui::menuPlus(row).contains(x, y);
-    if (!minus && !plus) continue;
-
-    if (row == 0) {
-      toggleSound();
-      return;
-    }
-
-    if (minus && cfg.screenIdx > 0) {
-      cfg.screenIdx--;
-    } else if (plus && cfg.screenIdx + 1 < kScreenTimeoutCount) {
-      cfg.screenIdx++;
-    } else {
-      return;
-    }
-    saveSettings();
-    return;
-  }
-
-  if (ui::kBtnTare.contains(x, y)) {
-    // Taran sparar vilket hall som ar ned. Det gar bara nar kortet star stilla:
-    // under rorelse ar det inte tyngdkraften man skulle spara utan en manover,
-    // och da skulle lodlinjen bli fel for all framtid.
-    if (eco::tare()) {
-      ui::drawMessage("TARAT", "Monteringsläget är sparat.",
-                      "Riktningen lärs in när du kör.");
-    } else {
-      ui::drawMessage("STÅ STILL", "Kortet måste ligga stilla.",
-                      "Försök igen när bilen står.");
-      sound::play(CUE_ERROR);
-    }
-    delay(1500);
-    lastDrawMs = 0;  // rita om direkt nar meddelandet slapper
-    return;
-  }
-
-  if (ui::kBtnBack.contains(x, y)) screen = SCREEN_MAIN;
-}
-
-// Sidorna i svepkarusellen ligger forst i Screen-uppraakningen, i ringordning.
-void swipePage(int8_t dir) {
-  if (screen >= kSwipePages) return;  // fragor och menyer sveps inte bort
-  int8_t page = (int8_t)screen + dir;
-  if (page < 0) page = kSwipePages - 1;
-  if (page >= (int8_t)kSwipePages) page = 0;
-  screen = (Screen)page;
-  sound::play(CUE_TAP);
-  lastDrawMs = 0;  // rita nya sidan direkt
-}
-
-void dispatchTap(int16_t x, int16_t y) {
-  switch (screen) {
-    case SCREEN_MAIN: onPressMain(x, y); break;
-    case SCREEN_STATS: break;  // statistiken visar, den har inga knappar
-    case SCREEN_PURPOSE: onPressPurposeAsk(x, y); break;
-    case SCREEN_CUSTOMER: onPressCustomer(x, y); break;
-    case SCREEN_ECO: onPressEco(x, y); break;
-    case SCREEN_ECO_LIMITS: onPressEcoLimits(x, y); break;
-    case SCREEN_MENU: onPressMenu(x, y); break;
-  }
-}
-
-void handleTouch() {
-  if (!touchOk) return;
-
-  const TouchPoints &points = touch.getTouchPoints();
-  const bool pressed = points.hasPoints();
-
-  if (pressed) {
-    const TouchPoint &p = points.getPoint(0);
-    int16_t x = (int16_t)p.x;
-    int16_t y = (int16_t)p.y;
-    mapTouch(x, y);
-
-    if (!wasTouched) {
-      lastActivityMs = millis();
-      touchStartX = x;
-      touchStartY = y;
-      // Forsta trycket nar skarmen ar slackt tander bara skarmen, sa att man
-      // inte rakar markera en resa av misstag. Slappet ignoreras sedan.
-      touchWokeScreen = !screenOn;
-      if (!screenOn) setScreen(true);
-    }
-    touchLastX = x;
-    touchLastY = y;
-  } else if (wasTouched) {
-    // Slappet ar handelsen. Forst nu vet vi om fingret pekade eller drog.
-    lastActivityMs = millis();
-    if (!touchWokeScreen) {
-      const int16_t dx = touchLastX - touchStartX;
-      const int16_t dy = touchLastY - touchStartY;
-      if (abs(dx) >= kSwipeMinPx && abs(dx) > abs(dy) + abs(dy) / 2) {
-        // Fingret at vanster drar in nasta sida fran hoger.
-        swipePage(dx < 0 ? 1 : -1);
-      } else {
-        dispatchTap(touchStartX, touchStartY);
-      }
-    }
-  }
-  wasTouched = pressed;
-}
-
+// Knappen pa kortet slacker och tander skarmen.
 void handleButton() {
   const bool state = digitalRead(PIN_BOOT_BUTTON);
-  // Knappen drar ingangen till noll nar den trycks ned.
   if (state == LOW && lastButtonState == HIGH) {
-    setScreen(!screenOn);
+    gui::setDisplayOn(!gui::displayOn());
     delay(50);  // enkel studsfiltrering
   }
   lastButtonState = state;
@@ -541,13 +175,9 @@ void setup() {
 
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
-  gfx->begin();
-  gfx->fillScreen(RGB565(6, 9, 15));
-  gfx->flush();
+  panel->begin();
+  panel->fillScreen(0x0000);
   panel->setBrightness(235);
-
-  ui::begin(gfx);
-  ui::drawMessage("DRIVELOGGER", "startar ...", nullptr);
 
   loadSettings();
   sound::begin();
@@ -572,67 +202,27 @@ void setup() {
   touch.setPins(PIN_TOUCH_RST, TOUCH_IRQ_NOT_CONNECTED);
   touchOk = touch.begin(Wire, FT6X36_SLAVE_ADDRESS, PIN_I2C_SDA, PIN_I2C_SCL);
 
-  if (!imuOk) {
-    // Rorelsesensorn behovs bara till ecodrive. Resan loggas anda, sa det ar en
-    // upplysning och inte ett stopp.
-    ui::drawMessage("SENSORFEL", "Rörelsesensorn svarar inte.",
-                    "Resor loggas ändå - ecodrive gör det inte.");
-    delay(3000);
-  }
-
-  if (!gnss::present()) {
-    // Utan mottagare finns ingenting att logga. Det sags rakt ut, i stallet for
-    // att enheten later som om den arbetade.
-    ui::drawMessage("INGEN GPS", "Mottagaren svarar inte på 0x42.",
-                    "Kontrollera Qwiic-kabeln i I2C-porten.");
-    sound::play(CUE_ERROR);
-    delay(4000);
-  }
+  gui::begin(panel, &touch, touchOk, &cfg, saveSettings, applySettings);
 
   // En resa som strommen tog ar redan lagad har. Med tandningsstyrd strom ar
   // det varje resa, sa skarmen gor inget vasen av det - saknar resan syfte
-  // staller huvudloopen fragan, annars sags ingenting. Raden nedan ar for den
-  // som felsoker over serieporten.
+  // staller gui:t fragan, annars sags ingenting. Raden nedan ar for den som
+  // felsoker over serieporten.
   const RecoveredTrip rec = trip::recovered();
   if (rec.valid) {
     Serial.printf("lakt resa %lu: %.2f km, sista position %.5f,%.5f\n",
                   (unsigned long)rec.index, rec.distanceM / 1000.0, rec.lat,
                   rec.lon);
   }
-
-  lastActivityMs = millis();
 }
 
 uint32_t lastSerialMs = 0;
 
 void loop() {
   handleButton();
-  handleTouch();
   sound::tick();
   websync::tick();
-
-  const TripStatus t = trip::status();
-
-  // ---- fragan om syftet efter en avslutad resa
-  if (t.awaitingPurpose && screen != SCREEN_PURPOSE &&
-      screen != SCREEN_CUSTOMER) {
-    screen = SCREEN_PURPOSE;
-    purposeAskStartMs = millis();
-    setScreen(true);
-    sound::play(CUE_TRIP_END);
-  }
-
-  if (screen == SCREEN_PURPOSE) {
-    if (!t.awaitingPurpose) {
-      // Svaret ar registrerat, av oss eller av nedrakningen.
-      screen = SCREEN_MAIN;
-    } else if (millis() - purposeAskStartMs > kPurposeAskMs) {
-      // Ingen svarade. Resan var diffus, och det ar det som skrivs - att gissa
-      // privat eller foretag ur tystnad vore att hitta pa.
-      trip::setPurpose(PURPOSE_DIFFUST);
-      screen = SCREEN_MAIN;
-    }
-  }
+  gui::tick();
 
   // En rad var femte sekund racker for att folja en uppstart utan att dranka
   // konsolen. Den fortsatter aven med slackt skarm, vilket ar precis nar man
@@ -642,48 +232,5 @@ void loop() {
     printStatusLine();
   }
 
-  // ---- skarmens timeout. Under en pagaende resa ar skarmen hela poangen och
-  // slacks aldrig av sig sjalv. Nar bilen star parkerad slacks den daremot, bade
-  // for stromen och for att en amoled inte mar bra av en stillastaende bild i
-  // timmar.
-  const uint16_t timeout = kScreenTimeouts[cfg.screenIdx];
-  if (screenOn && timeout > 0 && !t.active &&
-      (screen == SCREEN_MAIN || screen == SCREEN_STATS) &&
-      millis() - lastActivityMs > (uint32_t)timeout * 1000UL) {
-    setScreen(false);
-  }
-
-  if (screenOn && millis() - lastDrawMs >= 200) {
-    lastDrawMs = millis();
-    switch (screen) {
-      case SCREEN_MAIN:
-        ui::drawMain(t, cams::warning(), cams::currentLimitKmh(), t.speedKmh,
-                     cfg);
-        break;
-      case SCREEN_STATS: ui::drawStats(stats::summary()); break;
-      case SCREEN_PURPOSE: {
-        const uint32_t gone = millis() - purposeAskStartMs;
-        const uint32_t left = (gone < kPurposeAskMs) ? (kPurposeAskMs - gone) : 0;
-        ui::drawPurposeAsk(t, left / 1000);
-        break;
-      }
-      case SCREEN_CUSTOMER: {
-        const uint8_t total = customers::count();
-        const uint8_t perPage = 6;
-        const uint8_t pages = total ? (uint8_t)((total + perPage - 1) / perPage) : 1;
-        const uint8_t first = customerPage * perPage;
-        const uint8_t shown =
-            (total > first) ? (uint8_t)min((int)perPage, (int)(total - first)) : 0;
-        const char *names[6];
-        for (uint8_t i = 0; i < shown; i++) names[i] = customers::name(first + i);
-        ui::drawCustomers(names, shown, customerPage, pages);
-        break;
-      }
-      case SCREEN_ECO: ui::drawEco(eco::status()); break;
-      case SCREEN_ECO_LIMITS: ui::drawEcoLimits(cfg, eco::status()); break;
-      case SCREEN_MENU: ui::drawMenu(cfg, fwVersionFull()); break;
-    }
-  }
-
-  delay(10);
+  delay(5);
 }

@@ -9,56 +9,104 @@ import { PURPOSE_COLOR } from "../lib/palette.js";
 import { parseGpx } from "../lib/gpx.js";
 import { vehicleLabel, tripVehicleId } from "../lib/vehicles.js";
 
-// Sparet i miniformat: resans form som ren siluett, utan kartplattor - i den
-// har storleken ar formen det som sager nagot, och den foljer temat i stallet
-// for att lysa i kartfarger. Mercatorkorrigering pa longituden sa att formen
-// inte blir hoptryckt pa svenska breddgrader.
+// Sparet i miniformat, pa riktig kartbotten: OSM-plattorna som tacker sparets
+// rektangel raknas fram och laggs som bilder, sparet ritas ovanpa med vit
+// kant sa det lyfter ur kartbilden. Ingen kartmotor per kort - bara bilder
+// och en SVG, sa hundra kort kostar ingenting.
 function TrackMini({ pts, color }) {
+  const boxRef = useRef(null);
+  const [dim, setDim] = useState(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el) setDim({ w: el.clientWidth || 260, h: el.clientHeight || 96 });
+  }, []);
+
+  let content = null;
   if (pts === undefined) {
-    return <div className="minimap empty">hämtar spår …</div>;
-  }
-  if (!pts || pts.length < 2) {
-    return <div className="minimap empty">inget spår</div>;
-  }
-  const W = 260, H = 96, P = 10;
-  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-  for (const [la, lo] of pts) {
-    if (la < minLat) minLat = la;
-    if (la > maxLat) maxLat = la;
-    if (lo < minLon) minLon = lo;
-    if (lo > maxLon) maxLon = lo;
-  }
-  const kx = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180);
-  const spanX = Math.max((maxLon - minLon) * kx, 1e-6);
-  const spanY = Math.max(maxLat - minLat, 1e-6);
-  const sc = Math.min((W - 2 * P) / spanX, (H - 2 * P) / spanY);
-  const ox = (W - spanX * sc) / 2;
-  const oy = (H - spanY * sc) / 2;
-  const X = (lo) => ox + (lo - minLon) * kx * sc;
-  const Y = (la) => H - oy - (la - minLat) * sc;
+    content = <span className="mm-note">hämtar spår …</span>;
+  } else if (!pts || pts.length < 2) {
+    content = <span className="mm-note">inget spår</span>;
+  } else if (dim) {
+    const { w, h } = dim;
+    const merc = (lat, lon) => {
+      const x = (lon + 180) / 360;
+      const sn = Math.sin((lat * Math.PI) / 180);
+      const y = 0.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI);
+      return [x, y];
+    };
+    let minX = 1, maxX = 0, minY = 1, maxY = 0;
+    for (const [la, lo] of pts) {
+      const [x, y] = merc(la, lo);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    const dx = Math.max(maxX - minX, 1e-9);
+    const dy = Math.max(maxY - minY, 1e-9);
+    // Storsta zoom dar sparet ryms med lite luft.
+    const z = Math.max(3, Math.min(17, Math.floor(Math.min(
+      Math.log2((w * 0.8) / (256 * dx)),
+      Math.log2((h * 0.8) / (256 * dy)),
+    ))));
+    const world = 256 * 2 ** z;
+    const left = ((minX + maxX) / 2) * world - w / 2;
+    const top = ((minY + maxY) / 2) * world - h / 2;
 
-  const step = Math.max(1, Math.floor(pts.length / 200));
-  const d = [];
-  for (let i = 0; i < pts.length; i += step) {
-    d.push(`${i ? "L" : "M"}${X(pts[i][1]).toFixed(1)},${Y(pts[i][0]).toFixed(1)}`);
-  }
-  const last = pts[pts.length - 1];
-  d.push(`L${X(last[1]).toFixed(1)},${Y(last[0]).toFixed(1)}`);
+    const tiles = [];
+    const maxTile = 2 ** z;
+    for (let tx = Math.floor(left / 256); tx * 256 < left + w; tx++) {
+      for (let ty = Math.floor(top / 256); ty * 256 < top + h; ty++) {
+        if (ty < 0 || ty >= maxTile) continue;
+        const wx = ((tx % maxTile) + maxTile) % maxTile;
+        tiles.push(
+          <img key={`${tx}:${ty}`} alt=""
+            src={`https://tile.openstreetmap.org/${z}/${wx}/${ty}.png`}
+            style={{ left: tx * 256 - left, top: ty * 256 - top }} />,
+        );
+      }
+    }
 
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="minimap" aria-hidden="true">
-      <path d={d.join(" ")} fill="none" style={{ stroke: color }}
-        strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={X(pts[0][1])} cy={Y(pts[0][0])} r="3.5"
-        style={{ fill: "var(--panel)", stroke: color }} strokeWidth="2" />
-      <circle cx={X(last[1])} cy={Y(last[0])} r="4" style={{ fill: color }} />
-    </svg>
-  );
+    const step = Math.max(1, Math.floor(pts.length / 300));
+    const d = [];
+    const px = (la, lo) => {
+      const [x, y] = merc(la, lo);
+      return `${(x * world - left).toFixed(1)},${(y * world - top).toFixed(1)}`;
+    };
+    for (let i = 0; i < pts.length; i += step) {
+      d.push(`${i ? "L" : "M"}${px(pts[i][0], pts[i][1])}`);
+    }
+    const last = pts[pts.length - 1];
+    d.push(`L${px(last[0], last[1])}`);
+    const [sx, sy] = px(pts[0][0], pts[0][1]).split(",");
+    const [ex, ey] = px(last[0], last[1]).split(",");
+
+    content = (
+      <>
+        {tiles}
+        <svg viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
+          <path d={d.join(" ")} fill="none" stroke="#ffffff" strokeWidth="5"
+            strokeLinejoin="round" strokeLinecap="round" opacity="0.9" />
+          <path d={d.join(" ")} fill="none" style={{ stroke: color }}
+            strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+          <circle cx={sx} cy={sy} r="3.5" fill="#ffffff"
+            style={{ stroke: color }} strokeWidth="2" />
+          <circle cx={ex} cy={ey} r="4" style={{ fill: color }}
+            stroke="#ffffff" strokeWidth="1.5" />
+        </svg>
+        <span className="osm">© OpenStreetMap</span>
+      </>
+    );
+  }
+
+  return <div ref={boxRef} className="minimap">{content}</div>;
 }
 
-// De fem senaste resorna som minikort: sparet, strackan, tiden och det
-// vasentliga - overblicken innan tabellen.
-function MiniCards({ trips }) {
+// Resorna som minikort: sparet, strackan, tiden och det vasentliga. Sex
+// visas fran borjan och "Ladda fler" tar resten i klumpar - sparen hamtas
+// bara for de kort som faktiskt visas. Ett klick pa kortet oppnar resekortet
+// med allt som finns om resan.
+function MiniCards({ trips, onOpen }) {
   const [tracks, setTracks] = useState({});
   const ids = trips.map((t) => t.id).join(",");
 
@@ -89,7 +137,9 @@ function MiniCards({ trips }) {
       {trips.map((t) => {
         const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
         return (
-          <div className="minicard" key={t.id}>
+          <div className="minicard" key={t.id} role="button" tabIndex={0}
+            onClick={() => onOpen?.(t)}
+            onKeyDown={(e) => e.key === "Enter" && onOpen?.(t)}>
             <div className="mc-accent" style={{ background: color }} />
             <div className="mc-head">
               <b>Resa {t.trip_no}</b>
@@ -202,6 +252,133 @@ function PlacePicker({ lat, lon, value, onPick }) {
   );
 }
 
+// Resekortet: hela resan pa ett stalle. Det som ar matt visas; det som ar
+// manniskans (syfte, kund, bil, platser, matarstallning, arende) andras har
+// och sparas direkt. Koordinaterna lankar till Google Maps.
+function TripModal({ trip, customers, vehicles, patch, onClose }) {
+  const [track, setTrack] = useState(undefined);
+  const gpxPath = trip?.gpx_path;
+  useEffect(() => {
+    let alive = true;
+    setTrack(undefined);
+    if (!gpxPath) { setTrack(null); return; }
+    supabase.storage.from(GPX_BUCKET).download(gpxPath).then(async ({ data }) => {
+      if (alive) setTrack(data ? parseGpx(await data.text()) : null);
+    });
+    return () => { alive = false; };
+  }, [gpxPath]);
+
+  if (!trip) return null;
+  const t = trip;
+  const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
+  const avgKmh = t.moving_s > 0 ? (t.distance_m / t.moving_s) * 3.6 : null;
+  const maps = (lat, lon) =>
+    `https://www.google.com/maps?q=${lat},${lon}`;
+
+  const kv = (label, value) => (
+    <div className="kv"><span>{label}</span><b>{value}</b></div>
+  );
+
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal card" onClick={(e) => e.stopPropagation()}>
+        <div className="mc-head" style={{ marginBottom: ".5rem" }}>
+          <b style={{ fontSize: "1.1rem" }}>Resa {t.trip_no}</b>
+          <button className="ghost" onClick={onClose}>stäng</button>
+        </div>
+        <TrackMini pts={track} color={color} />
+
+        <div className="kvgrid">
+          {kv("Start", <>
+            {fmtDateTime(t.start_utc)}
+            {t.start_lat ? <>{" "}
+              <a href={maps(t.start_lat, t.start_lon)} target="_blank"
+                rel="noreferrer">karta</a></> : null}
+          </>)}
+          {kv("Mål", <>
+            {fmtDateTime(t.end_utc)}
+            {t.end_lat ? <>{" "}
+              <a href={maps(t.end_lat, t.end_lon)} target="_blank"
+                rel="noreferrer">karta</a></> : null}
+          </>)}
+          {kv("Sträcka", `${fmtKm(t.distance_m)} km`)}
+          {kv("Rullande tid", t.moving_s != null ? fmtDur(t.moving_s) : "–")}
+          {kv("Medelfart", avgKmh != null ? `${Math.round(avgKmh)} km/h` : "–")}
+          {kv("Toppfart", t.max_speed_kmh ? `${Math.round(t.max_speed_kmh)} km/h` : "–")}
+          {kv("Över gränsen", t.speeding_s != null ? fmtDur(t.speeding_s) : "–")}
+          {kv("Ecopoäng", t.eco_score != null ? Math.round(t.eco_score) : "omätt")}
+          {kv("Hårda moment", t.hard_events ?? "–")}
+          {kv("Spårpunkter", t.points ?? "–")}
+          {kv("Avslut", t.end_reason ?? "–")}
+          {kv("GPX", t.gpx_name ?? "–")}
+        </div>
+
+        <div className="kvgrid" style={{ marginTop: ".6rem" }}>
+          <div className="kv"><span>Syfte</span>
+            <select value={t.purpose ?? "omarkt"}
+              onChange={(e) => patch(t.id, { purpose: e.target.value })}>
+              {t.purpose === "omarkt" && <option value="omarkt">Omärkt</option>}
+              {PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="kv"><span>Kund</span>
+            <select value={t.customer ?? ""}
+              onChange={(e) => patch(t.id, { customer: e.target.value || null })}>
+              <option value="">–</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+              {t.customer && !customers.some((c) => c.name === t.customer) && (
+                <option value={t.customer}>{t.customer}</option>
+              )}
+            </select>
+          </div>
+          {vehicles.length > 1 && (
+            <div className="kv"><span>Bil</span>
+              <select value={tripVehicleId(t, vehicles) ?? ""}
+                onChange={(e) => patch(t.id, {
+                  vehicle_id: e.target.value ? Number(e.target.value) : null,
+                })}>
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>{vehicleLabel(v)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="kv"><span>Startplats</span>
+            <PlacePicker lat={t.start_lat} lon={t.start_lon}
+              value={t.start_place}
+              onPick={(name) => patch(t.id, { start_place: name })} />
+          </div>
+          <div className="kv"><span>Målplats</span>
+            <PlacePicker lat={t.end_lat} lon={t.end_lon}
+              value={t.end_place}
+              onPick={(name) => patch(t.id, { end_place: name })} />
+          </div>
+          <div className="kv"><span>Mätarställning</span>
+            <input type="text" inputMode="numeric" placeholder="km"
+              style={{ width: "7rem" }}
+              defaultValue={t.odometer_km ?? ""}
+              onBlur={(e) => {
+                const v = parseFloat(e.target.value.replace(",", "."));
+                patch(t.id, { odometer_km: Number.isFinite(v) ? v : null });
+              }} />
+          </div>
+        </div>
+
+        <div className="kv" style={{ marginTop: ".6rem" }}>
+          <span>Ärende</span>
+          <input type="text" style={{ width: "100%" }}
+            defaultValue={t.notes ?? ""}
+            onBlur={(e) => patch(t.id, { notes: e.target.value || null })} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OdometerCard({ trips, vehicle }) {
   const [readings, setReadings] = useState([]);
   const [value, setValue] = useState("");
@@ -280,6 +457,8 @@ export default function Journal() {
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [vehicleFilter, setVehicleFilter] = useState("alla");
+  const [cardCount, setCardCount] = useState(6);
+  const [selected, setSelected] = useState(null);
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
@@ -319,6 +498,7 @@ export default function Journal() {
 
   const patch = async (id, fields) => {
     setTrips((xs) => xs.map((t) => (t.id === id ? { ...t, ...fields } : t)));
+    setSelected((sel) => (sel && sel.id === id ? { ...sel, ...fields } : sel));
     const { error } = await supabase
       .from("drive_trips").update(fields).eq("id", id);
     if (error) setStatus(`kunde inte spara: ${error.message}`);
@@ -381,10 +561,19 @@ export default function Journal() {
         </div>
       )}
 
-      <MiniCards trips={shown.slice(0, 5)} />
+      <MiniCards trips={shown.slice(0, cardCount)}
+        onOpen={(t) => setSelected(t)} />
+      {shown.length > cardCount && (
+        <p className="noprint" style={{ textAlign: "center", marginTop: "-.3rem" }}>
+          <button className="ghost"
+            onClick={() => setCardCount((n) => n + 12)}>
+            Ladda fler ({shown.length - cardCount} kvar)
+          </button>
+        </p>
+      )}
 
       <div className="card">
-        <h2>Överblick</h2>
+        <h2>Totalt Summerat</h2>
         <div className="tiles">
           <div className="tile"><b>{intFmt.format(Math.round(totals.km))}</b><span>körda km</span></div>
           <div className="tile"><b>{trips.length}</b><span>resor</span></div>
@@ -496,6 +685,11 @@ export default function Journal() {
           <button className="ghost" onClick={exportCsv}>Exportera körjournal (CSV)</button>
         </p>
       </div>
+
+      {selected && (
+        <TripModal trip={selected} customers={customers} vehicles={vehicles}
+          patch={patch} onClose={() => setSelected(null)} />
+      )}
     </>
   );
 }

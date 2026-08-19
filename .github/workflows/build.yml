@@ -45,7 +45,7 @@ jobs:
           path: |
             ~/.arduino15/packages
             ~/Arduino/libraries
-          key: arduino-esp32-3.3.11-gfx1.6.7-sensorlib0.4.1-ublox3.1.14
+          key: arduino-esp32-3.3.11-gfx1.6.7-sensorlib0.4.1-ublox3.1.14-lvgl9.3.0
 
       - name: Installera ESP32-kort och bibliotek
         if: steps.cache.outputs.cache-hit != 'true'
@@ -61,6 +61,7 @@ jobs:
           arduino-cli lib install "GFX Library for Arduino"@1.6.7
           arduino-cli lib install "SensorLib"@0.4.1
           arduino-cli lib install "SparkFun u-blox GNSS v3"@3.1.14
+          arduino-cli lib install "lvgl"@9.3.0
 
       - name: Konfigurera arduino-cli
         run: |
@@ -70,6 +71,13 @@ jobs:
           echo "--- installerade versioner ---"
           arduino-cli core list
           arduino-cli lib list
+
+      - name: Lagg lvgl-konfigurationen dar biblioteket letar
+        run: |
+          # LVGL hittar sin lv_conf.h i biblioteksmappens rot, inte i skissen.
+          # Skissens kopia ar sanningen; den har laggs dit vid varje bygge sa
+          # att en andring i skissen alltid foljer med.
+          cp firmware/DriveLogger/lv_conf.h ~/Arduino/libraries/lv_conf.h
 
       - name: Ta reda pa PR-numret
         env:
