@@ -180,7 +180,7 @@ void setScreen(bool on) {
   screenOn = on;
   if (on) {
     panel->displayOn();
-    panel->setBrightness(200);
+    panel->setBrightness(235);
     lastDrawMs = 0;  // tvinga omritning direkt
   } else {
     panel->setBrightness(0);
@@ -544,7 +544,7 @@ void setup() {
   gfx->begin();
   gfx->fillScreen(RGB565(6, 9, 15));
   gfx->flush();
-  panel->setBrightness(200);
+  panel->setBrightness(235);
 
   ui::begin(gfx);
   ui::drawMessage("DRIVELOGGER", "startar ...", nullptr);
