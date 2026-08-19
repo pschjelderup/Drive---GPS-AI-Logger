@@ -399,7 +399,7 @@ function PlacePicker({ lat, lon, value, onPick }) {
 // Resekortet: hela resan pa ett stalle. Det som ar matt visas; det som ar
 // manniskans (syfte, kund, bil, platser, matarstallning, arende) andras har
 // och sparas direkt. Koordinaterna lankar till Google Maps.
-function TripModal({ trip, customers, vehicles, patch, onClose }) {
+function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
   const [track, setTrack] = useState(undefined);
   const gpxPath = trip?.gpx_path;
   useEffect(() => {
@@ -537,6 +537,16 @@ function TripModal({ trip, customers, vehicles, patch, onClose }) {
             defaultValue={t.notes ?? ""}
             onBlur={(e) => patch(t.id, { notes: e.target.value || null })} />
         </div>
+
+        <p style={{ marginTop: ".9rem", marginBottom: 0 }}>
+          <button className="ghost" style={{ color: "var(--red)" }}
+            onClick={() => onDelete(t)}>
+            Ta bort resan
+          </button>
+          <span className="status" style={{ marginLeft: ".6rem" }}>
+            tas bort ur journalen och molnet – kortets kopia på enheten ligger kvar
+          </span>
+        </p>
       </div>
     </div>
   );
@@ -854,6 +864,23 @@ export default function Journal() {
     if (error) setStatus(`kunde inte spara: ${error.message}`);
   };
 
+  // En felaktig resa - testkorning, dubblett, garageflytt - ska ga att ta
+  // bort. Fragan stalls forst: det har gar inte att angra i webbappen.
+  // Kortets kopia pa enheten rors inte, sa spardata ar inte forlorad.
+  const removeTrip = async (t) => {
+    if (!window.confirm(
+      `Ta bort resa ${t.trip_no} (${fmtKm(t.distance_m)} km)? Det går inte att ångra.`,
+    )) return;
+    if (t.gpx_path) {
+      await supabase.storage.from(GPX_BUCKET).remove([t.gpx_path]);
+    }
+    const { error } = await supabase
+      .from("drive_trips").delete().eq("id", t.id);
+    if (error) { setStatus(`kunde inte ta bort: ${error.message}`); return; }
+    setTrips((xs) => xs.filter((x) => x.id !== t.id));
+    setSelected(null);
+  };
+
   const totals = useMemo(() => {
     const km = shown.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000;
     const per = { privat: 0, foretag: 0, diffust: 0, omarkt: 0 };
@@ -1165,7 +1192,7 @@ export default function Journal() {
 
       {selected && (
         <TripModal trip={selected} customers={customers} vehicles={vehicles}
-          patch={patch} onClose={() => setSelected(null)} />
+          patch={patch} onDelete={removeTrip} onClose={() => setSelected(null)} />
       )}
       {openGroup && (
         <GroupModal entry={openGroup}
