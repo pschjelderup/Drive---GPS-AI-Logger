@@ -274,6 +274,8 @@ html[data-theme="dark"] .minimap img { filter: brightness(.72) contrast(1.05) sa
 
 /* Platsvaljaren i journalen: sokfalt plus lista, narmast forst. */
 .place { font-size: .78rem; color: var(--dim); }
+/* Den uppslagna gatuadressen - alltid dar, aven nar ingen plats ar vald. */
+.addr { font-size: .76rem; color: var(--dim); font-weight: 400; }
 button.mini { padding: .1rem .5rem; font-size: .74rem; border-radius: 6px; }
 .placepop {
   display: flex; flex-direction: column; gap: .3rem;
