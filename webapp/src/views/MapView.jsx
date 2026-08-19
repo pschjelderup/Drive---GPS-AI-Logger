@@ -10,7 +10,12 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase, GPX_BUCKET } from "../lib/supabase.js";
 import { parseGpxTimed, segmentSpeedKmh } from "../lib/gpx.js";
-import { MAP_COLOR, MAP_HEAT, SPEED_BINS, speedColor } from "../lib/palette.js";
+import { parseKamerorBin, parseHastighetBin } from "../lib/trv.js";
+import { createRoadLayer } from "../lib/roadlayer.js";
+import {
+  MAP_COLOR, MAP_HEAT, SPEED_BINS, speedColor,
+  LIMIT_BINS, limitColor, CAM_RING, CAM_FILL,
+} from "../lib/palette.js";
 import { purposeLabel, fmtKm, fmtDate } from "../lib/fmt.js";
 
 export default function MapView() {
@@ -18,7 +23,12 @@ export default function MapView() {
   const mapRef = useRef(null);
   const layerRef = useRef(null);
   const tracksRef = useRef(null); // [{trip, pts}] nar de val ar hamtade
+  const camLayerRef = useRef(null);
+  const roadLayerRef = useRef(null);
   const [mode, setMode] = useState("syfte");
+  const [showGpx, setShowGpx] = useState(true);
+  const [showCams, setShowCams] = useState(false);
+  const [showRoads, setShowRoads] = useState(false);
   const [status, setStatus] = useState("hämtar spår …");
 
   useEffect(() => {
@@ -58,6 +68,76 @@ export default function MapView() {
     return () => map.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const downloadData = async (key) => {
+    const { data, error } = await supabase.storage.from("drive-data").download(key);
+    if (error || !data) throw new Error(`${key}: ${error?.message ?? "saknas i molnet"}`);
+    return data.arrayBuffer();
+  };
+
+  // De tre lagren ar oberoende: sparen, kamerorna och vagnatet slas pa och av
+  // var for sig. Kamerorna och vagarna ar samma binarfiler som enheten kor pa,
+  // hamtade ur molnet forsta gangen lagret slas pa och aterbrukade darefter.
+  const toggleGpx = (on) => {
+    setShowGpx(on);
+    const l = layerRef.current;
+    if (!l) return;
+    if (on) l.addTo(mapRef.current);
+    else l.remove();
+  };
+
+  const toggleCams = async (on) => {
+    setShowCams(on);
+    if (!on) { camLayerRef.current?.remove(); return; }
+    if (camLayerRef.current) { camLayerRef.current.addTo(mapRef.current); return; }
+    try {
+      setStatus("hämtar kamerorna ur molnet …");
+      const cams = parseKamerorBin(await downloadData("KAMEROR.BIN"));
+      if (!cams) throw new Error("KAMEROR.BIN gick inte att läsa");
+      // Egen canvas: tvatusen dom-noder hade markts, tvatusen cirklar pa en
+      // canvas marks inte.
+      const renderer = L.canvas({ padding: 0.2 });
+      const group = L.layerGroup(cams.map((c) =>
+        L.circleMarker([c.lat, c.lon], {
+          renderer, radius: 5, color: CAM_RING, weight: 2.5,
+          fillColor: CAM_FILL, fillOpacity: 1,
+        }).bindTooltip(c.limit ? `Fartkamera · ${c.limit} km/h` : "Fartkamera")));
+      camLayerRef.current = group.addTo(mapRef.current);
+      setStatus(`${cams.length} kameror i lagret`);
+    } catch (e) {
+      setStatus(`fel: ${e.message}`);
+      setShowCams(false);
+    }
+  };
+
+  const toggleRoads = async (on) => {
+    setShowRoads(on);
+    if (!on) { roadLayerRef.current?.remove(); return; }
+    if (roadLayerRef.current) { roadLayerRef.current.addTo(mapRef.current); return; }
+    try {
+      const { data: meta } = await supabase.from("drive_files")
+        .select("parts").eq("name", "hastighet").maybeSingle();
+      if (!meta) {
+        throw new Error("ingen hastighetsfil i molnet än – kör Uppdatera allt under Datafiler");
+      }
+      const chunks = [];
+      for (let p = 0; p < meta.parts; p++) {
+        setStatus(`hämtar vägdata … del ${p + 1}/${meta.parts}`);
+        chunks.push(await downloadData(`HASTIGHET.PART${String(p).padStart(2, "0")}`));
+      }
+      const total = chunks.reduce((a, c) => a + c.byteLength, 0);
+      const whole = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { whole.set(new Uint8Array(c), off); off += c.byteLength; }
+      const points = parseHastighetBin(whole.buffer);
+      if (!points) throw new Error("hastighetsfilen gick inte att läsa");
+      roadLayerRef.current = createRoadLayer(points, limitColor).addTo(mapRef.current);
+      setStatus(`${points.n.toLocaleString("sv-SE")} vägpunkter i lagret`);
+    } catch (e) {
+      setStatus(`fel: ${e.message}`);
+      setShowRoads(false);
+    }
+  };
 
   const draw = (m) => {
     const layer = layerRef.current;
@@ -137,6 +217,20 @@ export default function MapView() {
     <div className="card">
       <h2>Karta</h2>
       <div className="filters">
+        <label className="laytoggle">
+          <input type="checkbox" checked={showGpx}
+            onChange={(e) => toggleGpx(e.target.checked)} /> Körda spår
+        </label>
+        <label className="laytoggle">
+          <input type="checkbox" checked={showCams}
+            onChange={(e) => toggleCams(e.target.checked)} /> Fartkameror
+        </label>
+        <label className="laytoggle">
+          <input type="checkbox" checked={showRoads}
+            onChange={(e) => toggleRoads(e.target.checked)} /> Vägar med hastighetsgräns
+        </label>
+      </div>
+      <div className="filters">
         <button className={mode === "syfte" ? "active" : ""}
           onClick={() => setMode("syfte")}>Färg efter syfte</button>
         <button className={mode === "fart" ? "active" : ""}
@@ -153,6 +247,16 @@ export default function MapView() {
                 {label}
               </span>
             ))}
+        </div>
+      )}
+      {showRoads && (
+        <div className="legend">
+          {LIMIT_BINS.map((b) => (
+            <span key={b.label}>
+              <span className="sw" style={{ background: b.color }} />
+              {b.label} km/h
+            </span>
+          ))}
         </div>
       )}
       {mode === "fart" && (
