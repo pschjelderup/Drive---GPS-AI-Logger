@@ -1,6 +1,6 @@
 // Korjournalen: resorna i tabell, redigerbara dar det behovs, och
 // matarstallningen som raknas fram ur strackorna och stams av mot bilen.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, GPX_BUCKET } from "../lib/supabase.js";
 import {
   fmtKm, fmtDateTime, fmtDur, intFmt, PURPOSES, purposeLabel,
