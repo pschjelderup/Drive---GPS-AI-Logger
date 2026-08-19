@@ -141,6 +141,7 @@ double g_pendingLat = 0, g_pendingLon = 0;
 
 // Loparen for resedetektorn.
 uint32_t g_movingMs = 0;   // hur lange den rullat, innan resan startat
+double g_detLat = 0, g_detLon = 0;  // dar farten forst sags - for reservvagen
 uint32_t g_stoppedMs = 0;  // hur lange den statt stilla, under resan
 uint32_t g_lastTickMs = 0;
 uint32_t g_lastPointMs = 0;
@@ -835,13 +836,28 @@ void tick() {
   unlock();
 
   // ---- resedetektorn
-  // Detektorn lyssnar bara pa betrodd fart. En mottagare under uppstart kan
-  // rapportera vilda hastigheter fran en parkerad bil - utan spargen hade de
-  // kunnat starta en spokresa pa garageuppfarten.
+  // Betrodd fart ar forstahandsvagen: da racker nagra sekunder over
+  // startfarten. Men betrodd fart kraver att mottagaren rapporterar en
+  // fartosakerhet och 3d-fix - gor den inte det ska journalen anda inte
+  // krava en knapptryckning. Reservvagen staller darfor hogre krav: godkand
+  // fart dubbelt sa lange, och en verklig forflyttning fran platsen dar
+  // farten forst sags. En parkerad bil med brusig mottagning star kvar pa
+  // sin plats; en bil som kort ivag gor det inte. Det ar forflyttningen,
+  // inte fartsiffran, som inte gar att fejka fran en garageuppfart.
   if (!g_active) {
-    if (f.speedTrusted && f.speedKmh >= TRIP_START_KMH) {
+    const bool fartOk = f.valid && f.speedKmh >= TRIP_START_KMH &&
+                        f.speedKmh <= SPEED_TRUST_MAX_KMH;
+    if (fartOk) {
+      if (g_movingMs == 0) {
+        g_detLat = f.lat;
+        g_detLon = f.lon;
+      }
       g_movingMs += dt;
-      if (g_movingMs >= (uint32_t)TRIP_START_S * 1000) {
+      const double awayM = geo::distanceM(g_detLat, g_detLon, f.lat, f.lon);
+      const bool go = f.speedTrusted
+          ? g_movingMs >= (uint32_t)TRIP_START_S * 1000
+          : (g_movingMs >= (uint32_t)TRIP_START_S * 2000 && awayM >= 40.0);
+      if (go) {
         // Har borjar resan. Ligger en start kvar fran ett stromavbrott anvands
         // den, sa att resan borjar dar bilen faktiskt stod och inte dar den
         // rakade vara nar mottagaren vaknade.

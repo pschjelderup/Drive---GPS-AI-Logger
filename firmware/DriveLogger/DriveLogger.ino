@@ -133,9 +133,14 @@ void printStatusLine() {
   } else {
     // Paket utan satelliter ar antennfallet: modulen mar bra, den ser bara
     // ingenting. Inga paket alls ar ett busproblem.
-    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u\n",
+    // Fartraden avslojar varfor autostarten eventuellt tvekar: betrodd fart
+    // kraver 3d-fix och en rimlig osakerhetssiffra fran mottagaren.
+    const GnssFix f = gnss::fix();
+    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u  "
+                  "fart %.1f±%.1f km/h %s\n",
                   (unsigned long)d.polls, (unsigned long)d.packets,
-                  (unsigned)d.fixType, (unsigned)d.sats);
+                  (unsigned)d.fixType, (unsigned)d.sats, f.speedKmh,
+                  f.speedAccKmh, f.speedTrusted ? "betrodd" : "obetrodd");
   }
 
   Serial.printf(
