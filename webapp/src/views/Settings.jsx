@@ -1,7 +1,7 @@
 // Installningarna: flottan, enheten och kundlistan. API-nycklarna bor i
 // Vercels miljovariabler och har inget att gora har - de ska inte ligga i
 // nagon webblasare.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtDateTime } from "../lib/fmt.js";
 import { RATE_KINDS, vehicleLabel } from "../lib/vehicles.js";
@@ -415,6 +415,78 @@ function DeviceCard() {
   );
 }
 
+// Synkhistoriken: vad som faktiskt hande, per tillfalle. Molnfunktionen
+// bokfor varje handelse; har grupperas raderna - ett nytt tillfalle borjar
+// nar det gatt mer an fem minuter sedan foregaende handelse - och summeras
+// till en lasbar rad: vad som gick upp, vad som gick ner, nar.
+function SyncLogCard() {
+  const [rows, setRows] = useState([]);
+
+  useEffect(() => {
+    supabase.from("drive_sync_log").select("*")
+      .order("at", { ascending: false }).limit(400)
+      .then(({ data }) => setRows(data ?? []));
+  }, []);
+
+  const occasions = useMemo(() => {
+    const out = [];
+    let cur = null;
+    for (const r of rows) {  // nyast forst
+      const t = new Date(r.at).getTime();
+      if (!cur || cur.lastT - t > 5 * 60 * 1000) {
+        cur = { at: r.at, lastT: t, rows: [] };
+        out.push(cur);
+      }
+      cur.lastT = t;
+      cur.rows.push(r);
+    }
+    return out.slice(0, 15);
+  }, [rows]);
+
+  const summarize = (rs) => {
+    const parts = [];
+    const resor = rs.filter((r) => r.action === "resor")
+      .reduce((a, r) => a + (r.antal || 0), 0);
+    const nrs = rs.filter((r) => r.action === "resor" && r.detail)
+      .map((r) => r.detail).join(", ");
+    if (resor > 0) {
+      parts.push(`${resor} ${resor === 1 ? "resa" : "resor"} upp${nrs ? ` (nr ${nrs})` : ""}`);
+    }
+    const gpx = rs.filter((r) => r.action === "gpx").length;
+    if (gpx) parts.push(`${gpx} spår upp`);
+    const filer = rs.filter((r) => r.action === "fil");
+    const kunder = filer.find((r) => r.detail === "kunder");
+    if (kunder) parts.push(`kundlistan ned (${kunder.antal ?? "?"} kunder)`);
+    if (filer.some((r) => r.detail === "kameror")) parts.push("kamerafilen ned");
+    const hast = filer.filter((r) => r.detail?.startsWith("hastighet")).length;
+    if (hast) parts.push(`hastighetsfilen ned (${hast} del${hast > 1 ? "ar" : ""})`);
+    return parts.length ? parts.join(" · ") : "inget nytt att synka";
+  };
+
+  return (
+    <div className="card">
+      <h2>Synkhistorik</h2>
+      {!occasions.length && (
+        <p className="status">Inga synkar bokförda än – historiken börjar nu.</p>
+      )}
+      <table className="journal">
+        <tbody>
+          {occasions.map((o) => {
+            const s = summarize(o.rows);
+            const tom = s === "inget nytt att synka";
+            return (
+              <tr key={o.at} style={tom ? { opacity: 0.55 } : undefined}>
+                <td style={{ whiteSpace: "nowrap" }}>{fmtDateTime(o.at)}</td>
+                <td>{s}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [customers, setCustomers] = useState([]);
   const [newName, setNewName] = useState("");
@@ -468,6 +540,7 @@ export default function Settings() {
       <PlacesCard />
       <BillingCard />
       <DeviceCard />
+      <SyncLogCard />
 
       <div className="card">
         <h2>API-nycklar</h2>
