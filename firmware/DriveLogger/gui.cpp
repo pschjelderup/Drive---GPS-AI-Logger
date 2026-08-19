@@ -1,0 +1,376 @@
+#include "gui.h"
+
+#include <lvgl.h>
+
+#include "cams.h"
+#include "cloudsync.h"
+#include "config.h"
+#include "customers.h"
+#include "eco.h"
+#include "gnss.h"
+#include "gui_model.h"
+#include "gui_screens.h"
+#include "sensors.h"
+#include "sound.h"
+#include "stats.h"
+#include "trip.h"
+#include "websync.h"
+
+// Kundvaljaren behover fyllas fran flera hall; definitionen star langre ned.
+void openCustomersFromGui();
+
+namespace {
+
+Arduino_RM690B0 *g_panel = nullptr;
+TouchDrvFT6X36 *g_touch = nullptr;
+bool g_touchOk = false;
+AppSettings *g_cfg = nullptr;
+void (*g_save)() = nullptr;
+void (*g_apply)() = nullptr;
+
+lv_display_t *g_disp = nullptr;
+bool g_displayOn = true;
+
+// Forsta trycket pa en slackt skarm ska bara tanda den - inte trycka pa det
+// som rakade ligga under fingret. Trycket svaljs tills fingret slappt.
+bool g_swallowTouch = false;
+
+// ---- fragan efter resan: nedrakningen bor har, inte i skarmkoden
+uint32_t g_askStartMs = 0;
+bool g_askArmed = false;
+const uint32_t kAskMs = 60000;
+
+// ---- kundlistan: namnen kopieras hit nar valjaren oppnas, sa att de lever
+// sa lange arket visas oavsett vad kundmodulen gor under tiden.
+char g_custNames[24][40];
+const char *g_custPtrs[24];
+
+// ---------------------------------------------------------------- display --
+
+void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
+  const int32_t w = area->x2 - area->x1 + 1;
+  const int32_t h = area->y2 - area->y1 + 1;
+  g_panel->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px, w, h);
+  lv_display_flush_ready(disp);
+}
+
+void touch_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+  (void)indev;
+  data->state = LV_INDEV_STATE_RELEASED;
+  if (!g_touchOk) return;
+
+  const TouchPoints &points = g_touch->getTouchPoints();
+  if (!points.hasPoints()) {
+    g_swallowTouch = false;
+    return;
+  }
+
+  const TouchPoint &p = points.getPoint(0);
+  int16_t x = (int16_t)p.x;
+  int16_t y = (int16_t)p.y;
+#if TOUCH_SWAP_XY
+  { const int16_t t = x; x = y; y = t; }
+#endif
+#if TOUCH_FLIP_X
+  x = SCREEN_W - 1 - x;
+#endif
+#if TOUCH_FLIP_Y
+  y = SCREEN_H - 1 - y;
+#endif
+
+  if (!g_displayOn) {
+    gui::setDisplayOn(true);
+    g_swallowTouch = true;
+  }
+  if (g_swallowTouch) return;
+
+  data->state = LV_INDEV_STATE_PRESSED;
+  data->point.x = x;
+  data->point.y = y;
+}
+
+// ---------------------------------------------------------------- atgarder -
+
+void actSetPurpose(GuiPurpose p) {
+  trip::setPurpose((TripPurpose)p);
+  sound::play(CUE_TAP);
+  // Foretagsresa och kundval ar samma handling i praktiken - listan oppnas
+  // direkt, och "INGEN KUND" finns dar for den som vill lamna faltet tomt.
+  if (p == GUI_PURPOSE_FORETAG) ::openCustomersFromGui();
+}
+
+void actStartTrip() {
+  if (!sensors::sdMounted()) {
+    sensors::remount();
+    cams::reload();
+    customers::reload();
+    stats::begin();
+    return;
+  }
+  if (trip::startManual()) sound::play(CUE_TRIP_START);
+  else sound::play(CUE_ERROR);
+}
+
+void actEndTrip() {
+  trip::endManual();
+  sound::play(CUE_TRIP_END);
+}
+
+void actSplit() {
+  trip::splitHere();
+  sound::play(CUE_TRIP_START);
+}
+
+void actPickCustomer(const char *name) {
+  if (name) {
+    trip::setCustomer(name);
+  } else {
+    trip::setCustomer("");
+    trip::setPurpose(PURPOSE_FORETAG);
+  }
+  sound::play(CUE_TAP);
+}
+
+void actToggleSound(bool on) {
+  g_cfg->soundOn = on ? 1 : 0;
+  g_apply();
+  g_save();
+  if (on) sound::play(CUE_TAP);
+}
+
+void actScreenIdx(uint8_t idx) {
+  g_cfg->screenIdx = idx;
+  g_save();
+}
+
+void actTare(void (*done)(bool ok)) {
+  const bool ok = eco::tare();
+  if (!ok) sound::play(CUE_ERROR);
+  done(ok);
+}
+
+void actEcoReset() { eco::reset(); }
+
+void actCloudSync() { cloudsync::requestSync(); }
+
+}  // namespace
+
+namespace {
+
+void actOpenCustomers() { ::openCustomersFromGui(); }
+
+const GuiActions kActions = {
+    actSetPurpose, actStartTrip, actEndTrip, actSplit, actPickCustomer,
+    actOpenCustomers, actToggleSound, actScreenIdx, actTare, actEcoReset,
+    actCloudSync,
+};
+
+// ---------------------------------------------------------------- modellen -
+
+void fillModel(GuiModel &m) {
+  memset(&m, 0, sizeof(m));
+
+  const uint32_t nowUtc = sensors::unixUtc();
+  if (nowUtc) sensors::localClock(nowUtc, m.clock, sizeof(m.clock));
+
+  const GnssDebug d = gnss::debug();
+  const GnssFix f = gnss::fix();
+  m.gpsPresent = d.present;
+  m.gpsFix = d.fixType >= 2;
+  m.sats = d.sats;
+  m.sdOk = sensors::sdMounted();
+
+  const CloudStatus cs = cloudsync::status();
+  m.cloudConfigured = cloudsync::configured();
+  m.cloudBusy = cs.state == CLOUD_SYNCING || cs.state == CLOUD_CONNECTING;
+  m.apClient = websync::clientCount() > 0;
+
+  m.speedKmh = f.speedKmh;
+  m.speedTrusted = f.speedTrusted;
+  m.limitKmh = cams::currentLimitKmh();
+  m.camsLoaded = cams::loaded();
+  m.limitsLoaded = cams::limitsLoaded();
+
+  const CamWarning w = cams::warning();
+  m.camActive = w.active;
+  m.camDistanceM = w.distanceM;
+  m.camLimitKmh = w.limitKmh;
+
+  const TripStatus t = trip::status();
+  m.tripActive = t.active;
+  m.waitingForFix = t.waitingForFix;
+  m.tripIndex = t.index;
+  m.tripKm = t.distanceM / 1000.0;
+  m.tripElapsedS = t.elapsedS;
+  m.tripMovingS = t.movingS;
+  m.stoppedS = t.stoppedS;
+  m.stopAfterS = TRIP_STOP_S;
+  m.maxSpeedKmh = t.maxSpeedKmh;
+  m.purpose = (GuiPurpose)t.purpose;
+  strncpy(m.customer, t.customer, sizeof(m.customer) - 1);
+
+  m.askPurpose = t.awaitingPurpose;
+  m.askIndex = t.awaitingIndex;
+  m.askKm = t.awaitingKm;
+  if (t.awaitingPurpose && g_askArmed) {
+    const uint32_t gone = millis() - g_askStartMs;
+    m.askSecondsLeft = gone < kAskMs ? (kAskMs - gone) / 1000 : 0;
+  }
+
+  const EcoStatus e = eco::status();
+  m.ecoScore = e.score;
+  m.ecoTripScore = e.tripScore;
+  m.ecoMeasured = e.measured;
+  m.ecoMagG = e.magG;
+  m.ecoLonG = e.lonG;
+  m.ecoLatG = e.latG;
+  m.ecoPeakG = e.peakG;
+  m.ecoLevelled = e.levelled;
+  m.ecoForwardKnown = e.forwardKnown;
+  m.ecoForwardQuality = e.forwardQuality;
+  m.ecoSoftG = e.softG;
+  m.ecoHardG = e.hardG;
+  m.ecoBubbleG = e.bubbleG;
+  m.ecoHardAccel = e.hardAccel;
+  m.ecoHardBrake = e.hardBrake;
+  m.ecoHardTurn = e.hardTurn;
+  m.ecoHardTotal = e.hardTotal;
+
+  const StatsSummary s = stats::summary();
+  m.statTotalKm = s.totalKm;
+  m.statTrips = s.trips;
+  m.statMovingS = s.movingS;
+  m.statPoints = s.points;
+  m.statMaxKmh = s.maxSpeedKmh;
+  m.statSpeedingS = s.speedingS;
+  m.statPrivatKm = s.privatKm;
+  m.statForetagKm = s.foretagKm;
+  m.statDiffustKm = s.diffustKm;
+  m.statFreeMb = (uint32_t)(s.freeBytes / (1024ULL * 1024ULL));
+  m.statCardMb = (uint32_t)(s.cardBytes / (1024ULL * 1024ULL));
+  m.statKmLeft = s.kmLeft;
+
+  strncpy(m.apSsid, websync::ssid(), sizeof(m.apSsid) - 1);
+  strncpy(m.apPassword, WIFI_AP_PASSWORD, sizeof(m.apPassword) - 1);
+  strncpy(m.cloudSsid, cloudsync::ssid().c_str(), sizeof(m.cloudSsid) - 1);
+  strncpy(m.cloudDetail, cs.detail, sizeof(m.cloudDetail) - 1);
+  m.cloudTrips = cs.tripsUploaded;
+  m.cloudGpx = cs.gpxUploaded;
+  m.cloudFiles = cs.filesDownloaded;
+  m.camCount = cams::count();
+
+  m.soundOn = g_cfg->soundOn != 0;
+  m.screenIdx = g_cfg->screenIdx;
+  m.screenCount = kScreenTimeoutCount;
+  m.screenTimeoutS = kScreenTimeouts[g_cfg->screenIdx];
+  strncpy(m.version, fwVersionFull(), sizeof(m.version) - 1);
+}
+
+}  // namespace
+
+// Kundvaljaren: namnen kopieras till egna buffertar innan arket byggs.
+void openCustomersFromGui() {
+  customers::reload();
+  GuiModel m;
+  fillModel(m);
+  uint8_t n = customers::count();
+  if (n > 24) n = 24;
+  for (uint8_t i = 0; i < n; i++) {
+    strncpy(g_custNames[i], customers::name(i), sizeof(g_custNames[i]) - 1);
+    g_custNames[i][sizeof(g_custNames[i]) - 1] = '\0';
+    g_custPtrs[i] = g_custNames[i];
+  }
+  m.customerCount = n;
+  m.customerNames = g_custPtrs;
+  gui_screens_open_customers(&m);
+}
+
+namespace gui {
+
+void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
+           AppSettings *cfg, void (*saveSettings)(), void (*applySettings)()) {
+  g_panel = panel;
+  g_touch = touch;
+  g_touchOk = touchOk;
+  g_cfg = cfg;
+  g_save = saveSettings;
+  g_apply = applySettings;
+
+  lv_init();
+  lv_tick_set_cb([]() -> uint32_t { return millis(); });
+
+  g_disp = lv_display_create(SCREEN_W, SCREEN_H);
+
+  // Ritbufferten: en bit av skarmen i taget, i internminnet dar renderingen
+  // ar snabb. Racker inte internminnet duger psram - langsammare men helt.
+  const size_t bufBytes = SCREEN_W * 80 * 2;
+  void *buf = heap_caps_malloc(bufBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!buf) buf = ps_malloc(bufBytes);
+  lv_display_set_buffers(g_disp, buf, nullptr, bufBytes,
+                         LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(g_disp, flush_cb);
+
+  lv_indev_t *indev = lv_indev_create();
+  lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(indev, touch_cb);
+
+  gui_screens_create(&kActions);
+}
+
+void tick() {
+  // ---- fragan efter en avslutad resa: nedrakningen och ljudet
+  const TripStatus t = trip::status();
+  if (t.awaitingPurpose && !g_askArmed) {
+    g_askArmed = true;
+    g_askStartMs = millis();
+    setDisplayOn(true);
+    sound::play(CUE_TRIP_END);
+  } else if (!t.awaitingPurpose && g_askArmed) {
+    g_askArmed = false;
+  }
+  if (g_askArmed && millis() - g_askStartMs > kAskMs) {
+    // Ingen svarade. Resan var diffus, och det ar det som skrivs - att gissa
+    // privat eller foretag ur tystnad vore att hitta pa.
+    trip::setPurpose(PURPOSE_DIFFUST);
+    g_askArmed = false;
+  }
+
+  // ---- modellen in i skarmarna, nagra ganger i sekunden
+  static uint32_t lastModelMs = 0;
+  if (millis() - lastModelMs >= 150) {
+    lastModelMs = millis();
+    GuiModel m;
+    fillModel(m);
+    gui_screens_update(&m);
+  }
+
+  // ---- skarmslackningen. Under en pagaende resa ar skarmen hela poangen
+  // och slacks aldrig; med fragan uppe likasa. Nar bilen star parkerad
+  // slacks den - bade for strommen och for att en amoled inte mar bra av en
+  // stillastaende bild i timmar.
+  const uint16_t timeout = kScreenTimeouts[g_cfg->screenIdx];
+  if (g_displayOn && timeout > 0 && !t.active && !g_askArmed &&
+      lv_display_get_inactive_time(g_disp) > (uint32_t)timeout * 1000UL) {
+    setDisplayOn(false);
+  }
+
+  lv_timer_handler();
+}
+
+void setDisplayOn(bool on) {
+  if (on == g_displayOn) return;
+  g_displayOn = on;
+  if (on) {
+    g_panel->displayOn();
+    g_panel->setBrightness(235);
+    lv_display_trigger_activity(g_disp);
+    lv_obj_invalidate(lv_screen_active());
+  } else {
+    g_panel->setBrightness(0);
+    g_panel->displayOff();
+  }
+}
+
+bool displayOn() { return g_displayOn; }
+
+}  // namespace gui
