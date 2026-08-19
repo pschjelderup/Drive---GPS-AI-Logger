@@ -75,6 +75,11 @@ a.knapp{text-decoration:none;display:inline-block}
 .uppl label{display:block;margin-bottom:.75rem}
 .uppl span{display:block;color:var(--dim);font-size:.8rem;margin-bottom:.25rem}
 input[type=file]{width:100%;color:var(--dim);font-size:.85rem}
+.natrad{display:flex;gap:.5rem;margin-bottom:.5rem}
+.natrad input{flex:1;min-width:0;padding:.4rem .5rem;border:1px solid var(--line);
+border-radius:8px;font-size:.9rem}
+label>input{width:100%;padding:.4rem .5rem;border:1px solid var(--line);
+border-radius:8px;font-size:.9rem}
 #status{color:var(--dim);font-size:.85rem;min-height:1.2rem}
 .tom{color:var(--dim);text-align:center;padding:1rem 0}
 </style>
@@ -108,14 +113,18 @@ input[type=file]{width:100%;color:var(--dim);font-size:.85rem}
 <div class="card uppl">
 <h2>Molnsynk</h2>
 <p style="color:var(--dim);font-size:.85rem;margin-top:0">
-Ange din iPhone-hotspots namn och lösenord samt enhetens token från
-webbappens inställningar. Sedan synkar enheten själv när den har
-wifi och ingen resa pågår.</p>
-<label><span>Hotspotens namn</span>
-<input type="text" id="mssid" autocapitalize="off"></label>
-<label><span>Hotspotens lösenord</span>
-<input type="password" id="mlosen"></label>
-<label><span>Enhetens token</span>
+Spara upp till fyra nät – företagets, hemmets, telefonens hotspot.
+Enheten tar det som finns där bilen står och synkar själv när ingen
+resa pågår. Lösenord och token visas aldrig här – lämna fälten tomma
+så behålls det som redan är sparat.</p>
+<p style="color:var(--dim);font-size:.85rem">
+Tänk på: näten måste sända på 2,4&nbsp;GHz (slå på
+<b>Maximera kompatibilitet</b> för iPhone-hotspot). Och är hotspoten
+samma telefon som du surfar härifrån just nu kan den inte dela ut nät
+samtidigt som den är ansluten hit – koppla ner från DriveLogger-wifit
+och slå på hotspoten, så synkar enheten själv.</p>
+<div id="mnat"></div>
+<label><span>Enhetens token (från webbappens inställningar)</span>
 <input type="password" id="mtoken" autocapitalize="off"></label>
 <p>
 <button class="knapp" id="mspara">Spara</button>
@@ -180,9 +189,21 @@ koppla('fkam','KAMEROR.BIN');
 koppla('fhast','HASTIGHET.BIN');
 koppla('fkund','KUNDER.CSV');
 
+let nh='';
+for(let i=0;i<4;i++){nh+=`<div class="natrad">
+<input type="text" id="mssid${i}" placeholder="nätets namn" autocapitalize="off">
+<input type="password" id="mlosen${i}" placeholder="lösenord"></div>`}
+el('mnat').innerHTML=nh;
+
+let mfyllt=false;
 function molnlage(){
   fetch('/api/moln').then(r=>r.json()).then(d=>{
-    if(d.ssid) el('mssid').value=el('mssid').value||d.ssid;
+    (d.nat||[]).forEach((n,i)=>{
+      if(!mfyllt&&n.ssid)el('mssid'+i).value=n.ssid;
+      el('mlosen'+i).placeholder=n.harLosen?'••••  sparat – tomt behåller':'lösenord';
+    });
+    mfyllt=true;
+    el('mtoken').placeholder=d.harToken?'••••  sparat – tomt behåller':'';
     el('mstatus').textContent=d.konfigurerad
       ? `${d.lage}${d.besked?' · '+d.besked:''} · upp: ${d.resor} resor, ${d.gpx} gpx · ned: ${d.filer} filer`
       : 'inte konfigurerad';
@@ -192,11 +213,18 @@ molnlage(); setInterval(molnlage, 5000);
 
 el('mspara').addEventListener('click',()=>{
   const fd=new URLSearchParams();
-  fd.set('ssid',el('mssid').value.trim());
-  fd.set('losen',el('mlosen').value);
+  for(let i=0;i<4;i++){
+    fd.set('ssid'+i,el('mssid'+i).value.trim());
+    fd.set('losen'+i,el('mlosen'+i).value);
+  }
   fd.set('token',el('mtoken').value.trim());
   fetch('/moln',{method:'POST',body:fd})
-    .then(r=>r.text()).then(t=>{el('mstatus').textContent=t;});
+    .then(r=>r.text()).then(t=>{
+      el('mstatus').textContent=t;
+      for(let i=0;i<4;i++)el('mlosen'+i).value='';
+      el('mtoken').value='';
+      molnlage();
+    });
 });
 el('msynka').addEventListener('click',()=>{
   fetch('/moln/synka',{method:'POST'})
@@ -410,29 +438,75 @@ void handleUploadDone() {
 
 // ---- molnsynken: uppgifterna skrivs in har en gang och bor sedan i enhetens
 // flashminne. Token star i webbappens installningar.
+
+// Ett natnamn kan innehalla vad som helst - aven citattecken. In i json gar
+// det bara i skyddad form.
+String jsonEsc(const String &v) {
+  String out;
+  out.reserve(v.length() + 4);
+  for (size_t i = 0; i < v.length(); i++) {
+    const char c = v[i];
+    if (c == '"' || c == '\\') out += '\\';
+    out += c;
+  }
+  return out;
+}
+
 void handleMolnStatus() {
   const CloudStatus c = cloudsync::status();
   const char *stateName[] = {"av", "vilar", "ansluter", "synkar", "klar", "fel"};
-  char buf[320];
-  snprintf(buf, sizeof(buf),
-           "{\"konfigurerad\":%s,\"ssid\":\"%s\",\"lage\":\"%s\","
-           "\"besked\":\"%s\",\"resor\":%lu,\"gpx\":%lu,\"filer\":%lu}",
-           cloudsync::configured() ? "true" : "false",
-           cloudsync::ssid().c_str(),
-           stateName[c.state <= CLOUD_ERROR ? c.state : 0], c.detail,
-           (unsigned long)c.tripsUploaded, (unsigned long)c.gpxUploaded,
-           (unsigned long)c.filesDownloaded);
-  g_server.send(200, "application/json", buf);
+  String out = "{\"konfigurerad\":";
+  out += cloudsync::configured() ? "true" : "false";
+  out += ",\"ssid\":\"" + jsonEsc(cloudsync::ssid()) + "\"";
+  out += ",\"lage\":\"";
+  out += stateName[c.state <= CLOUD_ERROR ? c.state : 0];
+  out += "\",\"besked\":\"" + jsonEsc(String(c.detail)) + "\"";
+  out += ",\"resor\":" + String((unsigned long)c.tripsUploaded);
+  out += ",\"gpx\":" + String((unsigned long)c.gpxUploaded);
+  out += ",\"filer\":" + String((unsigned long)c.filesDownloaded);
+  out += ",\"harToken\":";
+  out += cloudsync::hasToken() ? "true" : "false";
+  out += ",\"nat\":[";
+  for (uint8_t i = 0; i < cloudsync::kNetMax; i++) {
+    if (i) out += ",";
+    out += "{\"ssid\":\"" + jsonEsc(cloudsync::netSsid(i)) + "\",\"harLosen\":";
+    out += cloudsync::netHasPassword(i) ? "true" : "false";
+    out += "}";
+  }
+  out += "]}";
+  g_server.send(200, "application/json", out);
 }
 
 void handleMolnSave() {
-  cloudsync::configure(g_server.arg("ssid").c_str(),
-                       g_server.arg("losen").c_str(),
-                       g_server.arg("token").c_str());
-  g_server.send(200, "text/plain; charset=utf-8",
-                cloudsync::configured()
-                    ? "sparat - synkar sa fort natet nas"
-                    : "molnsynken avstangd");
+  String s[cloudsync::kNetMax], p[cloudsync::kNetMax];
+  const char *ssids[cloudsync::kNetMax];
+  const char *passes[cloudsync::kNetMax];
+  char key[10];
+  for (uint8_t i = 0; i < cloudsync::kNetMax; i++) {
+    snprintf(key, sizeof(key), "ssid%u", i);
+    s[i] = g_server.arg(key);
+    s[i].trim();
+    snprintf(key, sizeof(key), "losen%u", i);
+    p[i] = g_server.arg(key);
+    ssids[i] = s[i].c_str();
+    passes[i] = p[i].c_str();
+  }
+  cloudsync::configureNets(ssids, passes, g_server.arg("token").c_str());
+
+  if (!cloudsync::configured()) {
+    g_server.send(200, "text/plain; charset=utf-8", "molnsynken avstängd");
+    return;
+  }
+  // Kvittot sager vad som faktiskt lagrades - att "sparat" i sjalva verket
+  // betydde "raderat" ar precis det missforstand som ska bort.
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < cloudsync::kNetMax; i++) {
+    if (cloudsync::netSsid(i).length()) n++;
+  }
+  String msg = "sparat – " + String(n) + " nät";
+  if (cloudsync::hasToken()) msg += " · synkar så fort ett nät nås";
+  else msg += " · men token saknas fortfarande";
+  g_server.send(200, "text/plain; charset=utf-8", msg);
 }
 
 // Allt som inte kanns igen skickas till startsidan. Det ar det som gor

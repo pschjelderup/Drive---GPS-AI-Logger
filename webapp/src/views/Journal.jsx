@@ -207,9 +207,9 @@ function MiniCards({ entries, onOpen, selMode, selIds, onToggle }) {
               {t.customer ? ` · ${t.customer}` : ""}
               {t.speeding_s ? ` · ${Math.round(t.speeding_s / 60)} min över gränsen` : ""}
             </div>
-            {(t.start_place || t.end_place) && (
+            {(t.start_place || t.end_place || t.start_addr || t.end_addr) && (
               <div className="mc-foot">
-                {t.start_place ?? "…"} → {t.end_place ?? "…"}
+                {t.start_place ?? t.start_addr ?? "…"} → {t.end_place ?? t.end_addr ?? "…"}
               </div>
             )}
           </div>
@@ -260,6 +260,8 @@ function aggregateGroup(group, members) {
     customer: uniform((t) => t.customer) ?? "",
     start_place: sorted[0]?.start_place ?? null,
     end_place: sorted[sorted.length - 1]?.end_place ?? null,
+    start_addr: sorted[0]?.start_addr ?? null,
+    end_addr: sorted[sorted.length - 1]?.end_addr ?? null,
   };
 }
 
@@ -453,12 +455,14 @@ function TripModal({ trip, customers, vehicles, patch, onClose }) {
             {t.start_lat ? <>{" "}
               <a href={maps(t.start_lat, t.start_lon)} target="_blank"
                 rel="noreferrer">karta</a></> : null}
+            {t.start_addr ? <div className="addr">{t.start_addr}</div> : null}
           </>)}
           {kv("Mål", <>
             {fmtDateTime(t.end_utc)}
             {t.end_lat ? <>{" "}
               <a href={maps(t.end_lat, t.end_lon)} target="_blank"
                 rel="noreferrer">karta</a></> : null}
+            {t.end_addr ? <div className="addr">{t.end_addr}</div> : null}
           </>)}
           {kv("Sträcka", `${fmtKm(t.distance_m)} km`)}
           {kv("Rullande tid", t.moving_s != null ? fmtDur(t.moving_s) : "–")}
@@ -624,6 +628,7 @@ export default function Journal() {
   const [openGroup, setOpenGroup] = useState(null);
   const [selMode, setSelMode] = useState(false);
   const [selIds, setSelIds] = useState(new Set());
+  const [groupName, setGroupName] = useState("");
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
@@ -648,6 +653,51 @@ export default function Journal() {
     setStatus(t.data?.length ? "" : "Inga resor än – börja under Importera.");
   };
   useEffect(() => { load(); }, []);
+
+  // Adresserna fylls i i efterhand: resorna fran enheten bar bara koordinater,
+  // och har slas gatuadressen upp och sparas pa raden - en gang per resa,
+  // sedan star den i databasen. Hogst ett par dussin uppslag per sidladdning;
+  // resten tas nasta gang, sa en stor efterslapning aldrig blir en dyr sida.
+  const geocodedRef = useRef(false);
+  useEffect(() => {
+    if (geocodedRef.current || !trips.length) return;
+    geocodedRef.current = true;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) return;
+      const lookup = async (lat, lon) => {
+        try {
+          const r = await fetch(`/api/geocode?lat=${lat}&lon=${lon}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!r.ok) return null;
+          return (await r.json()).address ?? null;
+        } catch {
+          return null;
+        }
+      };
+      const hasPos = (la, lo) =>
+        Number.isFinite(la) && Number.isFinite(lo) && (la || lo);
+      let budget = 40;
+      for (const t of trips) {
+        if (budget <= 0) break;
+        const fields = {};
+        if (!t.start_addr && hasPos(t.start_lat, t.start_lon)) {
+          budget--;
+          const a = await lookup(t.start_lat, t.start_lon);
+          if (a) fields.start_addr = a;
+        }
+        if (!t.end_addr && hasPos(t.end_lat, t.end_lon)) {
+          budget--;
+          const a = await lookup(t.end_lat, t.end_lon);
+          if (a) fields.end_addr = a;
+        }
+        if (Object.keys(fields).length) await patch(t.id, fields);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trips]);
 
   // Filtren galler allt pa sidan: minikorten, summeringen och tabellen.
   // Perioderna ar kalenderns, inte rullande dygn - det ar sa en korjournal
@@ -727,8 +777,9 @@ export default function Journal() {
     const ids = [...selIds];
     if (ids.length < 2) return;
     const first = shown.find((t) => t.id === ids[0]);
-    const label = first
-      ? new Date(first.start_utc).toLocaleDateString("sv-SE") : null;
+    // Namnet ar anvandarens; utan namn far gruppen dagens datum.
+    const label = groupName.trim() ||
+      (first ? new Date(first.start_utc).toLocaleDateString("sv-SE") : null);
     const { data, error } = await supabase
       .from("drive_trip_groups").insert({ label }).select().single();
     if (error) { setStatus(error.message); return; }
@@ -736,6 +787,7 @@ export default function Journal() {
       .update({ group_id: data.id }).in("id", ids);
     setSelMode(false);
     setSelIds(new Set());
+    setGroupName("");
     load();
   };
 
@@ -819,7 +871,8 @@ export default function Journal() {
 
   const exportCsv = () => {
     const rows = [[
-      "resa", "start", "mal", "start_plats", "mal_plats", "km", "syfte",
+      "resa", "start", "mal", "start_plats", "mal_plats",
+      "start_adress", "mal_adress", "km", "syfte",
       "kund", "maxfart_kmh", "fortkorning_min", "ecopoang",
       "matarstallning_km", "anteckning",
     ].join(";")];
@@ -827,6 +880,8 @@ export default function Journal() {
       rows.push([
         t.trip_no, fmtDateTime(t.start_utc), fmtDateTime(t.end_utc),
         t.start_place ?? "", t.end_place ?? "",
+        (t.start_addr ?? "").replaceAll(";", ","),
+        (t.end_addr ?? "").replaceAll(";", ","),
         fmtKm(t.distance_m), purposeLabel(t.purpose), t.customer ?? "",
         t.max_speed_kmh ? Math.round(t.max_speed_kmh) : "",
         Math.round((t.speeding_s || 0) / 60),
@@ -884,6 +939,10 @@ export default function Journal() {
             <button onClick={selectWholeDays} disabled={!selIds.size}>
               Välj hela dagen
             </button>
+            <input type="text" placeholder="namn på gruppen (valfritt)"
+              value={groupName} style={{ width: "14rem" }}
+              onChange={(e) => setGroupName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && selIds.size >= 2 && createGroup()} />
             <button className="active" onClick={createGroup}
               disabled={selIds.size < 2}>
               Skapa grupp
@@ -987,6 +1046,7 @@ export default function Journal() {
                   <td>{t.trip_no}</td>
                   <td>
                     {fmtDateTime(t.start_utc)}
+                    {t.start_addr && <div className="addr">{t.start_addr}</div>}
                     <div>
                       <PlacePicker lat={t.start_lat} lon={t.start_lon}
                         value={t.start_place}
@@ -995,6 +1055,7 @@ export default function Journal() {
                   </td>
                   <td>
                     {fmtDateTime(t.end_utc)}
+                    {t.end_addr && <div className="addr">{t.end_addr}</div>}
                     <div>
                       <PlacePicker lat={t.end_lat} lon={t.end_lon}
                         value={t.end_place}

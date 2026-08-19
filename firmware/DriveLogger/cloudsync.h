@@ -35,11 +35,25 @@ struct CloudStatus {
 
 namespace cloudsync {
 
+// Flera sparade nat - foretagets, hemmets, telefonens hotspot. Synken tar
+// det som finns dar bilen star: en skanning valjer det starkaste synliga,
+// och syns inget provas naten i tur och ordning (dolda ssid syns inte i
+// skanningar, men gar att ansluta till).
+const uint8_t kNetMax = 4;
+
 void begin();
 
-// Natuppgifterna, satta fran enhetens wifi-sida. Tomt ssid stanger av synken.
-void configure(const char *ssid, const char *password, const char *token);
+// Natuppgifterna, satta fran enhetens wifi-sida. Tomt ssid tommer platsen;
+// samma ssid med tomt losenord behaller det lagrade - sidan visar ju aldrig
+// hemligheterna. Tomt token behaller ocksa det lagrade.
+void configureNets(const char *ssids[kNetMax], const char *passwords[kNetMax],
+                   const char *token);
 bool configured();
+bool hasToken();
+String netSsid(uint8_t i);
+bool netHasPassword(uint8_t i);
+
+// Natet enheten senast nadde molnet via - eller forsta sparade, innan dess.
 String ssid();
 
 // Be om en synk sa snart villkoren tillater, i stallet for att venta ut
