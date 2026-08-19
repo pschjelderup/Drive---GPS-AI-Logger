@@ -49,6 +49,7 @@ CloudStatus g_status = {};
 SemaphoreHandle_t g_mutex = nullptr;
 
 volatile bool g_syncNow = false;
+volatile bool g_autoSync = true;
 volatile bool g_reconfigured = false;
 
 void lock() {
@@ -97,9 +98,9 @@ long jsonInt(const String &body, const char *key, long fallback) {
   return atol(body.c_str() + at + strlen(pat));
 }
 
-// Versionsblocket for en fil: {"kameror":{"version":"abc","parts":1}, ...}
+// Versionsblocket for en fil: {"kameror":{"version":"abc","size":N,"parts":1}}
 bool fileVersion(const String &body, const char *name, char *ver, size_t vlen,
-                 int *parts) {
+                 int *parts, long *size) {
   char pat[32];
   snprintf(pat, sizeof(pat), "\"%s\":{", name);
   const int at = body.indexOf(pat);
@@ -107,7 +108,27 @@ bool fileVersion(const String &body, const char *name, char *ver, size_t vlen,
   const String slice = body.substring(at, at + 160);
   if (!jsonStr(slice, "version", ver, vlen)) return false;
   *parts = (int)jsonInt(slice, "parts", 1);
+  *size = jsonInt(slice, "size", 0);
   return true;
+}
+
+// En version som misslyckats tva ganger sedan uppstart lamnas ifred tills
+// molnet har en ny - annars tuggar synken samma jattefil var kvart, och en
+// hotspot betalar per gigabyte.
+struct FileAttempt {
+  char ver[24];
+  uint8_t fails;
+};
+FileAttempt g_kamAttempt = {};
+FileAttempt g_hastAttempt = {};
+
+bool worthTrying(FileAttempt &a, const char *ver) {
+  if (strcmp(a.ver, ver) != 0) {
+    strncpy(a.ver, ver, sizeof(a.ver) - 1);
+    a.ver[sizeof(a.ver) - 1] = '\0';
+    a.fails = 0;
+  }
+  return a.fails < 2;
 }
 
 bool httpBegin(HTTPClient &http, WiFiClientSecure &tls, const String &path) {
@@ -222,9 +243,11 @@ bool uploadGpx() {
 }
 
 // Hamtar en fil - i en eller flera delar - till en tillfallig fil, kontrollerar
-// magin, och byter forst da. En halv fil pa riktig plats ar varre an ingen.
+// storlek och magi, och byter forst da. En halv fil pa riktig plats ar varre
+// an ingen - och en avbruten strom slutar med got==0, inte med ett fel, sa
+// utan storlekskontrollen passerade trunkerade filer som hela.
 bool downloadFile(const char *urlName, int parts, const char *target,
-                  const uint32_t magic) {
+                  const uint32_t magic, long expectBytes) {
   const char *tmp = "/DRIVE/NED.TMP";
   if (SD_MMC.exists(tmp)) SD_MMC.remove(tmp);
 
@@ -261,17 +284,31 @@ bool downloadFile(const char *urlName, int parts, const char *target,
       if (remaining > 0) remaining -= got;
     }
     http.end();
+    // Blev delen inte hel ar filen inte hel. Avbryt har - resten av delarna
+    // kan bara gora den trasigare.
+    if (remaining > 0) {
+      Serial.printf("moln: %s del %d/%d brots, %d byte saknas\n", urlName,
+                    p + 1, parts, remaining);
+      out.close();
+      SD_MMC.remove(tmp);
+      return false;
+    }
     Serial.printf("moln: %s del %d/%d klar\n", urlName, p + 1, parts);
   }
   out.close();
 
-  // Magin ar kvittot pa att det var ratt sorts fil och att borjan kom fram.
+  // Storleken ar det yttre kvittot: molnet sa i /config exakt hur stor filen
+  // ar, och en annan siffra ar en annan fil.
   File check = SD_MMC.open(tmp, FILE_READ);
   if (!check) return false;
+  const long gotBytes = (long)check.size();
   uint32_t gotMagic = 0;
   const bool okRead = check.read((uint8_t *)&gotMagic, 4) == 4;
   check.close();
-  if (!okRead || gotMagic != magic) {
+  if (!okRead || gotMagic != magic ||
+      (expectBytes > 0 && gotBytes != expectBytes)) {
+    Serial.printf("moln: %s forkastad (%ld av %ld byte)\n", urlName, gotBytes,
+                  expectBytes);
     SD_MMC.remove(tmp);
     return false;
   }
@@ -327,44 +364,57 @@ bool runSync() {
 
   const long lastSynced = jsonInt(cfg, "last_synced_trip", 0);
 
-  setState(CLOUD_SYNCING, "laddar upp resor");
-  if (!uploadTrips(lastSynced)) return false;
-
-  setState(CLOUD_SYNCING, "laddar upp gpx");
-  if (!uploadGpx()) return false;
-
   g_prefs.begin("cloud", false);
 
-  char ver[24];
+  // Buffertarna maste borja tomma: getString ror dem inte alls nar nyckeln
+  // saknas, och en jamforelse mot stackskrap ar ingen jamforelse.
+  char ver[24] = "";
   int parts = 1;
-  char have[24];
+  long size = 0;
+  char have[24] = "";
 
-  if (fileVersion(cfg, "kunder", ver, sizeof(ver), &parts)) {
+  // Kundlistan forst: hundra byte som gui:t behover ska aldrig fa vanta pa
+  // en jattefil eller stoppas av en uppladdning som strular.
+  if (fileVersion(cfg, "kunder", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKund", have, sizeof(have));
     if (strcmp(ver, have) != 0) {
       setState(CLOUD_SYNCING, "hamtar kundlistan");
-      if (downloadKunder()) g_prefs.putString("vKund", ver);
-    }
-  }
-
-  if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts)) {
-    g_prefs.getString("vKam", have, sizeof(have));
-    if (strcmp(ver, have) != 0) {
-      setState(CLOUD_SYNCING, "hamtar kamerafilen");
-      if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44)) {
-        g_prefs.putString("vKam", ver);
+      if (downloadKunder()) {
+        g_prefs.putString("vKund", ver);
+        Serial.printf("moln: kundlistan uppdaterad, %u kunder\n",
+                      (unsigned)customers::count());
       }
     }
   }
 
-  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts)) {
+  setState(CLOUD_SYNCING, "laddar upp resor");
+  if (!uploadTrips(lastSynced)) { g_prefs.end(); return false; }
+
+  setState(CLOUD_SYNCING, "laddar upp gpx");
+  if (!uploadGpx()) { g_prefs.end(); return false; }
+
+  if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
+    g_prefs.getString("vKam", have, sizeof(have));
+    if (strcmp(ver, have) != 0 && worthTrying(g_kamAttempt, ver)) {
+      setState(CLOUD_SYNCING, "hamtar kamerafilen");
+      if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size)) {
+        g_prefs.putString("vKam", ver);
+      } else {
+        g_kamAttempt.fails++;
+      }
+    }
+  }
+
+  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vHast", have, sizeof(have));
-    if (strcmp(ver, have) != 0) {
+    if (strcmp(ver, have) != 0 && worthTrying(g_hastAttempt, ver)) {
       // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
       // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
       setState(CLOUD_SYNCING, "hamtar hastighetsfilen");
-      if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44)) {
+      if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size)) {
         g_prefs.putString("vHast", ver);
+      } else {
+        g_hastAttempt.fails++;
       }
     }
   }
@@ -401,7 +451,8 @@ void syncTask(void *) {
     }
 
     const uint32_t now = millis();
-    if (!g_syncNow && now < nextAttemptMs) continue;
+    // Med autosynken avslagen hander ingenting forran knappen trycks.
+    if (!g_syncNow && (!g_autoSync || now < nextAttemptMs)) continue;
     g_syncNow = false;
 
     // Vilket av de sparade naten finns har? En skanning ser dem som sander,
@@ -509,9 +560,11 @@ void begin() {
 
   setState(anyNet() ? CLOUD_IDLE : CLOUD_OFF, anyNet() ? "redo" : "");
 
-  // TLS behover rejalt med stack. Kor pa andra karnan, sa att avlasningstraden
-  // pa karna 0 aldrig behover dela varv med en nedladdning.
-  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 2, nullptr, 1);
+  // TLS behover rejalt med stack. Kor pa karna 1, dar aven huvudloopen med
+  // gui:t bor - men med SAMMA prioritet, inte hogre: med prioritet 2 svalte
+  // en langre nedladdning skarmen helt, och det kandes som att hela enheten
+  // hangde sig. Lika prioritet ger turordning, och gui:t far sina varv.
+  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 1, nullptr, 1);
 }
 
 void configureNets(const char *ssids[kNetMax], const char *passwords[kNetMax],
@@ -578,6 +631,8 @@ String ssid() {
 }
 
 void requestSync() { g_syncNow = true; }
+
+void setAutoSync(bool on) { g_autoSync = on; }
 
 CloudStatus status() {
   lock();

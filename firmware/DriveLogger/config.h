@@ -342,6 +342,9 @@ static const uint8_t kScreenTimeoutCount = 8;
 // Ljudet gar att stanga av, och valet sparas. En reselogg som tjuter nar man
 // kor med sovande barn i baksatet blir en reselogg man drar ur.
 #define DEFAULT_SOUND_ON 1
+// Autosynken: enheten synkar sjalv nar den star stilla och nar natet.
+// Avslagen synkar den bara pa knappen pa molnskarmen.
+#define DEFAULT_AUTO_SYNC 1
 
 // Matomraden for rorelsesensorn. De behover inte kunna andras i menyn har -
 // resan bryr sig inte om dem, och ecodrive rakna i andel av uppmatt tyngdkraft

@@ -36,6 +36,7 @@ function Login() {
   return (
     <form className="login" onSubmit={signIn}>
       <h1><Logo className="logo" /> DriveLogger</h1>
+      <p className="byline">by Creative Enabler</p>
       <p>Körjournalen, kartan och analyserna. Logga in med ditt konto.</p>
       <input type="email" placeholder="e-post" value={email}
         autoComplete="username" onChange={(e) => setEmail(e.target.value)} />
@@ -81,7 +82,7 @@ export default function App() {
     <div className="shell">
       <header className="top">
         <Logo className="logo" />
-        <h1>DriveLogger</h1>
+        <h1>DriveLogger <span className="byline">by Creative Enabler</span></h1>
         <DeviceBadge />
         <span className="who">
           <ThemeToggle />

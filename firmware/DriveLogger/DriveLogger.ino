@@ -44,7 +44,7 @@ Preferences prefs;
 AppSettings cfg = {DEFAULT_SCREEN_TIMEOUT_INDEX, DEFAULT_SOUND_ON,
                    DEFAULT_ECO_SOFT_INDEX,       DEFAULT_ECO_HARD_INDEX,
                    DEFAULT_ECO_BUBBLE_INDEX,     DEFAULT_ECO_PENALTY_INDEX,
-                   DEFAULT_ECO_WINDOW_INDEX};
+                   DEFAULT_ECO_WINDOW_INDEX,     DEFAULT_AUTO_SYNC};
 
 bool lastButtonState = HIGH;
 
@@ -61,6 +61,7 @@ void loadSettings() {
   cfg.ecoBubbleIdx = prefs.getUChar("ecoBub", DEFAULT_ECO_BUBBLE_INDEX);
   cfg.ecoPenaltyIdx = prefs.getUChar("ecoPen", DEFAULT_ECO_PENALTY_INDEX);
   cfg.ecoWindowIdx = prefs.getUChar("ecoWin", DEFAULT_ECO_WINDOW_INDEX);
+  cfg.autoSync = prefs.getUChar("autoSync", DEFAULT_AUTO_SYNC);
   prefs.end();
 
   // Ett trasigt eller gammalt sparat varde far inte gora enheten obrukbar.
@@ -68,6 +69,7 @@ void loadSettings() {
     cfg.screenIdx = DEFAULT_SCREEN_TIMEOUT_INDEX;
   }
   if (cfg.soundOn > 1) cfg.soundOn = DEFAULT_SOUND_ON;
+  if (cfg.autoSync > 1) cfg.autoSync = DEFAULT_AUTO_SYNC;
   if (cfg.ecoSoftIdx >= kEcoSoftCount) cfg.ecoSoftIdx = DEFAULT_ECO_SOFT_INDEX;
   if (cfg.ecoHardIdx >= kEcoHardCount) cfg.ecoHardIdx = DEFAULT_ECO_HARD_INDEX;
   if (cfg.ecoBubbleIdx >= kEcoBubbleCount) {
@@ -90,6 +92,7 @@ void saveSettings() {
   prefs.putUChar("ecoBub", cfg.ecoBubbleIdx);
   prefs.putUChar("ecoPen", cfg.ecoPenaltyIdx);
   prefs.putUChar("ecoWin", cfg.ecoWindowIdx);
+  prefs.putUChar("autoSync", cfg.autoSync);
   prefs.end();
 }
 
@@ -98,6 +101,7 @@ void applySettings() {
                  kEcoBubble[cfg.ecoBubbleIdx], kEcoPenalty[cfg.ecoPenaltyIdx],
                  kEcoWindowS[cfg.ecoWindowIdx]);
   sound::setEnabled(cfg.soundOn != 0);
+  cloudsync::setAutoSync(cfg.autoSync != 0);
 }
 
 // ------------------------------------------------------------ felsokning --
@@ -133,9 +137,14 @@ void printStatusLine() {
   } else {
     // Paket utan satelliter ar antennfallet: modulen mar bra, den ser bara
     // ingenting. Inga paket alls ar ett busproblem.
-    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u\n",
+    // Fartraden avslojar varfor autostarten eventuellt tvekar: betrodd fart
+    // kraver 3d-fix och en rimlig osakerhetssiffra fran mottagaren.
+    const GnssFix f = gnss::fix();
+    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u  "
+                  "fart %.1f±%.1f km/h %s\n",
                   (unsigned long)d.polls, (unsigned long)d.packets,
-                  (unsigned)d.fixType, (unsigned)d.sats);
+                  (unsigned)d.fixType, (unsigned)d.sats, f.speedKmh,
+                  f.speedAccKmh, f.speedTrusted ? "betrodd" : "obetrodd");
   }
 
   Serial.printf(
@@ -175,7 +184,10 @@ void setup() {
 
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
-  panel->begin();
+  // 80 MHz pa qspi-bussen i stallet for standardens 40: halva flushtiden,
+  // och det ar flusharna som satter kanslan i hela granssnittet. Panelen
+  // klarar det - borjar bilden brusa ar det har man backar till 40.
+  panel->begin(80000000L);
   panel->fillScreen(0x0000);
   panel->setBrightness(235);
 

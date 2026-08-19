@@ -165,6 +165,13 @@ void actEcoReset() { eco::reset(); }
 
 void actCloudSync() { cloudsync::requestSync(); }
 
+void actToggleAutoSync(bool on) {
+  g_cfg->autoSync = on ? 1 : 0;
+  g_apply();
+  g_save();
+  sound::play(CUE_TAP);
+}
+
 }  // namespace
 
 namespace {
@@ -174,7 +181,7 @@ void actOpenCustomers() { ::openCustomersFromGui(); }
 const GuiActions kActions = {
     actSetPurpose, actStartTrip, actEndTrip, actSplit, actPickCustomer,
     actOpenCustomers, actToggleSound, actScreenIdx, actTare, actEcoReset,
-    actCloudSync,
+    actCloudSync, actToggleAutoSync,
 };
 
 // ---------------------------------------------------------------- modellen -
@@ -272,6 +279,7 @@ void fillModel(GuiModel &m) {
   m.camCount = cams::count();
 
   m.soundOn = g_cfg->soundOn != 0;
+  m.autoSyncOn = g_cfg->autoSync != 0;
   m.screenIdx = g_cfg->screenIdx;
   m.screenCount = kScreenTimeoutCount;
   m.screenTimeoutS = kScreenTimeouts[g_cfg->screenIdx];
@@ -326,6 +334,9 @@ void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touch_cb);
+  // Touchen lases var 20:e ms i stallet for var 33:e - ett snabbt tryck ska
+  // fangas aven om fingret bara nuddar. Kanslan sitter i avlasningstakten.
+  lv_timer_set_period(lv_indev_get_read_timer(indev), 20);
 
   gui_screens_create(&kActions);
 }

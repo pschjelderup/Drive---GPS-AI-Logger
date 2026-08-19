@@ -98,6 +98,7 @@ struct GuiModel {
   uint8_t screenIdx;
   uint8_t screenCount;
   uint16_t screenTimeoutS;  // varde for aktuellt index, 0 = aldrig
+  bool autoSyncOn;
   char version[24];
 
   // ---- kundlistan (fylls pa nar valjaren oppnas)
@@ -118,4 +119,5 @@ struct GuiActions {
   void (*tare)(void (*done)(bool ok));
   void (*ecoReset)();
   void (*requestCloudSync)();
+  void (*toggleAutoSync)(bool on);
 };

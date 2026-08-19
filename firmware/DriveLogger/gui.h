@@ -20,6 +20,9 @@ struct AppSettings {
   uint8_t ecoBubbleIdx;
   uint8_t ecoPenaltyIdx;
   uint8_t ecoWindowIdx;
+
+  // Autosynk av/pa - avslagen synkar molnet bara pa knappen.
+  uint8_t autoSync;
 };
 
 namespace gui {
