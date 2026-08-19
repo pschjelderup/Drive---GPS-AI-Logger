@@ -624,6 +624,7 @@ export default function Journal() {
   const [openGroup, setOpenGroup] = useState(null);
   const [selMode, setSelMode] = useState(false);
   const [selIds, setSelIds] = useState(new Set());
+  const [groupName, setGroupName] = useState("");
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
@@ -727,8 +728,9 @@ export default function Journal() {
     const ids = [...selIds];
     if (ids.length < 2) return;
     const first = shown.find((t) => t.id === ids[0]);
-    const label = first
-      ? new Date(first.start_utc).toLocaleDateString("sv-SE") : null;
+    // Namnet ar anvandarens; utan namn far gruppen dagens datum.
+    const label = groupName.trim() ||
+      (first ? new Date(first.start_utc).toLocaleDateString("sv-SE") : null);
     const { data, error } = await supabase
       .from("drive_trip_groups").insert({ label }).select().single();
     if (error) { setStatus(error.message); return; }
@@ -736,6 +738,7 @@ export default function Journal() {
       .update({ group_id: data.id }).in("id", ids);
     setSelMode(false);
     setSelIds(new Set());
+    setGroupName("");
     load();
   };
 
@@ -884,6 +887,10 @@ export default function Journal() {
             <button onClick={selectWholeDays} disabled={!selIds.size}>
               Välj hela dagen
             </button>
+            <input type="text" placeholder="namn på gruppen (valfritt)"
+              value={groupName} style={{ width: "14rem" }}
+              onChange={(e) => setGroupName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && selIds.size >= 2 && createGroup()} />
             <button className="active" onClick={createGroup}
               disabled={selIds.size < 2}>
               Skapa grupp
