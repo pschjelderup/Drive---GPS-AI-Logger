@@ -201,6 +201,16 @@ html[data-theme="dark"] .map .leaflet-tile { filter: brightness(.72) contrast(1.
 }
 .filters button.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
+/* Kartans lagervaljare: kryssrutor med samma kladsel som filterknapparna. */
+.laytoggle {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: .3rem .8rem; font-size: .82rem; color: var(--dim); cursor: pointer;
+  background: transparent; user-select: none;
+}
+.laytoggle:has(input:checked) { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.laytoggle input { accent-color: var(--accent); margin: 0; }
+
 .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .82rem; color: var(--dim); margin: .4rem 0; }
 .legend .sw { display: inline-block; width: .8rem; height: .8rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; }
 

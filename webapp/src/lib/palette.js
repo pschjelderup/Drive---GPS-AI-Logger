@@ -58,3 +58,24 @@ export function speedColor(kmh) {
   }
   return SPEED_BINS[SPEED_BINS.length - 1].color;
 }
+
+// Vaglagret: skyltad hastighet, samma ramp som fartlagret sa att kartans tva
+// hastighetssprak ser likadana ut. Grupperna foljer de svenska skyltstegen.
+export const LIMIT_BINS = [
+  { max: 40, color: "#1a7f37", label: "30-40" },
+  { max: 60, color: "#7fb069", label: "50-60" },
+  { max: 80, color: "#eda100", label: "70-80" },
+  { max: 100, color: "#e2571b", label: "90-100" },
+  { max: Infinity, color: "#c2187e", label: "110-120" },
+];
+
+export function limitColor(v) {
+  for (const b of LIMIT_BINS) {
+    if (v <= b.max) return b.color;
+  }
+  return LIMIT_BINS[LIMIT_BINS.length - 1].color;
+}
+
+// Kamerapunkten pa kartan: vagmarkets sprak - vit skiva med rod ring.
+export const CAM_RING = "#c22f2f";
+export const CAM_FILL = "#ffffff";

@@ -192,6 +192,28 @@ export function parseHastighetBin(buf) {
   return { lat, lon, lim, n: count };
 }
 
+// En redan byggd KAMEROR.BIN tillbaka till kameralistan, for kartlagret.
+export function parseKamerorBin(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength < 12 || dv.getUint32(0, true) !== 0x31434c44) return null;
+  const recSize = dv.getUint16(6, true);
+  const count = dv.getUint32(8, true);
+  if (recSize !== 12 || 12 + count * recSize > buf.byteLength) return null;
+
+  const cams = [];
+  let off = 12;
+  for (let i = 0; i < count; i++) {
+    cams.push({
+      lat: dv.getInt32(off, true) / 1e7,
+      lon: dv.getInt32(off + 4, true) / 1e7,
+      bearing: dv.getUint16(off + 8, true),  // 0xFFFF = okand
+      limit: dv.getUint8(off + 10),          // 0 = ingen skyltsiffra
+    });
+    off += recSize;
+  }
+  return cams;
+}
+
 // ---- sortering, stadning och packning till enhetens format
 
 function sortIndex(lat, lon, n) {
