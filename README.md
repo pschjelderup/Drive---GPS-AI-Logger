@@ -1,4 +1,4 @@
-# DriveLogger
+# Hikaya
 
 Reselogg för **Waveshare ESP32-S3-Touch-AMOLED-2.41**. Loggar varje resa i bilen
 till en GPX-fil och en rad i en resedagbok, märker resan som privat, företag
@@ -70,7 +70,7 @@ emellan.
    i Chrome eller Edge på en dator. (Safari och Firefox kan inte prata med kort
    över USB.)
 2. Sätt i USB-kabeln.
-3. Klicka på **Installera DriveLogger på kortet** och välj kortets port i listan.
+3. Klicka på **Installera Hikaya på kortet** och välj kortets port i listan.
 4. Vänta tills det står att det är klart.
 
 Vilken version som sitter på kortet ser du i **MENY**. Stämmer den med raden på
@@ -246,7 +246,7 @@ När ingen resa pågår reser enheten ett eget wifi-nät. Det är så resorna l�
 bilen och datafilerna kommer in – ingen kabel, ingen kortutmatning, ingen app.
 
 1. Sätt dig i bilen med tändningen på (eller enheten på skrivbordet med USB).
-2. Anslut telefonen till nätet **DriveLogger**, lösenord **kordagbok**.
+2. Anslut telefonen till nätet **Hikaya**, lösenord **kordagbok**.
    Båda står på skärmen när nätet är uppe.
 3. Sidan öppnas **av sig själv** – samma mekanism som får ett hotellwifi att
    poppa upp. Öppnas den inte: gå till `http://192.168.4.1` i Safari.
@@ -456,7 +456,7 @@ Den kopplas till **UART-portens TXD-stift**, och det är valt med flit:
 GPIO43 är UART0:s sändarstift och är ledigt eftersom kortet byggs med
 `CDCOnBoot=cdc` – all serieutmatning går över USB och UART0 används inte. Vill du
 hellre använda RXD-stiftet är det GPIO44; ändra `PIN_BUZZER` i
-`firmware/DriveLogger/config.h`.
+`firmware/Hikaya/config.h`.
 
 > Kontakten märkt `UART` sitter bredvid den märkta `I2C`, och en Qwiic-kabel
 > passar fysiskt i båda – och i den märkta `RTC`. Kontrollera texten vid
@@ -616,7 +616,7 @@ den.
 
 ## För den som vill bygga själv
 
-Firmware ligger i `firmware/DriveLogger` och är en vanlig Arduino-skiss. Den byggs
+Firmware ligger i `firmware/Hikaya` och är en vanlig Arduino-skiss. Den byggs
 automatiskt av GitHub Actions vid varje ändring, och resultatet blir både en
 nedladdningsbar fil och flashsidan.
 
@@ -627,7 +627,7 @@ arduino-cli lib install "SensorLib"@0.4.1
 arduino-cli lib install "SparkFun u-blox GNSS v3"@3.1.14
 arduino-cli compile \
   --fqbn esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,FlashMode=qio,PartitionScheme=huge_app,CDCOnBoot=cdc \
-  firmware/DriveLogger
+  firmware/Hikaya
 ```
 
 Kortpaketet är drygt sju gigabyte, eftersom det innehåller kompilatorer och
@@ -638,7 +638,7 @@ Av det är ungefär 1,4 GB relevant här. Bygget i CI cachar det mellan körning
 
 | Fil | Ansvar |
 |---|---|
-| `DriveLogger.ino` | Uppstart, skärmval, pekhantering, inställningar |
+| `Hikaya.ino` | Uppstart, skärmval, pekhantering, inställningar |
 | `config.h` | Pinnar och konstanter. Allt som är ett val bor här |
 | `sensors.cpp` | Rörelsesensor, klocka, minneskort, avläsningstråden |
 | `gnss.cpp` | u-blox-mottagaren. Oförändrad från Gmate |

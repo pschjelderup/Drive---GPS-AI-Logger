@@ -1,4 +1,4 @@
-// DriveLogger-appen: inloggning, flikar och vyerna. Samma formsprak som
+// Hikaya-appen: inloggning, flikar och vyerna. Samma formsprak som
 // skarmen i bilen - papper, black och vagbla - sa att de kanns som tva sidor
 // av samma sak.
 import { useEffect, useState } from "react";
@@ -35,7 +35,7 @@ function Login() {
 
   return (
     <form className="login" onSubmit={signIn}>
-      <h1><Logo className="logo" /> DriveLogger</h1>
+      <h1><Logo className="logo" /> Hikaya</h1>
       <p className="byline">by Creative Enabler</p>
       <p>Körjournalen, kartan och analyserna. Logga in med ditt konto.</p>
       <input type="email" placeholder="e-post" value={email}
@@ -82,7 +82,7 @@ export default function App() {
     <div className="shell">
       <header className="top">
         <Logo className="logo" />
-        <h1>DriveLogger <span className="byline">by Creative Enabler</span></h1>
+        <h1>Hikaya <span className="byline">by Creative Enabler</span></h1>
         <DeviceBadge />
         <span className="who">
           <ThemeToggle />

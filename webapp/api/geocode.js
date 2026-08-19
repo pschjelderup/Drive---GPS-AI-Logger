@@ -41,7 +41,7 @@ async function viaNominatim(lat, lon) {
   const u =
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2` +
     `&lat=${lat}&lon=${lon}&accept-language=sv&zoom=18`;
-  const r = await fetch(u, { headers: { "User-Agent": "DriveLogger/1.0" } });
+  const r = await fetch(u, { headers: { "User-Agent": "Hikaya/1.0" } });
   if (!r.ok) return null;
   const data = await r.json();
   const a = data.address ?? {};

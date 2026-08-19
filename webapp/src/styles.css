@@ -1,4 +1,4 @@
-/* DriveLoggers formsprak: papper och black med vagbla som enda brandfarg -
+/* Hikayas formsprak: papper och black med vagbla som enda brandfarg -
  * samma sprak som skarmen i bilen, sa att appen och enheten kanns som tva
  * sidor av samma sak. Ljust ar standard; morkt ar samma tokens med inverterad
  * skala. Temavaxlaren satter data-theme pa <html> fore forsta malningen. */
@@ -272,7 +272,7 @@ html[data-theme="dark"] .minimap img { filter: brightness(.72) contrast(1.05) sa
 }
 .minicard .mc-foot { font-size: .76rem; color: var(--dim); margin-top: .3rem; }
 
-/* Signaturen: produkten ar DriveLogger, huset ar Creative Enabler. */
+/* Signaturen: produkten ar Hikaya, huset ar Creative Enabler. */
 .byline { font-size: .72rem; font-weight: 500; color: var(--dim);
   letter-spacing: .04em; }
 h1 .byline { margin-left: .35rem; }

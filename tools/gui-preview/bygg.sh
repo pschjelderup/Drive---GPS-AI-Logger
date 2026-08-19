@@ -6,7 +6,7 @@
 set -e
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SKETCH="$(cd "$HERE/../../firmware/DriveLogger" && pwd)"
+SKETCH="$(cd "$HERE/../../firmware/Hikaya" && pwd)"
 LVGL="${LVGL_DIR:-$HOME/Arduino/libraries/lvgl}"
 
 test -d "$LVGL/src" || { echo "hittar inte lvgl i $LVGL" >&2; exit 1; }

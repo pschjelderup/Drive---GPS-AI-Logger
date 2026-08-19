@@ -1,5 +1,5 @@
 /**
- * LVGL-konfiguration for DriveLogger.
+ * LVGL-konfiguration for Hikaya.
  *
  * Filen kopieras till Arduino-biblioteksmappen av byggena (CI och lokalt),
  * eftersom LVGL letar efter den dar - en sokvag in i skissen gar inte att
