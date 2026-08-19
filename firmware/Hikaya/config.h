@@ -208,6 +208,11 @@ static inline const char *fwVersionFull() {
 // att vi kor pa en vag som inte finns i filen.
 #define LIMIT_MATCH_RADIUS_M 60
 
+// Delstorleken pa molnets stora filer - ett kontrakt med webappen
+// (PART_BYTES i DataFiles.jsx). Hela delar ar giltiga aterupptagnings-
+// punkter: en bruten nedladdning kostar en del, inte hela filen.
+#define CLOUD_PART_BYTES (4UL * 1024UL * 1024UL)
+
 // Overhastighet raknas forst har. Bilens hastighetsmatare visar med flit for
 // mycket, gps-farten ar den sanna, och ingen vill bli tillsagd for tre km/h.
 #define LIMIT_TOLERANCE_KMH 3.0f
