@@ -175,7 +175,10 @@ void setup() {
 
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
-  panel->begin();
+  // 80 MHz pa qspi-bussen i stallet for standardens 40: halva flushtiden,
+  // och det ar flusharna som satter kanslan i hela granssnittet. Panelen
+  // klarar det - borjar bilden brusa ar det har man backar till 40.
+  panel->begin(80000000L);
   panel->fillScreen(0x0000);
   panel->setBrightness(235);
 

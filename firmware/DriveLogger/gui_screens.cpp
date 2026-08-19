@@ -54,6 +54,14 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font,
   return l;
 }
 
+// Satt bara texten nar den andrats. lv_label_set_text ritar alltid om, aven
+// nar texten ar exakt densamma - och med varden som skrivs flera ganger i
+// sekunden blir det en standig omritningsstorm som gor hela gui:t trogt och
+// touchen kolik. Jamforelsen har ar vad som gor skarmen stilla i vila.
+static void set_txt(lv_obj_t *l, const char *txt) {
+  if (strcmp(lv_label_get_text(l), txt) != 0) lv_label_set_text(l, txt);
+}
+
 // Fylld knapp med tryckkansla: morkare vid tryck, rundade horn.
 static lv_obj_t *button(lv_obj_t *parent, lv_color_t bg, const char *txt,
                         const lv_font_t *font, lv_color_t fg,
@@ -149,11 +157,11 @@ static void add_status(lv_obj_t *scr, GuiScreen idx) {
 static void update_status(GuiScreen idx, const GuiModel *m) {
   StatusRefs &r = g_status[idx];
   if (!r.clock) return;
-  lv_label_set_text(r.clock, m->clock[0] ? m->clock : "--:--");
+  set_txt(r.clock, m->clock[0] ? m->clock : "--:--");
 
   char buf[16];
   snprintf(buf, sizeof(buf), LV_SYMBOL_GPS " %u", (unsigned)m->sats);
-  lv_label_set_text(r.gps, buf);
+  set_txt(r.gps, buf);
   lv_obj_set_style_text_color(
       r.gps,
       !m->gpsPresent ? COL_FAINT : (m->gpsFix ? COL_GREEN : COL_AMBER), 0);
@@ -299,7 +307,7 @@ static void update_home(const GuiModel *m) {
     for (char *p = km; *p; p++) if (*p == '.') *p = ',';
     snprintf(buf, sizeof(buf), "Resa %lu pågår · %s km",
              (unsigned long)m->tripIndex, km);
-    lv_label_set_text(g_tripChipLabel, buf);
+    set_txt(g_tripChipLabel, buf);
     lv_obj_clear_flag(g_tripChip, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(g_tripChip, LV_OBJ_FLAG_HIDDEN);
@@ -549,7 +557,7 @@ static void update_drive(const GuiModel *m) {
 
   char buf[64];
   snprintf(buf, sizeof(buf), "%d", kmh);
-  lv_label_set_text(g_speedLbl, buf);
+  set_txt(g_speedLbl, buf);
   lv_obj_set_style_text_color(g_speedLbl, zone, 0);
   lv_arc_set_value(g_arcMain, kmh > kSpeedMax ? kSpeedMax : kmh);
   lv_arc_set_value(g_arcGlow, kmh > kSpeedMax ? kSpeedMax : kmh);
@@ -560,7 +568,7 @@ static void update_drive(const GuiModel *m) {
     lv_obj_clear_flag(g_signRing, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(g_signOff, LV_OBJ_FLAG_HIDDEN);
     snprintf(buf, sizeof(buf), "%u", (unsigned)m->limitKmh);
-    lv_label_set_text(g_signNum, buf);
+    set_txt(g_signNum, buf);
 
     const float delta = m->speedKmh - (float)m->limitKmh;
     if (delta > 3.0f) {
@@ -573,13 +581,13 @@ static void update_drive(const GuiModel *m) {
       snprintf(buf, sizeof(buf), "på gränsen");
       lv_obj_set_style_text_color(g_deltaLbl, COL_AMBER, 0);
     }
-    lv_label_set_text(g_deltaLbl, buf);
+    set_txt(g_deltaLbl, buf);
   } else {
     lv_obj_add_flag(g_signRing, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(g_signOff, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(g_signOff, m->limitsLoaded
+    set_txt(g_signOff, m->limitsLoaded
         ? "ingen skyltad hastighet här" : "hastighetsfilen saknas");
-    lv_label_set_text(g_deltaLbl, "");
+    set_txt(g_deltaLbl, "");
   }
 
   // Kameravarningen.
@@ -591,12 +599,12 @@ static void update_drive(const GuiModel *m) {
     lv_obj_set_style_border_color(g_camPanel, t, 0);
     snprintf(buf, sizeof(buf), "FARTKAMERA  %lu m",
              (unsigned long)m->camDistanceM);
-    lv_label_set_text(g_camTitle, buf);
+    set_txt(g_camTitle, buf);
     if (m->camLimitKmh > 0) {
       snprintf(buf, sizeof(buf), "%u", (unsigned)m->camLimitKmh);
-      lv_label_set_text(g_camLimit, buf);
+      set_txt(g_camLimit, buf);
     } else {
-      lv_label_set_text(g_camLimit, "");
+      set_txt(g_camLimit, "");
     }
     int32_t v = 800 - (int32_t)m->camDistanceM;
     lv_bar_set_value(g_camBar, v < 0 ? 0 : v, LV_ANIM_OFF);
@@ -613,31 +621,31 @@ static void update_drive(const GuiModel *m) {
              (unsigned long)m->tripIndex, km,
              (unsigned long)(m->tripElapsedS / 3600),
              (unsigned long)((m->tripElapsedS % 3600) / 60));
-    lv_label_set_text(g_tripTitle, buf);
+    set_txt(g_tripTitle, buf);
     if (m->waitingForFix) {
-      lv_label_set_text(g_tripSub, "väntar på GPS-fix");
+      set_txt(g_tripSub, "väntar på GPS-fix");
     } else if (m->stoppedS > 15) {
       snprintf(buf, sizeof(buf), "står stilla %lu s – avslutas vid %lu s",
                (unsigned long)m->stoppedS, (unsigned long)m->stopAfterS);
-      lv_label_set_text(g_tripSub, buf);
+      set_txt(g_tripSub, buf);
     } else if (m->customer[0]) {
       snprintf(buf, sizeof(buf), "kund: %s", m->customer);
-      lv_label_set_text(g_tripSub, buf);
+      set_txt(g_tripSub, buf);
     } else {
       snprintf(buf, sizeof(buf), "max %d km/h", (int)(m->maxSpeedKmh + 0.5f));
-      lv_label_set_text(g_tripSub, buf);
+      set_txt(g_tripSub, buf);
     }
     lv_obj_set_style_bg_color(g_tripBtn, COL_RED, 0);
-    lv_label_set_text(g_tripBtnLbl, LV_SYMBOL_STOP);
+    set_txt(g_tripBtnLbl, LV_SYMBOL_STOP);
     lv_obj_clear_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   } else {
-    lv_label_set_text(g_tripTitle,
+    set_txt(g_tripTitle,
                       m->sdOk ? "Ingen resa pågår" : "Inget minneskort");
-    lv_label_set_text(g_tripSub,
+    set_txt(g_tripSub,
                       m->sdOk ? "startar själv när bilen rullar"
                               : "resor kan inte sparas utan kort");
     lv_obj_set_style_bg_color(g_tripBtn, COL_GREEN, 0);
-    lv_label_set_text(g_tripBtnLbl, LV_SYMBOL_PLAY);
+    set_txt(g_tripBtnLbl, LV_SYMBOL_PLAY);
     lv_obj_add_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   }
 
@@ -662,7 +670,7 @@ static void eco_reset_cb(lv_event_t *e) {
 static lv_obj_t *g_tareBtnLbl;
 static void tare_done(bool ok) {
   if (g_tareBtnLbl) {
-    lv_label_set_text(g_tareBtnLbl, ok ? "TARERAD" : "STÅ STILL");
+    set_txt(g_tareBtnLbl, ok ? "TARERAD" : "STÅ STILL");
   }
 }
 static void tare_cb(lv_event_t *e) {
@@ -762,11 +770,11 @@ static void update_eco(const GuiModel *m) {
 
   const int score = (int)(m->ecoTripScore + 0.5f);
   snprintf(buf, sizeof(buf), "%d", score);
-  lv_label_set_text(g_ecoScoreLbl, buf);
+  set_txt(g_ecoScoreLbl, buf);
   lv_arc_set_value(g_ecoArc, score);
   lv_color_t sc = score >= 75 ? COL_GREEN : score >= 40 ? COL_AMBER : COL_RED;
   lv_obj_set_style_arc_color(g_ecoArc, sc, LV_PART_INDICATOR);
-  lv_label_set_text(g_ecoAvgLbl,
+  set_txt(g_ecoAvgLbl,
                     m->ecoMeasured ? "resans medel" : "mäter …");
 
   // Granserna ritas dar de ligger; flyttas de i granssnittet foljer ringarna.
@@ -793,11 +801,11 @@ static void update_eco(const GuiModel *m) {
     lv_obj_set_style_shadow_color(g_ecoBubble, zone, 0);
     snprintf(buf, sizeof(buf), "%.2f g", m->ecoMagG);
     for (char *p = buf; *p; p++) if (*p == '.') *p = ',';
-    lv_label_set_text(g_ecoMagLbl, buf);
+    set_txt(g_ecoMagLbl, buf);
     lv_obj_clear_flag(g_ecoBubble, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(g_ecoBubble, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(g_ecoMagLbl, "hittar lodlinjen …");
+    set_txt(g_ecoMagLbl, "hittar lodlinjen …");
   }
 
   char dir[40];
@@ -813,7 +821,7 @@ static void update_eco(const GuiModel *m) {
            (unsigned long)m->ecoHardAccel, (unsigned long)m->ecoHardBrake,
            (unsigned long)m->ecoHardTurn, m->ecoPeakG, dir);
   for (char *p = buf; *p; p++) if (*p == '.') *p = ',';
-  lv_label_set_text(g_ecoInfo, buf);
+  set_txt(g_ecoInfo, buf);
 }
 
 // ------------------------------------------------------------ statistiken -
@@ -886,28 +894,28 @@ static void update_stats(const GuiModel *m) {
 
   snprintf(buf, sizeof(buf), "%lu km",
            (unsigned long)(m->statTotalKm + 0.5));
-  lv_label_set_text(g_statKm, buf);
+  set_txt(g_statKm, buf);
 
   snprintf(buf, sizeof(buf), "%lu", (unsigned long)m->statTrips);
-  lv_label_set_text(g_statTiles[0], buf);
+  set_txt(g_statTiles[0], buf);
   snprintf(buf, sizeof(buf), "%lu h %lu m",
            (unsigned long)(m->statMovingS / 3600),
            (unsigned long)((m->statMovingS % 3600) / 60));
-  lv_label_set_text(g_statTiles[1], buf);
+  set_txt(g_statTiles[1], buf);
   snprintf(buf, sizeof(buf), "%d km/h", (int)(m->statMaxKmh + 0.5f));
-  lv_label_set_text(g_statTiles[2], buf);
+  set_txt(g_statTiles[2], buf);
   snprintf(buf, sizeof(buf), "%lu min", (unsigned long)(m->statSpeedingS / 60));
-  lv_label_set_text(g_statTiles[3], buf);
+  set_txt(g_statTiles[3], buf);
   lv_obj_set_style_text_color(g_statTiles[3],
                               m->statSpeedingS >= 60 ? COL_RED : COL_TEXT, 0);
   snprintf(buf, sizeof(buf), "%lu MB", (unsigned long)m->statFreeMb);
-  lv_label_set_text(g_statTiles[4], buf);
+  set_txt(g_statTiles[4], buf);
   if (m->statKmLeft >= 1000000.0) {
     snprintf(buf, sizeof(buf), "> miljon km");
   } else {
     snprintf(buf, sizeof(buf), "~%lu km", (unsigned long)m->statKmLeft);
   }
-  lv_label_set_text(g_statTiles[5], buf);
+  set_txt(g_statTiles[5], buf);
 
   const double top = m->statPrivatKm > m->statForetagKm
       ? (m->statPrivatKm > m->statDiffustKm ? m->statPrivatKm : m->statDiffustKm)
@@ -918,7 +926,7 @@ static void update_stats(const GuiModel *m) {
                      top > 0 ? (int32_t)(kmv[i] / top * 100.0) : 0,
                      LV_ANIM_OFF);
     snprintf(buf, sizeof(buf), "%lu", (unsigned long)(kmv[i] + 0.5));
-    lv_label_set_text(g_statBarLbl[i], buf);
+    set_txt(g_statBarLbl[i], buf);
   }
 }
 
@@ -977,7 +985,7 @@ static void update_cloud(const GuiModel *m) {
   snprintf(buf, sizeof(buf), "nät: %s\nlösenord: %s%s",
            m->apSsid, m->apPassword,
            m->apClient ? "\ntelefon ansluten" : "");
-  lv_label_set_text(g_cloudAp, buf);
+  set_txt(g_cloudAp, buf);
 
   if (!m->cloudConfigured) {
     snprintf(buf, sizeof(buf),
@@ -990,11 +998,11 @@ static void update_cloud(const GuiModel *m) {
              (unsigned long)m->cloudTrips, (unsigned long)m->cloudGpx,
              (unsigned long)m->cloudFiles);
   }
-  lv_label_set_text(g_cloudState, buf);
+  set_txt(g_cloudState, buf);
 
   snprintf(buf, sizeof(buf), "%lu fartkameror på kortet",
            (unsigned long)m->camCount);
-  lv_label_set_text(g_cloudCams, buf);
+  set_txt(g_cloudCams, buf);
 }
 
 // ---------------------------------------------------------- installningar -
@@ -1085,7 +1093,7 @@ static void update_settings(const GuiModel *m) {
   } else {
     snprintf(buf, sizeof(buf), "%u min", (unsigned)(m->screenTimeoutS / 60));
   }
-  lv_label_set_text(g_setScreenVal, buf);
+  set_txt(g_setScreenVal, buf);
 
   snprintf(buf, sizeof(buf),
            "Version %s\nFartkameror: %s\nHastighetsgränser: %s\n"
@@ -1095,7 +1103,7 @@ static void update_settings(const GuiModel *m) {
            m->limitsLoaded ? "inlästa" : "saknas",
            m->sdOk ? "ok" : "saknas",
            m->gpsPresent ? (m->gpsFix ? "fix" : "söker") : "ingen modul");
-  lv_label_set_text(g_setVersion, buf);
+  set_txt(g_setVersion, buf);
 }
 
 // -------------------------------------------------- fragan och kundlistan -
@@ -1152,10 +1160,10 @@ static void update_ask(const GuiModel *m) {
   for (char *p = km; *p; p++) if (*p == '.') *p = ',';
   snprintf(buf, sizeof(buf), "Resa %lu · %s km",
            (unsigned long)m->askIndex, km);
-  lv_label_set_text(g_askTitle, buf);
+  set_txt(g_askTitle, buf);
   snprintf(buf, sizeof(buf), "blir DIFFUST om %lu s",
            (unsigned long)m->askSecondsLeft);
-  lv_label_set_text(g_askCount, buf);
+  set_txt(g_askCount, buf);
   lv_obj_clear_flag(g_askSheet, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1238,14 +1246,12 @@ void gui_screens_create(const GuiActions *actions) {
 void gui_screens_show(GuiScreen s, bool animate) {
   if (s == g_current) return;
   g_current = s;
-  if (animate) {
-    lv_screen_load_anim(g_screens[s],
-                        s == GUI_SCR_HOME ? LV_SCR_LOAD_ANIM_FADE_OUT
-                                          : LV_SCR_LOAD_ANIM_OVER_TOP,
-                        220, 0, false);
-  } else {
-    lv_screen_load(g_screens[s]);
-  }
+  // Inga skarmbytesanimationer: varje bildruta i en sadan ritar om hela
+  // skarmen med skuggor och gradienter i mjukvara, och pa den har processorn
+  // blir det en seg svepning i laga bildrutor. Ett omedelbart byte kanns
+  // snabbare an en langsam animation - sa byte sker direkt.
+  (void)animate;
+  lv_screen_load(g_screens[s]);
 }
 
 GuiScreen gui_screens_current() { return g_current; }
