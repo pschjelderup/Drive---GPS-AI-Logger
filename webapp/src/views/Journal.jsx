@@ -3,11 +3,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase, GPX_BUCKET } from "../lib/supabase.js";
 import {
-  fmtKm, fmtDateTime, fmtDur, intFmt, PURPOSES, purposeLabel,
+  fmtKm, fmtDateTime, fmtDur, intFmt, kmFmt, PURPOSES, purposeLabel,
 } from "../lib/fmt.js";
 import { PURPOSE_COLOR } from "../lib/palette.js";
-import { parseGpx } from "../lib/gpx.js";
-import { vehicleLabel, tripVehicleId } from "../lib/vehicles.js";
+import { parseGpx, distanceM } from "../lib/gpx.js";
+import { vehicleLabel, tripVehicleId, vehicleRate } from "../lib/vehicles.js";
+
+// Kanns en kunds kontor igen i resans andpunkter? Inom 400 meter raknas det
+// som ett besok - nara nog for en parkering, langt ifran slumptraffar.
+function nearCustomer(t, customers) {
+  let best = null;
+  for (const c of customers) {
+    if (c.lat == null || c.lon == null) continue;
+    for (const [where, la, lo] of [
+      ["start", t.start_lat, t.start_lon],
+      ["mål", t.end_lat, t.end_lon],
+    ]) {
+      if (!la && !lo) continue;
+      const d = distanceM(la, lo, c.lat, c.lon);
+      if (d <= 400 && (!best || d < best.d)) best = { customer: c, where, d };
+    }
+  }
+  return best;
+}
 
 // Sparet i miniformat, pa riktig kartbotten: OSM-plattorna som tacker sparets
 // rektangel raknas fram och laggs som bilder, sparet ritas ovanpa med vit
@@ -24,7 +42,7 @@ function TrackMini({ pts, color }) {
   let content = null;
   if (pts === undefined) {
     content = <span className="mm-note">hämtar spår …</span>;
-  } else if (!pts || pts.length < 2) {
+  } else if (!pts || pts.filter(Boolean).length < 2) {
     content = <span className="mm-note">inget spår</span>;
   } else if (dim) {
     const { w, h } = dim;
@@ -34,9 +52,12 @@ function TrackMini({ pts, color }) {
       const y = 0.5 - Math.log((1 + sn) / (1 - sn)) / (4 * Math.PI);
       return [x, y];
     };
+    // Grupperade resor skickar in sina delspar med null emellan - dar lyfts
+    // pennan, sa att inga later-som-korda streck ritas mellan resorna.
     let minX = 1, maxX = 0, minY = 1, maxY = 0;
-    for (const [la, lo] of pts) {
-      const [x, y] = merc(la, lo);
+    for (const p of pts) {
+      if (!p) continue;
+      const [x, y] = merc(p[0], p[1]);
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -73,12 +94,19 @@ function TrackMini({ pts, color }) {
       const [x, y] = merc(la, lo);
       return `${(x * world - left).toFixed(1)},${(y * world - top).toFixed(1)}`;
     };
-    for (let i = 0; i < pts.length; i += step) {
-      d.push(`${i ? "L" : "M"}${px(pts[i][0], pts[i][1])}`);
+    let pen = false, n = 0;
+    let first = null, last = null;
+    for (const p of pts) {
+      if (!p) { pen = false; continue; }
+      n++;
+      if (!first) first = p;
+      last = p;
+      if (pen && n % step !== 0) continue;
+      d.push(`${pen ? "L" : "M"}${px(p[0], p[1])}`);
+      pen = true;
     }
-    const last = pts[pts.length - 1];
     d.push(`L${px(last[0], last[1])}`);
-    const [sx, sy] = px(pts[0][0], pts[0][1]).split(",");
+    const [sx, sy] = px(first[0], first[1]).split(",");
     const [ex, ey] = px(last[0], last[1]).split(",");
 
     content = (
@@ -102,50 +130,68 @@ function TrackMini({ pts, color }) {
   return <div ref={boxRef} className="minimap">{content}</div>;
 }
 
-// Resorna som minikort: sparet, strackan, tiden och det vasentliga. Sex
-// visas fran borjan och "Ladda fler" tar resten i klumpar - sparen hamtas
-// bara for de kort som faktiskt visas. Ett klick pa kortet oppnar resekortet
-// med allt som finns om resan.
-function MiniCards({ trips, onOpen }) {
+// Korten: en resa eller en grupp av resor per kort. Sex visas fran borjan
+// och "Ladda fler" tar resten - sparen hamtas bara for kort som visas, och
+// en grupps delspar sys ihop med lyft penna emellan. I markeringslaget
+// valjer klicken i stallet ut resor att gruppera.
+function MiniCards({ entries, onOpen, selMode, selIds, onToggle }) {
   const [tracks, setTracks] = useState({});
-  const ids = trips.map((t) => t.id).join(",");
+  const ids = entries.map((e) => e.key).join(",");
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      for (const t of trips) {
-        if (!t.gpx_path) {
-          setTracks((m) => (t.id in m ? m : { ...m, [t.id]: null }));
+      for (const e of entries) {
+        if (e.key in tracks) continue;
+        const paths = e.trips.map((t) => t.gpx_path).filter(Boolean);
+        if (!paths.length) {
+          setTracks((m) => (e.key in m ? m : { ...m, [e.key]: null }));
           continue;
         }
-        if (t.id in tracks) continue;
-        const { data } = await supabase.storage
-          .from(GPX_BUCKET).download(t.gpx_path);
-        const pts = data ? parseGpx(await data.text()) : null;
+        const joined = [];
+        for (const p of paths) {
+          const { data } = await supabase.storage.from(GPX_BUCKET).download(p);
+          const pts = data ? parseGpx(await data.text()) : null;
+          if (pts?.length) {
+            if (joined.length) joined.push(null);
+            joined.push(...pts);
+          }
+        }
         if (!alive) return;
-        setTracks((m) => ({ ...m, [t.id]: pts }));
+        setTracks((m) => ({ ...m, [e.key]: joined.length ? joined : null }));
       }
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids]);
 
-  if (!trips.length) return null;
+  if (!entries.length) return null;
 
   return (
     <div className="minicards">
-      {trips.map((t) => {
+      {entries.map((e) => {
+        const t = e.view;
         const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
+        const selectable = selMode && !e.isGroup;
+        const sel = selectable && selIds.has(e.trips[0].id);
         return (
-          <div className="minicard" key={t.id} role="button" tabIndex={0}
-            onClick={() => onOpen?.(t)}
-            onKeyDown={(e) => e.key === "Enter" && onOpen?.(t)}>
+          <div key={e.key} role="button" tabIndex={0}
+            className={`minicard${sel ? " sel" : ""}${selMode && e.isGroup ? " dis" : ""}`}
+            onClick={() => (selectable ? onToggle(e.trips[0].id) : !selMode && onOpen?.(e))}
+            onKeyDown={(ev) => ev.key === "Enter" &&
+              (selectable ? onToggle(e.trips[0].id) : !selMode && onOpen?.(e))}>
             <div className="mc-accent" style={{ background: color }} />
             <div className="mc-head">
-              <b>Resa {t.trip_no}</b>
+              <b>{e.isGroup
+                ? (e.group.label || "Grupp")
+                : `Resa ${t.trip_no}`}</b>
               <span>{fmtDateTime(t.start_utc)}</span>
             </div>
-            <TrackMini pts={tracks[t.id]} color={color} />
+            {e.isGroup && (
+              <div className="mc-badge">{e.trips.length} delresor</div>
+            )}
+            {selectable && <div className="mc-check">{sel ? "✓" : ""}</div>}
+            <TrackMini pts={tracks[e.key]} color={color} />
             <div className="mc-stats">
               <span><b>{fmtKm(t.distance_m)}</b> km</span>
               <span><b>{t.moving_s != null ? fmtDur(t.moving_s) : "–"}</b></span>
@@ -157,7 +203,7 @@ function MiniCards({ trips, onOpen }) {
               ) : null}
             </div>
             <div className="mc-foot">
-              {purposeLabel(t.purpose)}
+              {t.purpose === "blandat" ? "Blandat" : purposeLabel(t.purpose)}
               {t.customer ? ` · ${t.customer}` : ""}
               {t.speeding_s ? ` · ${Math.round(t.speeding_s / 60)} min över gränsen` : ""}
             </div>
@@ -169,6 +215,102 @@ function MiniCards({ trips, onOpen }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Flera resor sedda som en: summorna ar summor, tiderna ar forsta start och
+// sista mal, och det som inte ar entydigt (syfte, kund) sags vara blandat i
+// stallet for att gissas.
+function aggregateGroup(group, members) {
+  const sorted = [...members].sort(
+    (a, b) => new Date(a.start_utc) - new Date(b.start_utc),
+  );
+  const sumOr = (get) => {
+    let any = false, sum = 0;
+    for (const t of sorted) {
+      const v = get(t);
+      if (v != null) { any = true; sum += v; }
+    }
+    return any ? sum : null;
+  };
+  const uniform = (get) => {
+    const vals = new Set(sorted.map(get).filter((v) => v != null && v !== ""));
+    return vals.size === 1 ? [...vals][0] : null;
+  };
+  const km = sorted.reduce((a, t) => a + (t.distance_m || 0), 0);
+  let ecoW = 0, ecoSum = 0;
+  for (const t of sorted) {
+    if (t.eco_score != null && t.distance_m) {
+      ecoW += t.distance_m;
+      ecoSum += t.eco_score * t.distance_m;
+    }
+  }
+  return {
+    trip_no: sorted.map((t) => t.trip_no).join("+"),
+    start_utc: sorted[0]?.start_utc,
+    end_utc: sorted[sorted.length - 1]?.end_utc,
+    distance_m: km,
+    moving_s: sumOr((t) => t.moving_s),
+    speeding_s: sumOr((t) => t.speeding_s),
+    max_speed_kmh: Math.max(0, ...sorted.map((t) => t.max_speed_kmh || 0)) || null,
+    eco_score: ecoW > 0 ? ecoSum / ecoW : null,
+    hard_events: sumOr((t) => t.hard_events),
+    purpose: uniform((t) => t.purpose) ?? "blandat",
+    customer: uniform((t) => t.customer) ?? "",
+    start_place: sorted[0]?.start_place ?? null,
+    end_place: sorted[sorted.length - 1]?.end_place ?? null,
+  };
+}
+
+// Gruppkortet: helheten overst, delstrackorna under - var och en klickbar.
+function GroupModal({ entry, onClose, onOpenTrip, onUngroup, onRelabel }) {
+  const t = entry.view;
+  const kv = (label, value) => (
+    <div className="kv"><span>{label}</span><b>{value}</b></div>
+  );
+  return (
+    <div className="modal-scrim" onClick={onClose}>
+      <div className="modal card" onClick={(e) => e.stopPropagation()}>
+        <div className="mc-head" style={{ marginBottom: ".5rem" }}>
+          <input type="text" defaultValue={entry.group.label ?? ""}
+            placeholder="namn på gruppen" style={{ fontWeight: 600 }}
+            onBlur={(e) => onRelabel(entry.group.id, e.target.value || null)} />
+          <button className="ghost" onClick={onClose}>stäng</button>
+        </div>
+        <div className="kvgrid" style={{ marginBottom: ".6rem" }}>
+          {kv("Start", fmtDateTime(t.start_utc))}
+          {kv("Mål", fmtDateTime(t.end_utc))}
+          {kv("Sträcka", `${fmtKm(t.distance_m)} km`)}
+          {kv("Rullande tid", t.moving_s != null ? fmtDur(t.moving_s) : "–")}
+          {kv("Toppfart", t.max_speed_kmh ? `${Math.round(t.max_speed_kmh)} km/h` : "–")}
+          {kv("Ecopoäng", t.eco_score != null ? Math.round(t.eco_score) : "omätt")}
+        </div>
+        <h2 style={{ fontSize: ".85rem", color: "var(--dim)", textTransform: "uppercase" }}>
+          Delsträckor
+        </h2>
+        <table className="journal">
+          <tbody>
+            {entry.trips.map((m) => (
+              <tr key={m.id} style={{ cursor: "pointer" }}
+                onClick={() => onOpenTrip(m)}>
+                <td><span className="chip"
+                  style={{ background: PURPOSE_COLOR[m.purpose] ?? PURPOSE_COLOR.omarkt }} /></td>
+                <td>Resa {m.trip_no}</td>
+                <td>{fmtDateTime(m.start_utc)}</td>
+                <td>{fmtKm(m.distance_m)} km</td>
+                <td>{purposeLabel(m.purpose)}</td>
+                <td>{m.customer ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ marginTop: ".8rem" }}>
+          <button className="ghost" onClick={() => onUngroup(entry.group.id)}>
+            Ta isär gruppen
+          </button>
+        </p>
+      </div>
     </div>
   );
 }
@@ -272,6 +414,7 @@ function TripModal({ trip, customers, vehicles, patch, onClose }) {
   const t = trip;
   const color = PURPOSE_COLOR[t.purpose] ?? PURPOSE_COLOR.omarkt;
   const avgKmh = t.moving_s > 0 ? (t.distance_m / t.moving_s) * 3.6 : null;
+  const near = nearCustomer(t, customers);
   const maps = (lat, lon) =>
     `https://www.google.com/maps?q=${lat},${lon}`;
 
@@ -287,6 +430,22 @@ function TripModal({ trip, customers, vehicles, patch, onClose }) {
           <button className="ghost" onClick={onClose}>stäng</button>
         </div>
         <TrackMini pts={track} color={color} />
+
+        {near && near.customer.name !== t.customer && (
+          <p className="suggest">
+            Resan {near.where === "start" ? "startade" : "slutade"}{" "}
+            {Math.round(near.d)} m från <b>{near.customer.name}</b>.{" "}
+            <button className="ghost mini" onClick={() => patch(t.id, {
+              customer: near.customer.name,
+              purpose: "foretag",
+              ...(near.where === "start"
+                ? { start_place: near.customer.name }
+                : { end_place: near.customer.name }),
+            })}>
+              sätt som kund och {near.where === "start" ? "startplats" : "målplats"}
+            </button>
+          </p>
+        )}
 
         <div className="kvgrid">
           {kv("Start", <>
@@ -457,32 +616,141 @@ export default function Journal() {
   const [customers, setCustomers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [vehicleFilter, setVehicleFilter] = useState("alla");
+  const [period, setPeriod] = useState("alla");
+  const [groups, setGroups] = useState([]);
+  const [billRate, setBillRate] = useState(null);
   const [cardCount, setCardCount] = useState(6);
   const [selected, setSelected] = useState(null);
+  const [openGroup, setOpenGroup] = useState(null);
+  const [selMode, setSelMode] = useState(false);
+  const [selIds, setSelIds] = useState(new Set());
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
-    const [t, c, v] = await Promise.all([
+    const [t, c, v, g, st] = await Promise.all([
       supabase.from("drive_trips").select("*")
         .order("start_utc", { ascending: false }).limit(500),
       supabase.from("drive_customers").select("*").eq("active", true)
         .order("name"),
       supabase.from("drive_vehicles").select("*").eq("active", true)
         .order("id"),
+      supabase.from("drive_trip_groups").select("*"),
+      supabase.from("drive_settings").select("*")
+        .eq("key", "debiterat_per_mil").maybeSingle(),
     ]);
     if (t.error) { setStatus(t.error.message); return; }
     setTrips(t.data ?? []);
     setCustomers(c.data ?? []);
     setVehicles(v.data ?? []);
+    setGroups(g.data ?? []);
+    const raw = st.data?.value;
+    setBillRate(typeof raw === "number" ? raw : parseFloat(raw) || null);
     setStatus(t.data?.length ? "" : "Inga resor än – börja under Importera.");
   };
   useEffect(() => { load(); }, []);
 
-  // Filtret galler allt pa sidan: minikorten, overblicken och tabellen.
+  // Filtren galler allt pa sidan: minikorten, summeringen och tabellen.
+  // Perioderna ar kalenderns, inte rullande dygn - det ar sa en korjournal
+  // last: idag, den har veckan, den har manaden, det har aret.
+  const periodStart = useMemo(() => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    switch (period) {
+      case "dag": return d;
+      case "vecka": {
+        const wd = (d.getDay() + 6) % 7;  // mandag = 0
+        d.setDate(d.getDate() - wd);
+        return d;
+      }
+      case "manad": return new Date(now.getFullYear(), now.getMonth(), 1);
+      case "ar": return new Date(now.getFullYear(), 0, 1);
+      default: return null;
+    }
+  }, [period]);
+
   const shown = useMemo(() => {
-    if (vehicleFilter === "alla") return trips;
-    return trips.filter((t) => tripVehicleId(t, vehicles) === Number(vehicleFilter));
-  }, [trips, vehicles, vehicleFilter]);
+    let xs = trips;
+    if (vehicleFilter !== "alla") {
+      xs = xs.filter((t) => tripVehicleId(t, vehicles) === Number(vehicleFilter));
+    }
+    if (periodStart) {
+      xs = xs.filter((t) => t.start_utc && new Date(t.start_utc) >= periodStart);
+    }
+    return xs;
+  }, [trips, vehicles, vehicleFilter, periodStart]);
+
+  // Korten: grupperade resor blir en post, resten star for sig sjalva.
+  const entries = useMemo(() => {
+    const byGroup = new Map();
+    const singles = [];
+    for (const t of shown) {
+      if (t.group_id) {
+        if (!byGroup.has(t.group_id)) byGroup.set(t.group_id, []);
+        byGroup.get(t.group_id).push(t);
+      } else {
+        singles.push({ key: String(t.id), isGroup: false, trips: [t], view: t });
+      }
+    }
+    const grouped = [];
+    for (const [gid, members] of byGroup) {
+      const group = groups.find((g) => g.id === gid) ?? { id: gid, label: null };
+      grouped.push({
+        key: `g${gid}`, isGroup: true, group, trips: members,
+        view: aggregateGroup(group, members),
+      });
+    }
+    return [...singles, ...grouped].sort(
+      (a, b) => new Date(b.view.start_utc) - new Date(a.view.start_utc),
+    );
+  }, [shown, groups]);
+
+  // ---- grupperingen
+  const toggleSel = (id) => setSelIds((old) => {
+    const next = new Set(old);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  const selectWholeDays = () => {
+    const days = new Set([...selIds].map((id) => {
+      const t = shown.find((x) => x.id === id);
+      return t ? new Date(t.start_utc).toDateString() : null;
+    }).filter(Boolean));
+    setSelIds(new Set(shown
+      .filter((t) => !t.group_id &&
+        days.has(new Date(t.start_utc).toDateString()))
+      .map((t) => t.id)));
+  };
+
+  const createGroup = async () => {
+    const ids = [...selIds];
+    if (ids.length < 2) return;
+    const first = shown.find((t) => t.id === ids[0]);
+    const label = first
+      ? new Date(first.start_utc).toLocaleDateString("sv-SE") : null;
+    const { data, error } = await supabase
+      .from("drive_trip_groups").insert({ label }).select().single();
+    if (error) { setStatus(error.message); return; }
+    await supabase.from("drive_trips")
+      .update({ group_id: data.id }).in("id", ids);
+    setSelMode(false);
+    setSelIds(new Set());
+    load();
+  };
+
+  const ungroup = async (gid) => {
+    await supabase.from("drive_trips")
+      .update({ group_id: null }).eq("group_id", gid);
+    await supabase.from("drive_trip_groups").delete().eq("id", gid);
+    setOpenGroup(null);
+    load();
+  };
+
+  const relabelGroup = async (gid, label) => {
+    await supabase.from("drive_trip_groups").update({ label }).eq("id", gid);
+    setGroups((gs) => gs.map((g) => (g.id === gid ? { ...g, label } : g)));
+  };
 
   // Matarstallningen ar alltid en bils: den valda, eller forsta bilen nar
   // hela flottan visas.
@@ -514,8 +782,40 @@ export default function Journal() {
     const unsigned = shown.filter(
       (t) => !t.purpose || t.purpose === "omarkt" || t.purpose === "diffust",
     ).length;
-    return { km, per, moving, unsigned };
-  }, [shown]);
+
+    // Milersattningen raknas per bil - satsen beror pa bilens typ.
+    let ersattning = 0;
+    for (const v of vehicles) {
+      const vkm = shown
+        .filter((t) => t.purpose === "foretag" && tripVehicleId(t, vehicles) === v.id)
+        .reduce((a, t) => a + (t.distance_m || 0), 0) / 1000;
+      ersattning += (vkm / 10) * vehicleRate(v);
+    }
+    return { km, per, moving, unsigned, ersattning };
+  }, [shown, vehicles]);
+
+  // Fakturerbart, per kund: kundens eget pris per mil vinner, det allmanna
+  // priset ur installningarna ar reserv. Foretagsresor utan kund far det
+  // allmanna priset - eller star som ovarderade om inget finns.
+  const perKund = useMemo(() => {
+    const rows = new Map();
+    for (const t of shown) {
+      if (t.purpose !== "foretag") continue;
+      const name = t.customer || "– utan kund –";
+      if (!rows.has(name)) rows.set(name, { name, trips: 0, km: 0 });
+      const r = rows.get(name);
+      r.trips++;
+      r.km += (t.distance_m || 0) / 1000;
+    }
+    const out = [...rows.values()].map((r) => {
+      const c = customers.find((x) => x.name === r.name);
+      const rate = c?.rate_per_mil ?? billRate;
+      return { ...r, rate, kr: rate != null ? (r.km / 10) * rate : null };
+    }).sort((a, b) => b.km - a.km);
+    const totalKr = out.reduce((a, r) => a + (r.kr ?? 0), 0);
+    const allPriced = out.every((r) => r.kr != null);
+    return { rows: out, totalKr, allPriced };
+  }, [shown, customers, billRate]);
 
   const exportCsv = () => {
     const rows = [[
@@ -545,29 +845,64 @@ export default function Journal() {
     URL.revokeObjectURL(a.href);
   };
 
+  const periods = [
+    ["alla", "Allt"], ["dag", "Idag"], ["vecka", "Vecka"],
+    ["manad", "Månad"], ["ar", "År"],
+  ];
+
   return (
     <>
-      {vehicles.length > 1 && (
-        <div className="filters" style={{ marginBottom: ".8rem" }}>
+      <div className="filters" style={{ marginBottom: ".5rem" }}>
+        {periods.map(([k, label]) => (
+          <button key={k} className={period === k ? "active" : ""}
+            onClick={() => setPeriod(k)}>{label}</button>
+        ))}
+        {vehicles.length > 1 && <span style={{ width: ".6rem" }} />}
+        {vehicles.length > 1 && (
           <button className={vehicleFilter === "alla" ? "active" : ""}
             onClick={() => setVehicleFilter("alla")}>Hela flottan</button>
-          {vehicles.map((v) => (
-            <button key={v.id}
-              className={vehicleFilter === String(v.id) ? "active" : ""}
-              onClick={() => setVehicleFilter(String(v.id))}>
-              {vehicleLabel(v)}
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+        {vehicles.length > 1 && vehicles.map((v) => (
+          <button key={v.id}
+            className={vehicleFilter === String(v.id) ? "active" : ""}
+            onClick={() => setVehicleFilter(String(v.id))}>
+            {vehicleLabel(v)}
+          </button>
+        ))}
+      </div>
 
-      <MiniCards trips={shown.slice(0, cardCount)}
-        onOpen={(t) => setSelected(t)} />
-      {shown.length > cardCount && (
+      <div className="filters" style={{ marginBottom: ".8rem" }}>
+        {!selMode ? (
+          <button onClick={() => { setSelMode(true); setSelIds(new Set()); }}>
+            Gruppera resor …
+          </button>
+        ) : (
+          <>
+            <span className="status" style={{ alignSelf: "center" }}>
+              {selIds.size} valda – klicka på korten
+            </span>
+            <button onClick={selectWholeDays} disabled={!selIds.size}>
+              Välj hela dagen
+            </button>
+            <button className="active" onClick={createGroup}
+              disabled={selIds.size < 2}>
+              Skapa grupp
+            </button>
+            <button onClick={() => { setSelMode(false); setSelIds(new Set()); }}>
+              Avbryt
+            </button>
+          </>
+        )}
+      </div>
+
+      <MiniCards entries={entries.slice(0, cardCount)}
+        selMode={selMode} selIds={selIds} onToggle={toggleSel}
+        onOpen={(e) => (e.isGroup ? setOpenGroup(e) : setSelected(e.trips[0]))} />
+      {entries.length > cardCount && (
         <p className="noprint" style={{ textAlign: "center", marginTop: "-.3rem" }}>
           <button className="ghost"
             onClick={() => setCardCount((n) => n + 12)}>
-            Ladda fler ({shown.length - cardCount} kvar)
+            Ladda fler ({entries.length - cardCount} kvar)
           </button>
         </p>
       )}
@@ -588,8 +923,46 @@ export default function Journal() {
             </b>
             <span>osignerade resor</span>
           </div>
+          <div className="tile">
+            <b>{intFmt.format(Math.round(totals.ersattning))} kr</b>
+            <span>milersättning (företagsmil × bilens sats)</span>
+          </div>
+          <div className="tile">
+            <b>{perKund.rows.length
+              ? `${intFmt.format(Math.round(perKund.totalKr))} kr${perKund.allPriced ? "" : " *"}`
+              : "–"}</b>
+            <span>fakturerbart till kund</span>
+          </div>
         </div>
+        {!perKund.allPriced && perKund.rows.length > 0 && (
+          <p className="status" style={{ marginTop: ".5rem", marginBottom: 0 }}>
+            * någon kund saknar pris per mil – sätt det under Inställningar.
+          </p>
+        )}
       </div>
+
+      {perKund.rows.length > 0 && (
+        <div className="card">
+          <h2>Per kund</h2>
+          <table className="journal">
+            <thead>
+              <tr><th>Kund</th><th>Resor</th><th>Km</th><th>Kr/mil</th><th>Fakturerbart</th></tr>
+            </thead>
+            <tbody>
+              {perKund.rows.map((r) => (
+                <tr key={r.name}>
+                  <td>{r.name}</td>
+                  <td>{r.trips}</td>
+                  <td>{kmFmt.format(r.km)}</td>
+                  <td>{r.rate != null ? kmFmt.format(r.rate) : "–"}</td>
+                  <td>{r.kr != null
+                    ? `${intFmt.format(Math.round(r.kr))} kr` : "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <OdometerCard trips={odoTrips} vehicle={odoVehicle} />
 
@@ -649,6 +1022,19 @@ export default function Journal() {
                         <option value={t.customer}>{t.customer}</option>
                       )}
                     </select>
+                    {!t.customer && (() => {
+                      const near = nearCustomer(t, customers);
+                      return near ? (
+                        <div>
+                          <button className="ghost mini"
+                            onClick={() => patch(t.id, {
+                              customer: near.customer.name, purpose: "foretag",
+                            })}>
+                            → {near.customer.name}?
+                          </button>
+                        </div>
+                      ) : null;
+                    })()}
                   </td>
                   {vehicles.length > 1 && (
                     <td>
@@ -689,6 +1075,13 @@ export default function Journal() {
       {selected && (
         <TripModal trip={selected} customers={customers} vehicles={vehicles}
           patch={patch} onClose={() => setSelected(null)} />
+      )}
+      {openGroup && (
+        <GroupModal entry={openGroup}
+          onClose={() => setOpenGroup(null)}
+          onOpenTrip={(t) => { setOpenGroup(null); setSelected(t); }}
+          onUngroup={ungroup}
+          onRelabel={relabelGroup} />
       )}
     </>
   );
