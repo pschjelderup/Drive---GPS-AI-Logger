@@ -622,6 +622,7 @@ export default function Journal() {
   const [vehicleFilter, setVehicleFilter] = useState("alla");
   const [period, setPeriod] = useState("alla");
   const [groups, setGroups] = useState([]);
+  const [places, setPlaces] = useState([]);
   const [billRate, setBillRate] = useState(null);
   const [cardCount, setCardCount] = useState(6);
   const [selected, setSelected] = useState(null);
@@ -632,7 +633,7 @@ export default function Journal() {
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
-    const [t, c, v, g, st] = await Promise.all([
+    const [t, c, v, g, st, pl] = await Promise.all([
       supabase.from("drive_trips").select("*")
         .order("start_utc", { ascending: false }).limit(500),
       supabase.from("drive_customers").select("*").eq("active", true)
@@ -642,12 +643,14 @@ export default function Journal() {
       supabase.from("drive_trip_groups").select("*"),
       supabase.from("drive_settings").select("*")
         .eq("key", "debiterat_per_mil").maybeSingle(),
+      supabase.from("drive_places").select("*"),
     ]);
     if (t.error) { setStatus(t.error.message); return; }
     setTrips(t.data ?? []);
     setCustomers(c.data ?? []);
     setVehicles(v.data ?? []);
     setGroups(g.data ?? []);
+    setPlaces(pl.data ?? []);
     const raw = st.data?.value;
     setBillRate(typeof raw === "number" ? raw : parseFloat(raw) || null);
     setStatus(t.data?.length ? "" : "Inga resor än – börja under Importera.");
@@ -679,6 +682,33 @@ export default function Journal() {
       };
       const hasPos = (la, lo) =>
         Number.isFinite(la) && Number.isFinite(lo) && (la || lo);
+
+      // Egna platser forst: en resa som borjar eller slutar inom 400 meter
+      // fran hemmet eller kontoret far platsens namn - "Hemma -> Kontoret"
+      // i stallet for tva namnlosa koordinater. Bara tomma falt fylls i;
+      // det nagon valt sjalv ror vi aldrig.
+      const nearOwn = (la, lo) => {
+        let best = null;
+        for (const p of places) {
+          if (p.lat == null || p.lon == null) continue;
+          const d = distanceM(la, lo, p.lat, p.lon);
+          if (d <= 400 && (!best || d < best.d)) best = { p, d };
+        }
+        return best?.p ?? null;
+      };
+      for (const t of trips) {
+        const fields = {};
+        if (!t.start_place && hasPos(t.start_lat, t.start_lon)) {
+          const p = nearOwn(t.start_lat, t.start_lon);
+          if (p) fields.start_place = p.label;
+        }
+        if (!t.end_place && hasPos(t.end_lat, t.end_lon)) {
+          const p = nearOwn(t.end_lat, t.end_lon);
+          if (p) fields.end_place = p.label;
+        }
+        if (Object.keys(fields).length) await patch(t.id, fields);
+      }
+
       let budget = 40;
       for (const t of trips) {
         if (budget <= 0) break;
