@@ -293,6 +293,15 @@ function DeviceCard() {
           </div>
         </div>
       ))}
+      <p style={{ marginBottom: 0 }}>
+        <a href="https://pschjelderup.github.io/Drive---GPS-AI-Logger/"
+          target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
+          Flasha enheten med senaste firmware →
+        </a>{" "}
+        <span className="status">
+          öppnas i Chrome/Edge med enheten i USB-porten
+        </span>
+      </p>
     </div>
   );
 }
