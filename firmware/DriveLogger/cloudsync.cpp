@@ -145,23 +145,41 @@ bool uploadTrips(long lastSynced) {
   File f = SD_MMC.open(TRIPS_JSONL, FILE_READ);
   if (!f) return true;  // ingen dagbok ar inte ett fel
 
-  // Raderna efter senast synkade resa samlas i klumpar, sa att en lang
-  // eftersslapning inte behover rymmas i minnet pa en gang.
+  // Raderna efter senast synkade resa samlas i sma klumpar. Sma av ett skal:
+  // klumpen ligger i internminnet samtidigt som tls-anslutningen byggs, och
+  // tls ar den store - en stor klump har kvavt handskakningen sa att
+  // uppladdningen aldrig ens nadde servern.
   String batch;
-  batch.reserve(8192);
+  batch.reserve(2048);
   uint32_t sent = 0;
   static char line[768];
 
   auto flush = [&]() -> bool {
     if (!batch.length()) return true;
-    WiFiClientSecure tls;
-    HTTPClient http;
-    if (!httpBegin(http, tls, "/trips")) return false;
-    http.addHeader("Content-Type", "application/x-ndjson");
-    const int code = http.POST(batch);
-    http.end();
-    if (code != 200) return false;
-    batch = "";
+    int code;
+    {
+      WiFiClientSecure tls;
+      HTTPClient http;
+      if (!httpBegin(http, tls, "/trips")) {
+        setState(CLOUD_ERROR, "uppladdning: tls fick inte plats");
+        return false;
+      }
+      http.addHeader("Content-Type", "application/x-ndjson");
+      code = http.POST(batch);
+      http.end();
+    }
+    if (code != 200) {
+      // Koden i klartext pa skarmen - ett tyst "laddar upp resor" som
+      // aldrig blir nagot mer ar ofelsokbart fran forarsatet.
+      char msg[48];
+      snprintf(msg, sizeof(msg), "uppladdning misslyckades (kod %d)", code);
+      setState(CLOUD_ERROR, msg);
+      return false;
+    }
+    // Ny strang i stallet for tomd: en tomd behaller sin buffert, och
+    // poangen har ar att lamna tillbaka minnet mellan klumparna.
+    batch = String();
+    batch.reserve(2048);
     return true;
   };
 
@@ -178,7 +196,7 @@ bool uploadTrips(long lastSynced) {
     batch += line;
     batch += '\n';
     sent++;
-    if (batch.length() > 24000 && !flush()) { f.close(); return false; }
+    if (batch.length() > 4000 && !flush()) { f.close(); return false; }
   }
   f.close();
   if (!flush()) return false;
@@ -349,18 +367,26 @@ bool downloadKunder() {
 // Hela synkvarvet. Sant nar allt gick igenom.
 bool runSync() {
   setState(CLOUD_SYNCING, "hamtar molnlaget");
+  Serial.printf("moln: fritt internminne %lu byte\n",
+                (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 
-  WiFiClientSecure tls;
-  HTTPClient http;
-  if (!httpBegin(http, tls, "/config")) return false;
-  const int code = http.GET();
-  if (code != 200) {
+  String cfg;
+  {
+    WiFiClientSecure tls;
+    HTTPClient http;
+    if (!httpBegin(http, tls, "/config")) return false;
+    const int code = http.GET();
+    if (code != 200) {
+      http.end();
+      char msg[48];
+      snprintf(msg, sizeof(msg),
+               code == 401 ? "fel token" : "molnet svarar inte (kod %d)", code);
+      setState(CLOUD_ERROR, msg);
+      return false;
+    }
+    cfg = http.getString();
     http.end();
-    setState(CLOUD_ERROR, code == 401 ? "fel token" : "molnet svarar inte");
-    return false;
   }
-  const String cfg = http.getString();
-  http.end();
 
   const long lastSynced = jsonInt(cfg, "last_synced_trip", 0);
 
