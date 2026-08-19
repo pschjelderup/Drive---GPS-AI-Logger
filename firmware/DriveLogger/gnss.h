@@ -16,6 +16,14 @@ struct GnssFix {
   float altM;        // hojd over havet, meter
   float speedKmh;    // hastighet over marken
   float courseDeg;   // kurs over grund, 0-360 grader
+
+  // Sant nar farten gar att lita pa: tredimensionellt fix, mottagarens egen
+  // osakerhet under taket och ett varde en bil kan gora. Allt som raknar pa
+  // fart - maxfart, overhastighet, rullande tid, resedetektorn - ska fraga
+  // efter detta, inte bara valid. En position kan vara god nog att rita medan
+  // farten annu ar skrap.
+  bool speedTrusted;
+  float speedAccKmh;  // mottagarens egen osakerhet i farten
 };
 
 // Rasiffror for felsokning over serieporten. Utan dem gar det inte att skilja
@@ -49,5 +57,13 @@ GnssFix fix();
 bool timeValid();
 void utc(uint16_t &year, uint8_t &month, uint8_t &day, uint8_t &hour,
          uint8_t &minute, uint8_t &second);
+
+// Satellittiden som unixsekunder, forankrad i millis() nar den togs emot.
+// Det ar det har som ar klockan under fard: ankaret flyttas vid varje nytt
+// tidspaket, sa tiden tickar med processorns kristall mellan paketen och kan
+// aldrig sta stilla - till skillnad fran rtc-kretsen, vars oscillator har
+// visat sig kunna stanna. Noll betyder att ingen satellittid setts an.
+uint32_t epochUtc();
+uint32_t epochAgeMs();
 
 }  // namespace gnss

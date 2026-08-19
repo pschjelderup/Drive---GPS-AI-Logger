@@ -30,10 +30,7 @@ function DeviceCard() {
             synkad t.o.m. resa {d.last_synced_trip}
           </span>
           <div style={{ display: "flex", gap: ".5rem", marginTop: ".3rem" }}>
-            <code style={{
-              background: "#0d131d", padding: ".35rem .6rem",
-              borderRadius: "8px", fontSize: ".85rem",
-            }}>
+            <code className="token">
               {shown ? d.token : "••••••••••••••••"}
             </code>
             <button className="ghost" onClick={() => setShown((v) => !v)}>

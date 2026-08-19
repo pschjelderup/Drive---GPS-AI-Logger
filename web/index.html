@@ -266,7 +266,8 @@
               timeStyle: "short",
             });
           }
-          rad.append("Installerar version " + m.version + " · byggd " + byggd);
+          rad.append("Installerar version " + m.version +
+            (m.pr ? " · PR" + m.pr : "") + " · byggd " + byggd);
           // Filerna listas var for sig. Att de ar tva ar inte en detalj: halet
           // mellan dem ar det som gor att installningar och resenummer overlever
           // en omflashning.

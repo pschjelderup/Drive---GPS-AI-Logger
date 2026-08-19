@@ -29,10 +29,6 @@ const char *kUploadTmp = "/DRIVE/UPP.TMP";
 File g_upload;
 bool g_uploadOk = false;
 
-#ifndef FW_VERSION
-#define FW_VERSION "lokal"
-#endif
-
 // ------------------------------------------------------------------ sidan --
 // Hela sidan bor i flashminnet och ar fri fran beroenden: inga typsnitt, inga
 // bibliotek, ingenting som ska hamtas fran ett internet som inte finns har.
@@ -44,8 +40,8 @@ const char kIndexHtml[] PROGMEM = R"HTML(<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DriveLogger</title>
 <style>
-:root{--bg:#0a0e15;--panel:#141a24;--line:#232c39;--text:#e6edf3;--dim:#9aa7b4;
---accent:#3c9dff;--green:#28c878;--warn:#ffb928;--red:#f03c3c}
+:root{--bg:#f6f5f1;--panel:#ffffff;--line:#d9d7d0;--text:#181c24;--dim:#666d78;
+--accent:#1a58d2;--green:#088852;--warn:#ac7400;--red:#cb2a2a}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
 font-family:-apple-system,system-ui,sans-serif;line-height:1.5;
@@ -56,7 +52,7 @@ h1{font-size:1.5rem;margin:.25rem 0 0;letter-spacing:-.02em}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
 padding:1rem;margin-bottom:1rem}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
-.stat{background:#0d131d;border-radius:10px;padding:.5rem .75rem}
+.stat{background:#f0efe9;border-radius:10px;padding:.5rem .75rem}
 .stat b{display:block;font-size:1.1rem}
 .stat span{color:var(--dim);font-size:.75rem}
 h2{font-size:.95rem;margin:0 0 .6rem;color:var(--dim);text-transform:uppercase;
@@ -71,9 +67,9 @@ border-bottom:1px solid var(--line)}
 .resa .rad1{font-weight:600}
 .resa .rad2{color:var(--dim);font-size:.8rem;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
-.knapp{background:var(--accent);color:#08101c;border:none;border-radius:9px;
+.knapp{background:var(--accent);color:#ffffff;border:none;border-radius:9px;
 padding:.5rem .8rem;font-weight:600;font-size:.85rem}
-.knapp.grå{background:#26303b;color:var(--dim)}
+.knapp.grå{background:#e6e4dd;color:var(--dim)}
 .knapp:active{opacity:.7}
 a.knapp{text-decoration:none;display:inline-block}
 .uppl label{display:block;margin-bottom:.75rem}
@@ -237,7 +233,7 @@ void sendJsonStatus() {
            "{\"version\":\"%s\",\"klocka\":\"%s\",\"kameror\":%lu,"
            "\"granser\":%s,\"ledigt_mb\":%lu,\"kunder\":%u,"
            "\"gps\":{\"finns\":%s,\"satelliter\":%u}}",
-           FW_VERSION, clock, (unsigned long)cams::count(),
+           fwVersionFull(), clock, (unsigned long)cams::count(),
            cams::limitsLoaded() ? "true" : "false", (unsigned long)freeMb,
            (unsigned)customers::count(), d.present ? "true" : "false",
            (unsigned)d.sats);

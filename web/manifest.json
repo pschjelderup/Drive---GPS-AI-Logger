@@ -1,6 +1,7 @@
 {
   "name": "DriveLogger reselogg",
   "version": "__VERSION__",
+  "pr": "__PR__",
   "built": "__BUILT__",
   "home_assistant_domain": "",
   "new_install_prompt_erase": true,

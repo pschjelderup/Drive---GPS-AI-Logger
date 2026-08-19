@@ -56,6 +56,7 @@ struct TripStatus {
   float speedKmh;
   float maxSpeedKmh;
   uint32_t speedingS;   // sekunder over skyltad hastighet
+  uint32_t movingS;     // sekunder i rullning - resans rullande tid sa har langt
 
   char fileName[48];
 

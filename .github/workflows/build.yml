@@ -71,18 +71,36 @@ jobs:
           arduino-cli core list
           arduino-cli lib list
 
+      - name: Ta reda pa PR-numret
+        env:
+          # Via miljon, inte direkt i skriptet: en commitrubrik kan innehalla
+          # citattecken och dollartecken, och da ska den vara data, inte kod.
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+        run: |
+          # Pa en pull request ar numret givet. Pa main star det i
+          # merge-commitens rubrik. Hittas inget lamnas det tomt, och skarmen
+          # visar da bara versionen.
+          PR="$EVENT_PR"
+          if [ -z "$PR" ]; then
+            PR=$(printf '%s' "$HEAD_MSG" | head -1 | sed -n 's/^Merge pull request #\([0-9]\+\).*/\1/p')
+          fi
+          echo "FW_PR=$PR" >> "$GITHUB_ENV"
+          echo "pr-nummer: '$PR'"
+
       - name: Kompilera
         run: |
           VERSION="${GITHUB_SHA::7}"
-          # Versionen bakas in i firmware, sa att MENY kan visa vad som
-          # faktiskt sitter pa kortet. Utan den gar det inte att se om en
-          # flashning tog, och det ar den forsta fragan nar nagot beter sig
-          # gammalt.
+          # Versionen och PR-numret bakas in i firmware, sa att MENY kan visa
+          # vad som faktiskt sitter pa kortet. Utan dem gar det inte att se om
+          # en flashning tog, och det ar den forsta fragan nar nagot beter sig
+          # gammalt. "b534928 PR8" pekar dessutom ut precis vilken andring det
+          # var.
           arduino-cli compile \
             --fqbn "$FQBN" \
             --output-dir build \
             --warnings default \
-            --build-property "compiler.cpp.extra_flags=-DFW_VERSION=\"$VERSION\"" \
+            --build-property "compiler.cpp.extra_flags=-DFW_VERSION=\"$VERSION\" -DFW_PR=\"$FW_PR\"" \
             "$SKETCH"
           ls -la build
 
@@ -152,13 +170,14 @@ jobs:
           BUILT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           for f in index.html manifest.json; do
             sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILT__/$BUILT/g" \
+              -e "s/__PR__/$FW_PR/g" \
               "web/$f" > "site/$f"
           done
           echo "--- manifest.json ---"
           cat site/manifest.json
           # Ett stavfel i en platshallare skulle annars ge en sida som ser hel ut
           # men laddar ner en fil som inte finns.
-          if grep -q '__VERSION__\|__BUILT__' site/index.html site/manifest.json; then
+          if grep -q '__VERSION__\|__BUILT__\|__PR__' site/index.html site/manifest.json; then
             echo "FEL: platshallare kvar i den publicerade sidan" >&2
             exit 1
           fi

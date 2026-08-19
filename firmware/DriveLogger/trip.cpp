@@ -55,7 +55,8 @@ struct StateRecord {
   uint32_t startUtc;
   double startLat, startLon;
   uint8_t haveStart;
-  uint8_t pad[3];
+  uint8_t ecoValid;  // 1 = ecopoangen bygger pa riktig matning
+  uint8_t pad[2];
 
   uint32_t lastUtc;
   double lastLat, lastLon;
@@ -172,6 +173,25 @@ void gpxPath(uint32_t index, char *out, size_t len) {
 
 // ------------------------------------------------------- tillstand pa kort -
 
+// De levande vardena in i tillstandet, sa att det som skrivs till kortet ar
+// resan sa har langt - inte nollor som fylls i forst vid avslutet.
+//
+// Det har raden ar hela skillnaden mellan en dagbok och en gissning i en bil
+// med tandningsstyrd strom: dar ar stromavbrottet det normala avslutet, och
+// da skrivs raden fran senast sparade tillstand. Innan detta fanns fick varje
+// sadan resa rullande tid noll och ecopoang noll - verkliga resor pa 5,7 och
+// 101,7 km stod med noll rullande minuter i dagboken.
+void refreshLiveStats() {
+  if (!g_active) return;
+  g_state.movingS = g_movingTotalMs / 1000;
+  g_state.speedingS = g_speedingTotalMs / 1000;
+
+  const EcoStatus e = eco::status();
+  g_state.ecoScore = e.tripScore;
+  g_state.ecoValid = e.measured ? 1 : 0;
+  g_state.hardEvents = e.hardAccel + e.hardBrake + e.hardTurn + e.hardTotal;
+}
+
 void writeState() {
   if (!sensors::sdMounted()) return;
   ensureDirs();
@@ -246,7 +266,15 @@ void appendTripRow(const StateRecord &r) {
   char km[16], maxKmh[16], eco[16];
   fmtSv(r.distanceM / 1000.0, 2, km, sizeof(km));
   fmtSv(r.maxSpeedKmh, 0, maxKmh, sizeof(maxKmh));
-  fmtSv(r.ecoScore, 0, eco, sizeof(eco));
+
+  // En resa utan matning star som omatt, inte som noll. En nolla ar ett
+  // omdome om korningen; en tom cell sager det som ar sant - att ingen
+  // matning finns.
+  if (r.ecoValid) {
+    fmtSv(r.ecoScore, 0, eco, sizeof(eco));
+  } else {
+    eco[0] = '\0';
+  }
 
   const char *slut = "";
   switch (r.endReason) {
@@ -290,18 +318,28 @@ void appendTripRow(const StateRecord &r) {
   sensors::isoUtc(r.startUtc, startIso, sizeof(startIso));
   sensors::isoUtc(r.lastUtc, endIso, sizeof(endIso));
 
+  // Omatt ecopoang skrivs som null, sa att molnet och webbappen kan skilja
+  // "korde perfekt" fran "ingen matning" - tva pastaenden som inte har samma
+  // siffra.
+  char ecoJson[16];
+  if (r.ecoValid) {
+    snprintf(ecoJson, sizeof(ecoJson), "%.0f", r.ecoScore);
+  } else {
+    snprintf(ecoJson, sizeof(ecoJson), "null");
+  }
+
   File j = SD_MMC.open(TRIPS_JSONL, FILE_APPEND);
   if (j) {
     j.printf(
         "{\"resa\":%lu,\"start\":\"%s\",\"mal\":\"%s\",\"start_lat\":%.7f,"
         "\"start_lon\":%.7f,\"mal_lat\":%.7f,\"mal_lon\":%.7f,\"meter\":%.1f,"
         "\"punkter\":%lu,\"syfte\":\"%s\",\"kund\":\"%s\",\"maxfart_kmh\":%.1f,"
-        "\"fortkorning_s\":%lu,\"rullande_s\":%lu,\"ecopoang\":%.0f,"
+        "\"fortkorning_s\":%lu,\"rullande_s\":%lu,\"ecopoang\":%s,"
         "\"harda_moment\":%lu,\"avslut\":\"%s\",\"gpx\":\"R%04lu.GPX\"}\n",
         (unsigned long)r.index, startIso, endIso, r.startLat, r.startLon,
         r.lastLat, r.lastLon, r.distanceM, (unsigned long)r.points,
         trip::purposeSlug((TripPurpose)r.purpose), r.customer, r.maxSpeedKmh,
-        (unsigned long)r.speedingS, (unsigned long)r.movingS, r.ecoScore,
+        (unsigned long)r.speedingS, (unsigned long)r.movingS, ecoJson,
         (unsigned long)r.hardEvents, slut, (unsigned long)r.index);
     j.flush();
     j.close();
@@ -418,6 +456,7 @@ void publishStatus() {
   g_status.points = g_state.points;
   g_status.maxSpeedKmh = g_state.maxSpeedKmh;
   g_status.speedingS = g_speedingTotalMs / 1000;
+  g_status.movingS = g_movingTotalMs / 1000;
   g_status.stoppedS = g_stoppedMs / 1000;
   unlock();
 }
@@ -501,13 +540,7 @@ void closeTrip(TripEndReason reason) {
     if (g_movingUtc) g_state.lastUtc = g_movingUtc;
   }
 
-  const EcoStatus e = eco::status();
-  g_state.ecoScore = e.score;
-  g_state.hardEvents = e.gpsClassify
-                           ? (e.hardAccel + e.hardBrake + e.hardTurn)
-                           : e.hardTotal;
-  g_state.movingS = g_movingTotalMs / 1000;
-  g_state.speedingS = g_speedingTotalMs / 1000;
+  refreshLiveStats();
   g_state.endReason = reason;
   g_state.open = 0;
   g_active = false;
@@ -802,8 +835,11 @@ void tick() {
   unlock();
 
   // ---- resedetektorn
+  // Detektorn lyssnar bara pa betrodd fart. En mottagare under uppstart kan
+  // rapportera vilda hastigheter fran en parkerad bil - utan spargen hade de
+  // kunnat starta en spokresa pa garageuppfarten.
   if (!g_active) {
-    if (f.valid && f.speedKmh >= TRIP_START_KMH) {
+    if (f.speedTrusted && f.speedKmh >= TRIP_START_KMH) {
       g_movingMs += dt;
       if (g_movingMs >= (uint32_t)TRIP_START_S * 1000) {
         // Har borjar resan. Ligger en start kvar fran ett stromavbrott anvands
@@ -839,21 +875,29 @@ void tick() {
     }
   }
 
-  if (f.speedKmh > g_state.maxSpeedKmh) g_state.maxSpeedKmh = f.speedKmh;
+  // All fartstatistik kraver betrodd fart. En enda opalitlig punkt racker
+  // annars for att satta en maxfart ingen bil kan kora - dagboken har haft
+  // 362 388 km/h fran precis det. Positionen kan fortfarande duga till
+  // sparet; det ar bara siffrorna om fart som star over.
+  if (f.speedTrusted) {
+    if (f.speedKmh > g_state.maxSpeedKmh) g_state.maxSpeedKmh = f.speedKmh;
 
-  // Overhastighet raknas mot den skyltade hastigheten dar vi ar, nar den ar
-  // kand. Ar den okand raknas ingen overhastighet - hellre en lucka i statiken
-  // an en siffra som bygger pa en gissning.
-  const uint8_t limit = cams::currentLimitKmh();
-  if (limit > 0 && f.speedKmh > (float)limit + LIMIT_TOLERANCE_KMH) {
-    g_speedingTotalMs += dt;
+    // Overhastighet raknas mot den skyltade hastigheten dar vi ar, nar den ar
+    // kand. Ar den okand raknas ingen overhastighet - hellre en lucka i
+    // statiken an en siffra som bygger pa en gissning.
+    const uint8_t limit = cams::currentLimitKmh();
+    if (limit > 0 && f.speedKmh > (float)limit + LIMIT_TOLERANCE_KMH) {
+      g_speedingTotalMs += dt;
+    }
   }
 
-  const bool moving = f.speedKmh >= TRIP_STOP_KMH;
+  // Utan betrodd fart star bade rullande tid och stillestandstiden stilla:
+  // hellre en dagbok som saknar nagra sekunder an en som hittar pa dem.
+  const bool moving = f.speedTrusted && f.speedKmh >= TRIP_STOP_KMH;
   if (moving) {
     g_stoppedMs = 0;
     g_movingTotalMs += dt;
-  } else {
+  } else if (f.speedTrusted) {
     g_stoppedMs += dt;
     if (g_stoppedMs >= (uint32_t)TRIP_STOP_S * 1000) {
       closeTrip(END_AUTO);
@@ -904,6 +948,7 @@ void tick() {
     return;
   }
 
+  refreshLiveStats();
   writeState();
   publishStatus();
 }

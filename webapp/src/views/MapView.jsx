@@ -1,12 +1,16 @@
-// Kartan: sparen ritade over OpenStreetMap, fargade efter syfte - eller som
-// varmekarta, dar alla spar laggs halvgenomskinliga pa varandra och de vagar
-// bilen faktiskt trafikerar lyser fram av sig sjalva.
+// Kartan: sparen ritade over OpenStreetMap i tre lagen - fargade efter syfte,
+// som varmekarta dar de vagar bilen faktiskt trafikerar lyser fram, eller
+// fargade efter fart langs sparet.
+//
+// Kartfargerna ar inte diagramfargerna: kartan ar sjalv gron och beige, sa
+// sparen ritas i djupbla, magenta och brand orange - farger som inte finns i
+// kartbilden (validerade mot OSM-beige yta, aven for fargblinda).
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { supabase, GPX_BUCKET } from "../lib/supabase.js";
-import { parseGpx } from "../lib/gpx.js";
-import { PURPOSE_COLOR } from "../lib/palette.js";
+import { parseGpxTimed, segmentSpeedKmh } from "../lib/gpx.js";
+import { MAP_COLOR, MAP_HEAT, SPEED_BINS, speedColor } from "../lib/palette.js";
 import { purposeLabel, fmtKm, fmtDate } from "../lib/fmt.js";
 
 export default function MapView() {
@@ -42,7 +46,7 @@ export default function MapView() {
         const { data: blob } = await supabase.storage
           .from(GPX_BUCKET).download(t.gpx_path);
         if (!blob) continue;
-        const pts = parseGpx(await blob.text());
+        const pts = parseGpxTimed(await blob.text());
         if (pts?.length > 1) tracks.push({ trip: t, pts });
         setStatus(`hämtar spår … ${tracks.length}/${trips.length}`);
       }
@@ -63,17 +67,52 @@ export default function MapView() {
 
     let bounds = null;
     for (const { trip, pts } of tracks) {
-      const line = m === "varme"
-        ? L.polyline(pts, { color: "#3c9dff", weight: 7, opacity: 0.07 })
-        : L.polyline(pts, {
-            color: PURPOSE_COLOR[trip.purpose] ?? PURPOSE_COLOR.omarkt,
-            weight: 3, opacity: 0.75,
-          }).bindTooltip(
-            `Resa ${trip.trip_no} · ${fmtKm(trip.distance_m)} km · ` +
-            `${purposeLabel(trip.purpose)} · ${fmtDate(trip.start_utc)}`,
-          );
-      line.addTo(layer);
-      bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+      const latlngs = pts.map((p) => [p.lat, p.lon]);
+      const tip =
+        `Resa ${trip.trip_no} · ${fmtKm(trip.distance_m)} km · ` +
+        `${purposeLabel(trip.purpose)} · ${fmtDate(trip.start_utc)}`;
+
+      if (m === "varme") {
+        const line = L.polyline(latlngs, {
+          color: MAP_HEAT, weight: 7, opacity: 0.07,
+        });
+        line.addTo(layer);
+        bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+      } else if (m === "fart") {
+        // En polylinje per sammanhangande fartklass, inte en per segment -
+        // tusentals smalinjer skulle segla ifran Leaflet.
+        let runPts = [latlngs[0]];
+        let runColor = null;
+        const flush = () => {
+          if (runPts.length < 2) return;
+          const line = L.polyline(runPts, {
+            color: runColor ?? MAP_COLOR.omarkt,
+            weight: 4, opacity: 0.85,
+          }).bindTooltip(tip);
+          line.addTo(layer);
+          bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+        };
+        for (let i = 1; i < pts.length; i++) {
+          const kmh = segmentSpeedKmh(pts[i - 1], pts[i]);
+          const c = kmh == null ? MAP_COLOR.omarkt : speedColor(kmh);
+          if (runColor === null || c === runColor) {
+            runColor = c;
+            runPts.push(latlngs[i]);
+          } else {
+            flush();
+            runPts = [latlngs[i - 1], latlngs[i]];
+            runColor = c;
+          }
+        }
+        flush();
+      } else {
+        const line = L.polyline(latlngs, {
+          color: MAP_COLOR[trip.purpose] ?? MAP_COLOR.omarkt,
+          weight: 3, opacity: 0.8,
+        }).bindTooltip(tip);
+        line.addTo(layer);
+        bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
+      }
     }
     if (bounds) mapRef.current.fitBounds(bounds, { padding: [24, 24] });
   };
@@ -86,6 +125,8 @@ export default function MapView() {
       <div className="filters">
         <button className={mode === "syfte" ? "active" : ""}
           onClick={() => setMode("syfte")}>Färg efter syfte</button>
+        <button className={mode === "fart" ? "active" : ""}
+          onClick={() => setMode("fart")}>Färg efter fart</button>
         <button className={mode === "varme" ? "active" : ""}
           onClick={() => setMode("varme")}>Värmekarta</button>
       </div>
@@ -94,10 +135,24 @@ export default function MapView() {
           {Object.entries({ privat: "Privat", foretag: "Företag", diffust: "Diffust" })
             .map(([k, label]) => (
               <span key={k}>
-                <span className="sw" style={{ background: PURPOSE_COLOR[k] }} />
+                <span className="sw" style={{ background: MAP_COLOR[k] }} />
                 {label}
               </span>
             ))}
+        </div>
+      )}
+      {mode === "fart" && (
+        <div className="legend">
+          {SPEED_BINS.map((b) => (
+            <span key={b.label}>
+              <span className="sw" style={{ background: b.color }} />
+              {b.label} km/h
+            </span>
+          ))}
+          <span>
+            <span className="sw" style={{ background: MAP_COLOR.omarkt }} />
+            fart okänd
+          </span>
         </div>
       )}
       <div ref={hostRef} className="map" />

@@ -12,16 +12,30 @@ namespace {
 
 Arduino_Canvas *gfx = nullptr;
 
-const uint16_t C_BG = RGB565(6, 9, 15);
-const uint16_t C_PANEL = RGB565(22, 30, 44);
-const uint16_t C_GLASS = RGB565(120, 170, 230);
-const uint16_t C_ACCENT = RGB565(60, 160, 255);
-const uint16_t C_GREEN = RGB565(40, 200, 120);
-const uint16_t C_RED = RGB565(240, 60, 60);
-const uint16_t C_TEXT = RGB565(240, 245, 250);
-const uint16_t C_DIM = RGB565(140, 158, 180);
-const uint16_t C_FAINT = RGB565(60, 72, 92);
-const uint16_t C_WARN = RGB565(255, 185, 40);
+// Ljust tema: papper och black. Varm ljus botten, mork text, och en enda
+// brandfarg - vagbla, samma bla som motorvagsskylten - for allt som gar att
+// trycka pa. Signalfargerna finns i tva styrkor: en mork som tal att vara
+// text mot ljus botten, och en ljusare som tal att vara yta bakom mork text.
+// Att blanda rollerna ar det som gor ljusa teman roriga, sa det gors inte.
+const uint16_t C_BG = RGB565(246, 245, 241);     // varmt papper
+const uint16_t C_GRID = RGB565(234, 232, 226);   // rutnatet i botten
+const uint16_t C_PANEL = RGB565(255, 255, 255);  // panelernas yta
+const uint16_t C_EDGE = RGB565(214, 212, 205);   // panelernas kant
+const uint16_t C_TEXT = RGB565(24, 28, 36);      // black
+const uint16_t C_DIM = RGB565(100, 107, 120);
+const uint16_t C_FAINT = RGB565(163, 169, 179);
+
+// Morka: text och konturer.
+const uint16_t C_ACCENT = RGB565(26, 88, 210);  // vagbla
+const uint16_t C_GREEN = RGB565(8, 136, 82);
+const uint16_t C_RED = RGB565(203, 42, 42);
+const uint16_t C_WARN = RGB565(172, 116, 0);
+
+// Ljusa: ytor som blandas in over papperet och bar mork text.
+const uint16_t C_ACCENT_T = RGB565(72, 134, 234);
+const uint16_t C_GREEN_T = RGB565(34, 178, 112);
+const uint16_t C_RED_T = RGB565(236, 84, 74);
+const uint16_t C_WARN_T = RGB565(255, 188, 52);
 
 // ---- huvudskarmens vaningar. Talen ar hojder, inte gissningar: farten far mest
 // utrymme eftersom den lases oftast, och knappraden narmast handen ar den man
@@ -81,6 +95,14 @@ const char *sv(const char *utf8) {
   buf[o] = '\0';
   return buf;
 }
+
+// Sidtitel med ett kort vagblatt streck under - det lilla som haller ihop
+// sidorna till en familj.
+void drawTitle(const char *title);
+
+// Prickarna som visar var i svepkarusellen man ar. Ritas pa de sidor som har
+// plats langst ned; huvudsidan ar hemma och behover ingen skylt.
+void drawPageDots(uint8_t active);
 
 int16_t textWidth(const char *s, uint8_t size) {
   return (int16_t)(strlen(s) * 6 * size);
@@ -171,11 +193,12 @@ void blendRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color,
   }
 }
 
-// Glaspanel: en svag ljus inblandning med en aning ljusare kant. Kanten ar det
-// som gor att panelen lases som ett lager och inte som en flack.
-void glassPanel(const Rect &box, uint8_t alpha = 26) {
-  blendRect(box.x, box.y, box.w, box.h, C_GLASS, alpha, 14);
-  gfx->drawRoundRect(box.x, box.y, box.w, box.h, 14, C_FAINT);
+// Panel: nastan ogenomskinligt vitt over papperet, med en tunn kant. Att
+// rutnatet skymtar svagt igenom ar det som gor att panelen lases som ett
+// lager pa bordet och inte som en flack i bilden.
+void glassPanel(const Rect &box, uint8_t alpha = 210) {
+  blendRect(box.x, box.y, box.w, box.h, C_PANEL, alpha, 14);
+  gfx->drawRoundRect(box.x, box.y, box.w, box.h, 14, C_EDGE);
 }
 
 void drawPanel(const Rect &r, uint16_t fill) {
@@ -197,6 +220,25 @@ void glassButton(const Rect &r, uint16_t tint, uint8_t alpha, const char *label,
   gfx->drawRoundRect(r.x, r.y, r.w, r.h, 14, tint);
   const uint8_t charH = 8 * size;
   printCentered(r.x + r.w / 2, r.y + (r.h - charH) / 2, size, textColor, label);
+}
+
+void drawTitle(const char *title) {
+  printAt(16, 14, 3, C_TEXT, title);
+  gfx->fillRoundRect(16, 44, 46, 5, 2, C_ACCENT);
+}
+
+void drawPageDots(uint8_t active) {
+  const int16_t y = 592;
+  const int16_t gap = 18;
+  const int16_t x0 = (int16_t)(SCREEN_W / 2 - (kSwipePages - 1) * gap / 2);
+  for (uint8_t i = 0; i < kSwipePages; i++) {
+    const int16_t x = (int16_t)(x0 + i * gap);
+    if (i == active) {
+      gfx->fillCircle(x, y, 4, C_ACCENT);
+    } else {
+      gfx->fillCircle(x, y, 3, C_FAINT);
+    }
+  }
 }
 
 // ------------------------------------------------------------- stora siffror
@@ -330,6 +372,7 @@ void drawSpeedBlock(float speedKmh, uint8_t limitKmh) {
   const int16_t cx = 372;
   const int16_t cy = Y_SPEED + 74;
   if (limitKmh > 0) {
+    gfx->drawCircle(cx, cy, 59, C_EDGE);
     gfx->fillCircle(cx, cy, 58, RGB565(245, 245, 245));
     gfx->fillCircle(cx, cy, 48, RGB565(220, 40, 40));
     gfx->fillCircle(cx, cy, 38, RGB565(245, 245, 245));
@@ -395,12 +438,12 @@ void drawCamRow(const CamWarning &w) {
 
   if (!w.active) {
     if (!cams::loaded()) {
-      glassPanel(box, 14);
+      glassPanel(box);
       printCentered(225, Y_CAM + 14, 2, C_DIM, "Kameralistan saknas");
       printCentered(225, Y_CAM + 36, 1, C_FAINT,
                     "synka enheten for att kunna varna");
     } else {
-      glassPanel(box, 14);
+      glassPanel(box);
       printCentered(225, Y_CAM + 24, 2, C_FAINT, "ingen kamera i närheten");
     }
     return;
@@ -408,18 +451,21 @@ void drawCamRow(const CamWarning &w) {
 
   // Narheten avgor bade farg och hur mycket ljus panelen slapper igenom. En
   // varning pa attahundra meter ska inte se ut som en pa tvahundra.
-  uint16_t tint = C_WARN;
-  uint8_t alpha = 40;
+  uint16_t tint = C_WARN_T;
+  uint16_t edge = C_WARN;
+  uint8_t alpha = 56;
   if (w.distanceM <= CAM_WARN_NEAR_M) {
-    tint = C_RED;
-    alpha = 90;
+    tint = C_RED_T;
+    edge = C_RED;
+    alpha = 110;
   } else if (w.distanceM <= CAM_WARN_MID_M) {
-    tint = C_WARN;
-    alpha = 64;
+    tint = C_WARN_T;
+    edge = C_WARN;
+    alpha = 84;
   }
 
   blendRect(box.x, box.y, box.w, box.h, tint, alpha, 14);
-  gfx->drawRoundRect(box.x, box.y, box.w, box.h, 14, tint);
+  gfx->drawRoundRect(box.x, box.y, box.w, box.h, 14, edge);
 
   char buf[48];
   if (w.averageSpeed) {
@@ -441,9 +487,9 @@ void drawCamRow(const CamWarning &w) {
   if (w.distanceM < CAM_WARN_FAR_M) {
     fill = (int16_t)(barW * (CAM_WARN_FAR_M - w.distanceM) / CAM_WARN_FAR_M);
   }
-  gfx->fillRoundRect(box.x + 14, box.y + 40, barW, 10, 5, C_FAINT);
+  gfx->fillRoundRect(box.x + 14, box.y + 40, barW, 10, 5, C_EDGE);
   if (fill > 2) {
-    gfx->fillRoundRect(box.x + 14, box.y + 40, fill, 10, 5, tint);
+    gfx->fillRoundRect(box.x + 14, box.y + 40, fill, 10, 5, edge);
   }
 }
 
@@ -451,7 +497,7 @@ void drawCamRow(const CamWarning &w) {
 
 void drawTripRow(const TripStatus &t) {
   const Rect box = {16, Y_TRIP, 418, H_TRIP};
-  glassPanel(box, 22);
+  glassPanel(box);
 
   char buf[64];
   if (!t.active) {
@@ -515,19 +561,23 @@ void drawPurposeButtons(const TripStatus &t) {
     const char *label;
     uint16_t color;
   };
+  struct Tone { uint16_t dark; uint16_t tint; };
   const Item items[3] = {
       {&ui::kBtnPrivat, PURPOSE_PRIVAT, "PRIVAT", C_ACCENT},
       {&ui::kBtnForetag, PURPOSE_FORETAG, "FÖRETAG", C_GREEN},
       {&ui::kBtnDiffust, PURPOSE_DIFFUST, "DIFFUST", C_WARN},
   };
+  const Tone tones[3] = {{C_ACCENT, C_ACCENT_T},
+                         {C_GREEN, C_GREEN_T},
+                         {C_WARN, C_WARN_T}};
 
   for (uint8_t i = 0; i < 3; i++) {
     const bool active = (p == items[i].purpose);
     if (active) {
-      drawButton(*items[i].rect, items[i].color, items[i].label, 2, C_BG);
+      drawButton(*items[i].rect, tones[i].dark, items[i].label, 2, C_PANEL);
     } else {
-      glassButton(*items[i].rect, items[i].color, 20, items[i].label, 2,
-                  C_DIM);
+      glassButton(*items[i].rect, tones[i].tint, 44, items[i].label, 2,
+                  tones[i].dark);
     }
   }
 }
@@ -585,16 +635,16 @@ const Rect kBtnBack = {16, 520, 418, 64};
 
 void begin(Arduino_Canvas *canvas) { gfx = canvas; }
 
-// Bakgrunden ar inte svart utan en aning ljusare mot horisonten, med ett svagt
-// rutnat. Det ar det som gor att de genomskinliga lagren lases som lager - mot
-// helt svart hade de sett ut som platta rutor.
+// Botten ar varmt papper med ett svagt rutnat, som millimeterpapper. Det ar
+// det som gor att panelerna lases som lager - mot en helt slat botten hade de
+// sett ut som platta rutor.
 void drawBackdrop() {
   gfx->fillScreen(C_BG);
   for (int16_t y = 120; y < SCREEN_H; y += 60) {
-    gfx->drawFastHLine(0, y, SCREEN_W, RGB565(12, 17, 26));
+    gfx->drawFastHLine(0, y, SCREEN_W, C_GRID);
   }
   for (int16_t x = 45; x < SCREEN_W; x += 90) {
-    gfx->drawFastVLine(x, 120, SCREEN_H - 120, RGB565(11, 15, 24));
+    gfx->drawFastVLine(x, 120, SCREEN_H - 120, C_GRID);
   }
 }
 
@@ -612,19 +662,19 @@ void drawMain(const TripStatus &t, const CamWarning &w, uint8_t limitKmh,
 
   // ---- resknappen
   if (!sensors::sdMounted()) {
-    drawButton(kBtnTripAction, C_PANEL, "SÄTT I KORT", 2, C_DIM);
+    glassButton(kBtnTripAction, C_FAINT, 40, "SÄTT I KORT", 2, C_DIM);
   } else if (t.active) {
-    drawButton(kBtnTripAction, C_RED, "AVSLUTA RESA", 2, C_TEXT);
+    drawButton(kBtnTripAction, C_RED, "AVSLUTA RESA", 2, C_PANEL);
   } else {
-    glassButton(kBtnTripAction, C_GREEN, 30, "STARTA RESA NU", 2, C_TEXT);
+    glassButton(kBtnTripAction, C_GREEN_T, 48, "STARTA RESA NU", 2, C_GREEN);
   }
 
   // ---- navigering. Mittknappen byter uppgift: under fard vill man kunna dela
   // resan, i stillhet valja kund.
-  glassButton(kBtnEco, C_ACCENT, 24, "ECO", 2, C_TEXT);
-  glassButton(kBtnMiddle, C_ACCENT, 24, t.active ? "DELA HÄR" : "KUND", 2,
-              C_TEXT);
-  glassButton(kBtnMenu, C_ACCENT, 24, "MENY", 2, C_TEXT);
+  glassButton(kBtnEco, C_ACCENT_T, 40, "ECO", 2, C_ACCENT);
+  glassButton(kBtnMiddle, C_ACCENT_T, 40, t.active ? "DELA HÄR" : "KUND", 2,
+              C_ACCENT);
+  glassButton(kBtnMenu, C_ACCENT_T, 40, "MENY", 2, C_ACCENT);
 
   gfx->flush();
 }
@@ -653,9 +703,9 @@ void drawPurposeAsk(const TripStatus &t, uint32_t secondsLeft) {
            (unsigned long)secondsLeft);
   printCentered(225, 178, 2, C_FAINT, buf);
 
-  drawButton(kBtnAskPrivat, C_ACCENT, "PRIVAT", 3, C_BG);
-  drawButton(kBtnAskForetag, C_GREEN, "FÖRETAG", 3, C_BG);
-  drawButton(kBtnAskDiffust, C_WARN, "DIFFUST", 3, C_BG);
+  drawButton(kBtnAskPrivat, C_ACCENT, "PRIVAT", 3, C_PANEL);
+  drawButton(kBtnAskForetag, C_GREEN, "FÖRETAG", 3, C_PANEL);
+  drawButton(kBtnAskDiffust, C_WARN, "DIFFUST", 3, C_PANEL);
 
   gfx->flush();
 }
@@ -665,7 +715,7 @@ void drawCustomers(const char *const *names, uint8_t count, uint8_t page,
   if (!gfx) return;
   drawBackdrop();
 
-  printAt(16, 22, 3, C_TEXT, "VÄLJ KUND");
+  drawTitle("VÄLJ KUND");
 
   if (count == 0) {
     printCentered(225, 200, 2, C_DIM, "Kundlistan är tom");
@@ -675,23 +725,23 @@ void drawCustomers(const char *const *names, uint8_t count, uint8_t page,
 
   for (uint8_t i = 0; i < count; i++) {
     const Rect r = customerRow(i);
-    glassButton(r, C_ACCENT, 18, names[i], 2, C_TEXT);
+    glassButton(r, C_ACCENT_T, 30, names[i], 2, C_TEXT);
   }
 
   // Att valja kund innebar att resan ar en foretagsresa, sa den som inte hade
   // nagon kund behover ett satt att saga det utan att tappa markningen.
-  glassButton(kBtnCustomerNone, C_WARN, 20, "INGEN KUND - BARA FÖRETAG", 2,
-              C_TEXT);
+  glassButton(kBtnCustomerNone, C_WARN_T, 44, "INGEN KUND - BARA FÖRETAG", 2,
+              C_WARN);
 
   if (pages > 1) {
     char buf[24];
     snprintf(buf, sizeof(buf), "SIDA %u/%u", (unsigned)(page + 1),
              (unsigned)pages);
-    glassButton(kBtnCustomerPrev, C_ACCENT, 24, "FÖRRA", 2, C_TEXT);
-    glassButton(kBtnCustomerNext, C_ACCENT, 24, "NÄSTA", 2, C_TEXT);
+    glassButton(kBtnCustomerPrev, C_ACCENT_T, 40, "FÖRRA", 2, C_ACCENT);
+    glassButton(kBtnCustomerNext, C_ACCENT_T, 40, "NÄSTA", 2, C_ACCENT);
     printCentered(225, 598 - 8, 1, C_FAINT, buf);
   } else {
-    glassButton(kBtnCustomerPrev, C_ACCENT, 24, "TILLBAKA", 2, C_TEXT);
+    glassButton(kBtnCustomerPrev, C_ACCENT_T, 40, "TILLBAKA", 2, C_ACCENT);
   }
 
   gfx->flush();
@@ -714,7 +764,7 @@ void drawEco(const EcoStatus &e) {
     zone = C_RED;
   }
 
-  printAt(16, 14, 3, C_TEXT, "ECODRIVE");
+  drawTitle("ECODRIVE");
 
   const int score = (int)(e.score + 0.5f);
   const char *grade;
@@ -748,20 +798,20 @@ void drawEco(const EcoStatus &e) {
   const float pxPerG = (float)rOuter / full;
 
   for (int i = 1; i <= 4; i++) {
-    gfx->drawCircle(cx, cy, (int16_t)(rOuter * i / 4), RGB565(45, 55, 72));
+    gfx->drawCircle(cx, cy, (int16_t)(rOuter * i / 4), C_EDGE);
   }
   // Granserna ritas dar de faktiskt ligger i stallet for pa en fast ring.
   // Flyttar man dem i gransmenyn flyttar sig ringarna med.
   const int16_t rSoft = (int16_t)(e.softG * pxPerG);
   const int16_t rHard = (int16_t)(e.hardG * pxPerG);
   if (rSoft > 4 && rSoft <= rOuter) {
-    gfx->drawCircle(cx, cy, rSoft, RGB565(60, 130, 85));
+    gfx->drawCircle(cx, cy, rSoft, C_GREEN_T);
   }
   if (rHard > 4 && rHard <= rOuter) {
-    gfx->drawCircle(cx, cy, rHard, RGB565(140, 55, 55));
+    gfx->drawCircle(cx, cy, rHard, C_RED_T);
   }
-  gfx->drawFastHLine(cx - rOuter, cy, rOuter * 2, RGB565(38, 46, 60));
-  gfx->drawFastVLine(cx, cy - rOuter, rOuter * 2, RGB565(38, 46, 60));
+  gfx->drawFastHLine(cx - rOuter, cy, rOuter * 2, C_EDGE);
+  gfx->drawFastVLine(cx, cy - rOuter, rOuter * 2, C_EDGE);
 
   // Etiketterna satts ut forst nar kortet vet vilket hall som ar framat. Innan
   // dess vore de en gissning, och en felmarkt axel ar samre an ingen.
@@ -774,7 +824,7 @@ void drawEco(const EcoStatus &e) {
     if (e.peakG > 0.02f) {
       int16_t rp = (int16_t)(e.peakG * pxPerG);
       if (rp > rOuter) rp = rOuter;
-      gfx->drawCircle(cx, cy, rp, RGB565(175, 135, 225));
+      gfx->drawCircle(cx, cy, rp, RGB565(150, 110, 210));
     }
 
     float px = e.lonG * pxPerG;
@@ -788,7 +838,7 @@ void drawEco(const EcoStatus &e) {
     }
 
     gfx->fillCircle(cx + (int16_t)py, cy - (int16_t)px, 17, zone);
-    gfx->drawCircle(cx + (int16_t)py, cy - (int16_t)px, 17, C_TEXT);
+    gfx->drawCircle(cx + (int16_t)py, cy - (int16_t)px, 17, C_PANEL);
 
     snprintf(buf, sizeof(buf), "%.2f g", e.magG);
     printCentered(cx, cy - 10, 3, C_TEXT, buf);
@@ -798,7 +848,7 @@ void drawEco(const EcoStatus &e) {
 
   // ---- raknarna
   const Rect box = {16, 440, 418, 82};
-  glassPanel(box, 22);
+  glassPanel(box);
 
   if (e.gpsClassify) {
     snprintf(buf, sizeof(buf), "Hårt: gas %lu  broms %lu  kurva %lu",
@@ -829,9 +879,11 @@ void drawEco(const EcoStatus &e) {
     printCentered(225, 494, 2, C_DIM, "Riktning: kör, gasa och bromsa");
   }
 
-  glassButton(kBtnEcoReset, C_ACCENT, 24, "NOLLSTÄLL", 2, C_TEXT);
-  glassButton(kBtnEcoLimits, C_ACCENT, 24, "GRÄNSER", 2, C_TEXT);
-  drawButton(kBtnEcoBack, C_ACCENT, "TILLBAKA", 2, C_BG);
+  glassButton(kBtnEcoReset, C_ACCENT_T, 40, "NOLLSTÄLL", 2, C_ACCENT);
+  glassButton(kBtnEcoLimits, C_ACCENT_T, 40, "GRÄNSER", 2, C_ACCENT);
+  drawButton(kBtnEcoBack, C_ACCENT, "TILLBAKA", 2, C_PANEL);
+
+  drawPageDots(2);
 
   gfx->flush();
 }
@@ -841,7 +893,7 @@ void drawEcoLimits(const AppSettings &cfg, const EcoStatus &e) {
   char buf[48];
 
   drawBackdrop();
-  printAt(16, 14, 3, C_TEXT, "GRÄNSER");
+  drawTitle("GRÄNSER");
 
   // Det levande vardet star kvar overst. Utan det skulle man stalla granser i
   // blindo - hela poangen med att menyn nas harifran ar att man ser vad man
@@ -872,18 +924,18 @@ void drawEcoLimits(const AppSettings &cfg, const EcoStatus &e) {
   for (uint8_t row = 0; row < 5; row++) {
     const int16_t y = ecoRowY(row);
     const Rect panel = {16, y, 418, kEcoRowH};
-    glassPanel(panel, 20);
+    glassPanel(panel);
 
     printAt(32, y + 12, 2, C_TEXT, labels[row]);
     printAt(32, y + 38, 1, C_DIM, hints[row]);
 
-    drawButton(ecoMinus(row), C_ACCENT, "-", 3, C_BG);
-    drawButton(ecoPlus(row), C_ACCENT, "+", 3, C_BG);
+    drawButton(ecoMinus(row), C_ACCENT, "-", 3, C_PANEL);
+    drawButton(ecoPlus(row), C_ACCENT, "+", 3, C_PANEL);
 
     printCentered(331, y + 20, 3, C_TEXT, values[row]);
   }
 
-  drawButton(kBtnEcoBack, C_GREEN, "KLAR", 3, C_TEXT);
+  drawButton(kBtnEcoBack, C_GREEN, "KLAR", 3, C_PANEL);
   gfx->flush();
 }
 
@@ -892,7 +944,7 @@ void drawMenu(const AppSettings &cfg, const char *version) {
   char buf[64];
 
   drawBackdrop();
-  printAt(16, 14, 3, C_TEXT, "MENY");
+  drawTitle("MENY");
 
   const char *labels[2] = {"Ljud", "Släck skärm"};
   const char *hints[2] = {"varningar och kvitton", "när ingen resa pågår"};
@@ -910,20 +962,20 @@ void drawMenu(const AppSettings &cfg, const char *version) {
   for (uint8_t row = 0; row < 2; row++) {
     const int16_t y = menuRowY(row);
     const Rect panel = {16, (int16_t)(y - 6), 418, 70};
-    glassPanel(panel, 20);
+    glassPanel(panel);
     printAt(32, y + 6, 2, C_TEXT, labels[row]);
     printAt(32, y + 32, 1, C_DIM, hints[row]);
-    drawButton(menuMinus(row), C_ACCENT, "-", 3, C_BG);
-    drawButton(menuPlus(row), C_ACCENT, "+", 3, C_BG);
+    drawButton(menuMinus(row), C_ACCENT, "-", 3, C_PANEL);
+    drawButton(menuPlus(row), C_ACCENT, "+", 3, C_PANEL);
     printCentered(331, y + 14, 3, C_TEXT, values[row]);
   }
 
-  glassButton(kBtnTare, C_ACCENT, 24, "TARA - STÅ STILL", 2, C_TEXT);
+  glassButton(kBtnTare, C_ACCENT_T, 40, "TARA - STÅ STILL", 2, C_ACCENT);
 
   // ---- vad enheten vet om sig sjalv. Det ar den har rutan man laser nar nagot
   // inte stammer, sa den ska svara pa fragorna innan de stalls.
   const Rect info = {16, 356, 418, 152};
-  glassPanel(info, 18);
+  glassPanel(info);
 
   int16_t y = 368;
   snprintf(buf, sizeof(buf), "Version %s", version);
@@ -965,7 +1017,9 @@ void drawMenu(const AppSettings &cfg, const char *version) {
     printAt(32, y, 2, C_DIM, buf);
   }
 
-  drawButton(kBtnBack, C_ACCENT, "TILLBAKA", 3, C_BG);
+  drawButton(kBtnBack, C_ACCENT, "TILLBAKA", 3, C_PANEL);
+
+  drawPageDots(3);
   gfx->flush();
 }
 
@@ -974,7 +1028,7 @@ void drawStats(const StatsSummary &s) {
   char buf[64];
 
   drawBackdrop();
-  printAt(16, 14, 3, C_TEXT, "STATISTIK");
+  drawTitle("STATISTIK");
 
   // ---- det stora talet: korda kilometer. Det ar det man vill se.
   drawBigNumber((uint32_t)(s.totalKm + 0.5), 340, 50, 96, C_TEXT);
@@ -985,7 +1039,7 @@ void drawStats(const StatsSummary &s) {
 
   // ---- korningen
   const Rect r1 = {16, 196, 418, 120};
-  glassPanel(r1, 20);
+  glassPanel(r1);
   int16_t y = 208;
 
   const uint32_t h = s.movingS / 3600, m = (s.movingS % 3600) / 60;
@@ -1007,7 +1061,7 @@ void drawStats(const StatsSummary &s) {
 
   // ---- per syfte. Samma farger som knapparna, sa att sprak och farg foljs at.
   const Rect r2 = {16, 328, 418, 96};
-  glassPanel(r2, 20);
+  glassPanel(r2);
   printAt(32, 338, 1, C_DIM, "per syfte, km");
   y = 356;
   snprintf(buf, sizeof(buf), "Privat: %.0f", s.privatKm);
@@ -1026,7 +1080,7 @@ void drawStats(const StatsSummary &s) {
 
   // ---- kortet och prognosen
   const Rect r3 = {16, 432, 418, 118};
-  glassPanel(r3, 20);
+  glassPanel(r3);
   y = 444;
 
   const uint32_t freeMb = (uint32_t)(s.freeBytes / (1024ULL * 1024ULL));
@@ -1049,6 +1103,7 @@ void drawStats(const StatsSummary &s) {
   printAt(32, y, 1, C_DIM, buf);
 
   printCentered(225, 566, 1, C_FAINT, "svep för fler sidor");
+  drawPageDots(1);
   gfx->flush();
 }
 
