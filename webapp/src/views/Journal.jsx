@@ -399,7 +399,7 @@ function PlacePicker({ lat, lon, value, onPick }) {
 // Resekortet: hela resan pa ett stalle. Det som ar matt visas; det som ar
 // manniskans (syfte, kund, bil, platser, matarstallning, arende) andras har
 // och sparas direkt. Koordinaterna lankar till Google Maps.
-function TripModal({ trip, customers, vehicles, patch, onClose }) {
+function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
   const [track, setTrack] = useState(undefined);
   const gpxPath = trip?.gpx_path;
   useEffect(() => {
@@ -537,6 +537,16 @@ function TripModal({ trip, customers, vehicles, patch, onClose }) {
             defaultValue={t.notes ?? ""}
             onBlur={(e) => patch(t.id, { notes: e.target.value || null })} />
         </div>
+
+        <p style={{ marginTop: ".9rem", marginBottom: 0 }}>
+          <button className="ghost" style={{ color: "var(--red)" }}
+            onClick={() => onDelete(t)}>
+            Ta bort resan
+          </button>
+          <span className="status" style={{ marginLeft: ".6rem" }}>
+            tas bort ur journalen och molnet – kortets kopia på enheten ligger kvar
+          </span>
+        </p>
       </div>
     </div>
   );
@@ -622,6 +632,7 @@ export default function Journal() {
   const [vehicleFilter, setVehicleFilter] = useState("alla");
   const [period, setPeriod] = useState("alla");
   const [groups, setGroups] = useState([]);
+  const [places, setPlaces] = useState([]);
   const [billRate, setBillRate] = useState(null);
   const [cardCount, setCardCount] = useState(6);
   const [selected, setSelected] = useState(null);
@@ -632,7 +643,7 @@ export default function Journal() {
   const [status, setStatus] = useState("hämtar …");
 
   const load = async () => {
-    const [t, c, v, g, st] = await Promise.all([
+    const [t, c, v, g, st, pl] = await Promise.all([
       supabase.from("drive_trips").select("*")
         .order("start_utc", { ascending: false }).limit(500),
       supabase.from("drive_customers").select("*").eq("active", true)
@@ -642,12 +653,14 @@ export default function Journal() {
       supabase.from("drive_trip_groups").select("*"),
       supabase.from("drive_settings").select("*")
         .eq("key", "debiterat_per_mil").maybeSingle(),
+      supabase.from("drive_places").select("*"),
     ]);
     if (t.error) { setStatus(t.error.message); return; }
     setTrips(t.data ?? []);
     setCustomers(c.data ?? []);
     setVehicles(v.data ?? []);
     setGroups(g.data ?? []);
+    setPlaces(pl.data ?? []);
     const raw = st.data?.value;
     setBillRate(typeof raw === "number" ? raw : parseFloat(raw) || null);
     setStatus(t.data?.length ? "" : "Inga resor än – börja under Importera.");
@@ -679,6 +692,33 @@ export default function Journal() {
       };
       const hasPos = (la, lo) =>
         Number.isFinite(la) && Number.isFinite(lo) && (la || lo);
+
+      // Egna platser forst: en resa som borjar eller slutar inom 400 meter
+      // fran hemmet eller kontoret far platsens namn - "Hemma -> Kontoret"
+      // i stallet for tva namnlosa koordinater. Bara tomma falt fylls i;
+      // det nagon valt sjalv ror vi aldrig.
+      const nearOwn = (la, lo) => {
+        let best = null;
+        for (const p of places) {
+          if (p.lat == null || p.lon == null) continue;
+          const d = distanceM(la, lo, p.lat, p.lon);
+          if (d <= 400 && (!best || d < best.d)) best = { p, d };
+        }
+        return best?.p ?? null;
+      };
+      for (const t of trips) {
+        const fields = {};
+        if (!t.start_place && hasPos(t.start_lat, t.start_lon)) {
+          const p = nearOwn(t.start_lat, t.start_lon);
+          if (p) fields.start_place = p.label;
+        }
+        if (!t.end_place && hasPos(t.end_lat, t.end_lon)) {
+          const p = nearOwn(t.end_lat, t.end_lon);
+          if (p) fields.end_place = p.label;
+        }
+        if (Object.keys(fields).length) await patch(t.id, fields);
+      }
+
       let budget = 40;
       for (const t of trips) {
         if (budget <= 0) break;
@@ -822,6 +862,23 @@ export default function Journal() {
     const { error } = await supabase
       .from("drive_trips").update(fields).eq("id", id);
     if (error) setStatus(`kunde inte spara: ${error.message}`);
+  };
+
+  // En felaktig resa - testkorning, dubblett, garageflytt - ska ga att ta
+  // bort. Fragan stalls forst: det har gar inte att angra i webbappen.
+  // Kortets kopia pa enheten rors inte, sa spardata ar inte forlorad.
+  const removeTrip = async (t) => {
+    if (!window.confirm(
+      `Ta bort resa ${t.trip_no} (${fmtKm(t.distance_m)} km)? Det går inte att ångra.`,
+    )) return;
+    if (t.gpx_path) {
+      await supabase.storage.from(GPX_BUCKET).remove([t.gpx_path]);
+    }
+    const { error } = await supabase
+      .from("drive_trips").delete().eq("id", t.id);
+    if (error) { setStatus(`kunde inte ta bort: ${error.message}`); return; }
+    setTrips((xs) => xs.filter((x) => x.id !== t.id));
+    setSelected(null);
   };
 
   const totals = useMemo(() => {
@@ -1135,7 +1192,7 @@ export default function Journal() {
 
       {selected && (
         <TripModal trip={selected} customers={customers} vehicles={vehicles}
-          patch={patch} onClose={() => setSelected(null)} />
+          patch={patch} onDelete={removeTrip} onClose={() => setSelected(null)} />
       )}
       {openGroup && (
         <GroupModal entry={openGroup}

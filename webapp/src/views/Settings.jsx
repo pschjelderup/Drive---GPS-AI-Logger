@@ -92,6 +92,115 @@ function CustomerPos({ customer, onSave }) {
   );
 }
 
+// Egna platser: foretagets adress och hemadresserna. Nar en resa borjar
+// eller slutar nara en av dem fyller journalen i platsnamnet av sig sjalv -
+// "Hemma -> Kontoret" i stallet for tva namnlosa koordinater.
+function PlacesCard() {
+  const [places, setPlaces] = useState([]);
+  const [label, setLabel] = useState("");
+  const [q, setQ] = useState("");
+  const [options, setOptions] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+
+  const load = async () => {
+    const { data } = await supabase
+      .from("drive_places").select("*").order("id");
+    setPlaces(data ?? []);
+  };
+  useEffect(() => { load(); }, []);
+
+  const search = async () => {
+    const text = q.trim();
+    if (!text) return;
+    setBusy(true); setStatus("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/places?q=${encodeURIComponent(text)}`, {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `svar ${res.status}`);
+      setOptions((body.places ?? []).filter((p) => p.lat != null));
+      if (!(body.places ?? []).length) setStatus("inget hittat");
+    } catch (e) {
+      setStatus(e.message);
+      setOptions([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const add = async (p) => {
+    const name = label.trim() || p.name;
+    const { error } = await supabase.from("drive_places").insert({
+      label: name, address: p.address || p.name, lat: p.lat, lon: p.lon,
+    });
+    if (error) { setStatus(error.message); return; }
+    setLabel(""); setQ(""); setOptions([]);
+    setStatus(`${name} sparad`);
+    load();
+  };
+
+  const remove = async (id) => {
+    await supabase.from("drive_places").delete().eq("id", id);
+    load();
+  };
+
+  return (
+    <div className="card">
+      <h2>Egna platser</h2>
+      <p style={{ color: "var(--dim)", marginTop: 0 }}>
+        Hemadressen och företagets adress. En resa som börjar eller slutar
+        inom 400 meter från en egen plats får platsens namn som start eller
+        mål i journalen, automatiskt.
+      </p>
+      {places.length > 0 && (
+        <table className="journal" style={{ marginBottom: ".8rem" }}>
+          <tbody>
+            {places.map((p) => (
+              <tr key={p.id}>
+                <td><b>{p.label}</b></td>
+                <td className="status">{p.address}</td>
+                <td className="status">
+                  {p.lat != null ? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}` : ""}
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <button className="ghost" onClick={() => remove(p.id)}>
+                    ta bort
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap" }}>
+        <input type="text" placeholder="namn, t.ex. Hemma"
+          value={label} style={{ width: "11rem" }}
+          onChange={(e) => setLabel(e.target.value)} />
+        <input type="text" placeholder="sök adress …"
+          value={q} style={{ flex: 1, minWidth: "14rem" }}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()} />
+        <button className="primary" onClick={search} disabled={busy}>
+          {busy ? "söker …" : "Sök"}
+        </button>
+      </div>
+      {options.length > 0 && (
+        <div className="placelist" style={{ marginTop: ".5rem" }}>
+          {options.map((p, i) => (
+            <button key={i} type="button" onClick={() => add(p)}>
+              {p.name} · {p.address}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="status" style={{ marginBottom: 0 }}>{status}</p>
+    </div>
+  );
+}
+
 // Faktureringen: det allmanna priset per mil ut till kund. Kundens eget pris
 // (i kundlistan) vinner alltid over det har.
 function BillingCard() {
@@ -356,6 +465,7 @@ export default function Settings() {
   return (
     <>
       <FleetCard />
+      <PlacesCard />
       <BillingCard />
       <DeviceCard />
 

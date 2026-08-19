@@ -1,4 +1,4 @@
-// DriveLogger - reselogg for Waveshare ESP32-S3-Touch-AMOLED-2.41
+// Hikaya - reselogg for Waveshare ESP32-S3-Touch-AMOLED-2.41
 //
 // Pinnarna nedan ar verifierade mot tva oberoende kallor:
 //  1. Waveshares egen Arduino-kortdefinition (Arduino_GFX_dev_device.h,
@@ -360,7 +360,7 @@ static const uint8_t kScreenTimeoutCount = 8;
 // Enhetens eget nat. Uppe nar ingen resa pagar, slackt under fard - se
 // websync.h. Losenordet ar inte en hemlighet utan en trappa: utan det kan
 // vem som helst pa parkeringen ladda ner dina resor.
-#define WIFI_AP_SSID "DriveLogger"
+#define WIFI_AP_SSID "Hikaya"
 #define WIFI_AP_PASSWORD "kordagbok"
 
 // Natet startas forst nagra sekunder efter att resan avslutats, sa att en

@@ -238,7 +238,7 @@ static void build_home() {
 
   add_status(scr, GUI_SCR_HOME);
 
-  lv_obj_t *brand = label(scr, &ui_font_16, COL_DIM, "DriveLogger");
+  lv_obj_t *brand = label(scr, &ui_font_16, COL_DIM, "Hikaya");
   lv_obj_align(brand, LV_ALIGN_TOP_LEFT, 18, 42);
 
   // Rutnatet: 2 x 3 ikoner. Matten ar valda sa att alla tre rader och

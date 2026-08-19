@@ -38,7 +38,7 @@ const char kIndexHtml[] PROGMEM = R"HTML(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DriveLogger</title>
+<title>Hikaya</title>
 <style>
 :root{--bg:#f6f5f1;--panel:#ffffff;--line:#d9d7d0;--text:#181c24;--dim:#666d78;
 --accent:#1a58d2;--green:#088852;--warn:#ac7400;--red:#cb2a2a}
@@ -86,7 +86,7 @@ border-radius:8px;font-size:.9rem}
 </head>
 <body>
 <main>
-<h1>DriveLogger</h1>
+<h1>Hikaya</h1>
 <p class="sub" id="version">ansluten till bilen</p>
 
 <div class="card"><div class="stats" id="stats"></div></div>
@@ -121,7 +121,7 @@ så behålls det som redan är sparat.</p>
 Tänk på: näten måste sända på 2,4&nbsp;GHz (slå på
 <b>Maximera kompatibilitet</b> för iPhone-hotspot). Och är hotspoten
 samma telefon som du surfar härifrån just nu kan den inte dela ut nät
-samtidigt som den är ansluten hit – koppla ner från DriveLogger-wifit
+samtidigt som den är ansluten hit – koppla ner från Hikaya-wifit
 och slå på hotspoten, så synkar enheten själv.</p>
 <div id="mnat"></div>
 <label><span>Enhetens token (från webbappens inställningar)</span>

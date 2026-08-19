@@ -1,4 +1,4 @@
-// DriveLogger - reselogg for Waveshare ESP32-S3-Touch-AMOLED-2.41
+// Hikaya - reselogg for Waveshare ESP32-S3-Touch-AMOLED-2.41
 //
 // Loggar varje resa i bilen till en gpx-fil och en rad i en resedagbok, och
 // markerar den som privat, foretag eller diffus. Resan startar och slutar av sig
@@ -172,7 +172,7 @@ void setup() {
   // upp pa nytt efter omstarten. Utan pausen forsvinner rubriken.
   delay(1500);
   Serial.println();
-  Serial.println("=== DRIVELOGGER ===");
+  Serial.println("=== HIKAYA ===");
   Serial.print("version ");
   Serial.println(fwVersionFull());
   Serial.println("byggd " __DATE__ " " __TIME__);

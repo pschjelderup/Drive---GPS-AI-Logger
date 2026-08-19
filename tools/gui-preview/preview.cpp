@@ -103,7 +103,7 @@ int main() {
   m.statPoints = 31240; m.statMaxKmh = 118; m.statSpeedingS = 12 * 60;
   m.statPrivatKm = 310; m.statForetagKm = 890; m.statDiffustKm = 84;
   m.statFreeMb = 29800; m.statCardMb = 30432; m.statKmLeft = 412000;
-  snprintf(m.apSsid, sizeof(m.apSsid), "DriveLogger");
+  snprintf(m.apSsid, sizeof(m.apSsid), "Hikaya");
   snprintf(m.apPassword, sizeof(m.apPassword), "kordagbok");
   snprintf(m.cloudSsid, sizeof(m.cloudSsid), "Pelles iPhone");
   snprintf(m.cloudDetail, sizeof(m.cloudDetail), "senaste synken gick igenom");

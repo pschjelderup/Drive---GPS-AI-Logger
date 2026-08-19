@@ -79,7 +79,7 @@ export default function Import({ onImported }) {
     <div className="card">
       <h2>Importera från enheten</h2>
       <p style={{ color: "var(--dim)", marginTop: 0 }}>
-        Anslut telefonen till bilens wifi (<b>DriveLogger</b>), hämta
+        Anslut telefonen till bilens wifi (<b>Hikaya</b>), hämta
         <b> RESOR.JSONL</b> och GPX-filerna från sidan som öppnas, och släpp
         dem här. Redan importerade resor rörs inte, så dina redigeringar är
         säkra.

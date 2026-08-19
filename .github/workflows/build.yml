@@ -21,7 +21,7 @@ concurrency:
 
 env:
   FQBN: esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,FlashMode=qio,PartitionScheme=huge_app,CDCOnBoot=cdc
-  SKETCH: firmware/DriveLogger
+  SKETCH: firmware/Hikaya
 
 jobs:
   build:
@@ -77,7 +77,7 @@ jobs:
           # LVGL hittar sin lv_conf.h i biblioteksmappens rot, inte i skissen.
           # Skissens kopia ar sanningen; den har laggs dit vid varje bygge sa
           # att en andring i skissen alltid foljer med.
-          cp firmware/DriveLogger/lv_conf.h ~/Arduino/libraries/lv_conf.h
+          cp firmware/Hikaya/lv_conf.h ~/Arduino/libraries/lv_conf.h
 
       - name: Ta reda pa PR-numret
         env:
@@ -140,27 +140,27 @@ jobs:
 
           # Del A: 0x0 bootloader + 0x8000 partitionstabell. Slutar vid 0x8C00.
           python3 -m esptool --chip esp32s3 merge-bin \
-            -o "site/drivelogger-$VERSION-a.bin" \
+            -o "site/hikaya-$VERSION-a.bin" \
             --flash-mode dio \
             --flash-freq 80m \
             --flash-size 16MB \
-            0x0 build/DriveLogger.ino.bootloader.bin \
-            0x8000 build/DriveLogger.ino.partitions.bin
+            0x0 build/Hikaya.ino.bootloader.bin \
+            0x8000 build/Hikaya.ino.partitions.bin
 
           # Del B: 0xe000 boot-valjare + 0x10000 sjalva appen.
           python3 -m esptool --chip esp32s3 merge-bin \
-            -o "site/drivelogger-$VERSION-b.bin" \
+            -o "site/hikaya-$VERSION-b.bin" \
             --target-offset 0xe000 \
             --flash-mode dio \
             --flash-freq 80m \
             --flash-size 16MB \
             0xe000 "$BOOT_APP0" \
-            0x10000 build/DriveLogger.ino.bin
+            0x10000 build/Hikaya.ino.bin
 
           # Halet maste finnas. Vaxer del A in i 0x9000 ar nvs inte langre
           # skyddat, och det ska falla bygget - inte upptackas av en anvandare
           # som undrar vart resenumret tog vagen.
-          SIZE_A=$(stat -c%s "site/drivelogger-$VERSION-a.bin")
+          SIZE_A=$(stat -c%s "site/hikaya-$VERSION-a.bin")
           echo "del A: $SIZE_A byte, nvs borjar vid 36864"
           if [ "$SIZE_A" -gt 36864 ]; then
             echo "FEL: del A vaxer in i nvs-omradet" >&2
@@ -189,8 +189,8 @@ jobs:
             echo "FEL: platshallare kvar i den publicerade sidan" >&2
             exit 1
           fi
-          test -f "site/drivelogger-$VERSION-a.bin"
-          test -f "site/drivelogger-$VERSION-b.bin"
+          test -f "site/hikaya-$VERSION-a.bin"
+          test -f "site/hikaya-$VERSION-b.bin"
 
       - name: Spara firmware som nedladdningsbar artefakt
         # Ett fullt lagringsutrymme for artefakter ar ett kontoproblem, inte ett
@@ -199,8 +199,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: drivelogger-firmware-${{ github.sha }}
-          path: site/drivelogger-*.bin
+          name: hikaya-firmware-${{ github.sha }}
+          path: site/hikaya-*.bin
           if-no-files-found: error
           retention-days: 7
 

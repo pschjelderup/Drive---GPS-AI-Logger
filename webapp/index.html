@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DriveLogger</title>
+    <title>Hikaya</title>
     <link rel="icon" type="image/svg+xml" href="/brand/app-icon.svg" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f5f1" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101319" />
@@ -14,7 +14,8 @@
       // Temat satts fore forsta malningen, annars blinkar sidan till i fel
       // farg vid varje laddning. Tre lagen: ljust, morkt, folj systemet.
       (function () {
-        var mode = localStorage.getItem("drivelogger-theme") || "system";
+        var mode = localStorage.getItem("hikaya-theme") ||
+          localStorage.getItem("drivelogger-theme") || "system";
         var dark = mode === "dark" ||
           (mode === "system" &&
             window.matchMedia("(prefers-color-scheme: dark)").matches);

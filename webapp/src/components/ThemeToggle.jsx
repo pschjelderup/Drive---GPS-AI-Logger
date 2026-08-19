@@ -3,7 +3,10 @@
 // byten medan sidan ar oppen.
 import { useEffect, useState } from "react";
 
-const KEY = "drivelogger-theme";
+// Nya nyckeln sedan namnbytet; den gamla lases som reserv sa att ett redan
+// gjort temaval overlever. Skrivningar gar alltid till den nya.
+const KEY = "hikaya-theme";
+const OLD_KEY = "drivelogger-theme";
 
 function apply(mode) {
   const dark = mode === "dark" ||
@@ -12,15 +15,16 @@ function apply(mode) {
   document.documentElement.dataset.theme = dark ? "dark" : "light";
 }
 
+const stored = () =>
+  localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY) ?? "system";
+
 export default function ThemeToggle() {
-  const [mode, setMode] = useState(
-    () => localStorage.getItem(KEY) ?? "system",
-  );
+  const [mode, setMode] = useState(stored);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
-      if ((localStorage.getItem(KEY) ?? "system") === "system") apply("system");
+      if (stored() === "system") apply("system");
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

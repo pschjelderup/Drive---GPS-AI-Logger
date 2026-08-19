@@ -379,7 +379,7 @@ bool openGpx(uint32_t index, TripPurpose purpose, const char *customer) {
   // kartapp; faltet ar det som gar att lasa maskinellt utan att gissa.
   g_gpx.printf(
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<gpx version=\"1.1\" creator=\"DriveLogger\" "
+      "<gpx version=\"1.1\" creator=\"Hikaya\" "
       "xmlns=\"http://www.topografix.com/GPX/1/1\">\n"
       "<metadata><name>Resa %lu</name>%s%s%s</metadata>\n"
       "<trk><name>Resa %lu - %s</name><type>%s</type>%s%s%s<trkseg>\n",
