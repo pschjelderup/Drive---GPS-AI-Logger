@@ -54,6 +54,18 @@ void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   lv_display_flush_ready(disp);
 }
 
+// RM690B0-panelens adressfonster kraver jamna koordinater; ett fonster som
+// borjar pa udda kolumn ritas forskjutet sa att bilden delas och halva
+// hamnar pa andra sidan. Varje omritad yta knuffas darfor ut till narmast
+// jamna granser innan den nar panelen.
+void rounder_cb(lv_event_t *e) {
+  lv_area_t *a = (lv_area_t *)lv_event_get_param(e);
+  a->x1 &= ~1;
+  a->y1 &= ~1;
+  a->x2 |= 1;
+  a->y2 |= 1;
+}
+
 void touch_cb(lv_indev_t *indev, lv_indev_data_t *data) {
   (void)indev;
   data->state = LV_INDEV_STATE_RELEASED;
@@ -309,6 +321,7 @@ void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
   lv_display_set_buffers(g_disp, buf, nullptr, bufBytes,
                          LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(g_disp, flush_cb);
+  lv_display_add_event_cb(g_disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, nullptr);
 
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
