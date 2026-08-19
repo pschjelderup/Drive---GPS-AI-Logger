@@ -932,11 +932,18 @@ static void update_stats(const GuiModel *m) {
 
 // ---------------------------------------------------------------- molnet --
 
-static lv_obj_t *g_cloudAp, *g_cloudState, *g_cloudCams;
+static lv_obj_t *g_cloudAp, *g_cloudState, *g_cloudCams, *g_cloudAuto;
 
 static void cloud_sync_cb(lv_event_t *e) {
   (void)e;
   if (g_act && g_act->requestCloudSync) g_act->requestCloudSync();
+}
+
+static void auto_sync_cb(lv_event_t *e) {
+  lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
+  if (g_act && g_act->toggleAutoSync) {
+    g_act->toggleAutoSync(lv_obj_has_state(sw, LV_STATE_CHECKED));
+  }
 }
 
 static void build_cloud() {
@@ -962,6 +969,18 @@ static void build_cloud() {
   lv_obj_align(p2, LV_ALIGN_TOP_MID, 0, 226);
   lv_obj_t *c2 = label(p2, &ui_font_16, COL_DIM, "MOLNSYNKEN");
   lv_obj_align(c2, LV_ALIGN_TOP_LEFT, 14, 8);
+
+  // Autosynken av eller pa. Avslagen synkar enheten bara pa knappen nedanfor
+  // - for den som vill valja nat och tillfalle sjalv.
+  lv_obj_t *al = label(p2, &ui_font_16, COL_DIM, "AUTO");
+  lv_obj_align(al, LV_ALIGN_TOP_RIGHT, -84, 12);
+  g_cloudAuto = lv_switch_create(p2);
+  lv_obj_set_size(g_cloudAuto, 64, 34);
+  lv_obj_align(g_cloudAuto, LV_ALIGN_TOP_RIGHT, -10, 4);
+  lv_obj_set_style_bg_color(g_cloudAuto, COL_ACCENT,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_add_event_cb(g_cloudAuto, auto_sync_cb, LV_EVENT_VALUE_CHANGED,
+                      nullptr);
   g_cloudState = label(p2, &ui_font_20, COL_TEXT, "");
   lv_obj_align(g_cloudState, LV_ALIGN_TOP_LEFT, 14, 34);
   lv_label_set_long_mode(g_cloudState, LV_LABEL_LONG_WRAP);
@@ -999,6 +1018,9 @@ static void update_cloud(const GuiModel *m) {
              (unsigned long)m->cloudFiles);
   }
   set_txt(g_cloudState, buf);
+
+  if (m->autoSyncOn) lv_obj_add_state(g_cloudAuto, LV_STATE_CHECKED);
+  else lv_obj_remove_state(g_cloudAuto, LV_STATE_CHECKED);
 
   snprintf(buf, sizeof(buf), "%lu fartkameror på kortet",
            (unsigned long)m->camCount);

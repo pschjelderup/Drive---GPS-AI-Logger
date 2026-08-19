@@ -77,7 +77,7 @@ int main() {
 
   static GuiActions act = {
       noopPurpose, noop, noop, noop, noopPick, noop,
-      noopSound, noopIdx, noopTare, noop, noop,
+      noopSound, noopIdx, noopTare, noop, noop, noopSound,
   };
   gui_screens_create(&act);
 

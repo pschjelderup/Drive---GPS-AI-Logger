@@ -165,6 +165,13 @@ void actEcoReset() { eco::reset(); }
 
 void actCloudSync() { cloudsync::requestSync(); }
 
+void actToggleAutoSync(bool on) {
+  g_cfg->autoSync = on ? 1 : 0;
+  g_apply();
+  g_save();
+  sound::play(CUE_TAP);
+}
+
 }  // namespace
 
 namespace {
@@ -174,7 +181,7 @@ void actOpenCustomers() { ::openCustomersFromGui(); }
 const GuiActions kActions = {
     actSetPurpose, actStartTrip, actEndTrip, actSplit, actPickCustomer,
     actOpenCustomers, actToggleSound, actScreenIdx, actTare, actEcoReset,
-    actCloudSync,
+    actCloudSync, actToggleAutoSync,
 };
 
 // ---------------------------------------------------------------- modellen -
@@ -272,6 +279,7 @@ void fillModel(GuiModel &m) {
   m.camCount = cams::count();
 
   m.soundOn = g_cfg->soundOn != 0;
+  m.autoSyncOn = g_cfg->autoSync != 0;
   m.screenIdx = g_cfg->screenIdx;
   m.screenCount = kScreenTimeoutCount;
   m.screenTimeoutS = kScreenTimeouts[g_cfg->screenIdx];

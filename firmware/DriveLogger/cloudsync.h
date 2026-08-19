@@ -57,8 +57,12 @@ bool netHasPassword(uint8_t i);
 String ssid();
 
 // Be om en synk sa snart villkoren tillater, i stallet for att venta ut
-// intervallet. Knappen pa wifi-sidan.
+// intervallet. Knappen pa wifi-sidan och pa molnskarmen.
 void requestSync();
+
+// Autosynken av eller pa. Avslagen ligger traden stilla tills nagon
+// trycker pa knappen - for den som vill aga sin egen surfpott.
+void setAutoSync(bool on);
 
 CloudStatus status();
 

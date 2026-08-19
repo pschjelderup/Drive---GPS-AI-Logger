@@ -44,7 +44,7 @@ Preferences prefs;
 AppSettings cfg = {DEFAULT_SCREEN_TIMEOUT_INDEX, DEFAULT_SOUND_ON,
                    DEFAULT_ECO_SOFT_INDEX,       DEFAULT_ECO_HARD_INDEX,
                    DEFAULT_ECO_BUBBLE_INDEX,     DEFAULT_ECO_PENALTY_INDEX,
-                   DEFAULT_ECO_WINDOW_INDEX};
+                   DEFAULT_ECO_WINDOW_INDEX,     DEFAULT_AUTO_SYNC};
 
 bool lastButtonState = HIGH;
 
@@ -61,6 +61,7 @@ void loadSettings() {
   cfg.ecoBubbleIdx = prefs.getUChar("ecoBub", DEFAULT_ECO_BUBBLE_INDEX);
   cfg.ecoPenaltyIdx = prefs.getUChar("ecoPen", DEFAULT_ECO_PENALTY_INDEX);
   cfg.ecoWindowIdx = prefs.getUChar("ecoWin", DEFAULT_ECO_WINDOW_INDEX);
+  cfg.autoSync = prefs.getUChar("autoSync", DEFAULT_AUTO_SYNC);
   prefs.end();
 
   // Ett trasigt eller gammalt sparat varde far inte gora enheten obrukbar.
@@ -68,6 +69,7 @@ void loadSettings() {
     cfg.screenIdx = DEFAULT_SCREEN_TIMEOUT_INDEX;
   }
   if (cfg.soundOn > 1) cfg.soundOn = DEFAULT_SOUND_ON;
+  if (cfg.autoSync > 1) cfg.autoSync = DEFAULT_AUTO_SYNC;
   if (cfg.ecoSoftIdx >= kEcoSoftCount) cfg.ecoSoftIdx = DEFAULT_ECO_SOFT_INDEX;
   if (cfg.ecoHardIdx >= kEcoHardCount) cfg.ecoHardIdx = DEFAULT_ECO_HARD_INDEX;
   if (cfg.ecoBubbleIdx >= kEcoBubbleCount) {
@@ -90,6 +92,7 @@ void saveSettings() {
   prefs.putUChar("ecoBub", cfg.ecoBubbleIdx);
   prefs.putUChar("ecoPen", cfg.ecoPenaltyIdx);
   prefs.putUChar("ecoWin", cfg.ecoWindowIdx);
+  prefs.putUChar("autoSync", cfg.autoSync);
   prefs.end();
 }
 
@@ -98,6 +101,7 @@ void applySettings() {
                  kEcoBubble[cfg.ecoBubbleIdx], kEcoPenalty[cfg.ecoPenaltyIdx],
                  kEcoWindowS[cfg.ecoWindowIdx]);
   sound::setEnabled(cfg.soundOn != 0);
+  cloudsync::setAutoSync(cfg.autoSync != 0);
 }
 
 // ------------------------------------------------------------ felsokning --

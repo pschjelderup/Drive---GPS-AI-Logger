@@ -49,6 +49,7 @@ CloudStatus g_status = {};
 SemaphoreHandle_t g_mutex = nullptr;
 
 volatile bool g_syncNow = false;
+volatile bool g_autoSync = true;
 volatile bool g_reconfigured = false;
 
 void lock() {
@@ -450,7 +451,8 @@ void syncTask(void *) {
     }
 
     const uint32_t now = millis();
-    if (!g_syncNow && now < nextAttemptMs) continue;
+    // Med autosynken avslagen hander ingenting forran knappen trycks.
+    if (!g_syncNow && (!g_autoSync || now < nextAttemptMs)) continue;
     g_syncNow = false;
 
     // Vilket av de sparade naten finns har? En skanning ser dem som sander,
@@ -558,9 +560,11 @@ void begin() {
 
   setState(anyNet() ? CLOUD_IDLE : CLOUD_OFF, anyNet() ? "redo" : "");
 
-  // TLS behover rejalt med stack. Kor pa andra karnan, sa att avlasningstraden
-  // pa karna 0 aldrig behover dela varv med en nedladdning.
-  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 2, nullptr, 1);
+  // TLS behover rejalt med stack. Kor pa karna 1, dar aven huvudloopen med
+  // gui:t bor - men med SAMMA prioritet, inte hogre: med prioritet 2 svalte
+  // en langre nedladdning skarmen helt, och det kandes som att hela enheten
+  // hangde sig. Lika prioritet ger turordning, och gui:t far sina varv.
+  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 1, nullptr, 1);
 }
 
 void configureNets(const char *ssids[kNetMax], const char *passwords[kNetMax],
@@ -627,6 +631,8 @@ String ssid() {
 }
 
 void requestSync() { g_syncNow = true; }
+
+void setAutoSync(bool on) { g_autoSync = on; }
 
 CloudStatus status() {
   lock();
