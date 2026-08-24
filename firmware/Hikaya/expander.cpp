@@ -15,8 +15,10 @@ const uint8_t kRegConfig = 0x03;
 const uint8_t kConfig = 0b01110100;
 
 // Grundlagen: kameran avstangd (PWDN hog), skarmen ur reset (RST hog),
-// kortet valt (CS lag), forstarkaren tyst (CTRL lag).
-const uint8_t kIdle = 0b00000011;
+// kortets D3/CS HOG - minneskortet gar pa SDMMC och maste ha CS hog vid
+// forsta kommandot, annars trillar det ner i SPI-lage - och forstarkaren
+// tyst (CTRL lag).
+const uint8_t kIdle = 0b00001011;
 
 uint8_t g_output = kIdle;
 
@@ -40,10 +42,14 @@ bool begin() {
 }
 
 void lcdReset() {
-  writeReg(kRegOutput, g_output & ~(1 << EXIO_LCD_RST));
-  delay(20);
+  // Samma monster och tider som Waveshares demokod: hog, lag, hog med
+  // 10/10/200 ms. ST7796:an ar kinkig med for kort uppvakningspaus.
   writeReg(kRegOutput, g_output | (1 << EXIO_LCD_RST));
-  delay(120);
+  delay(10);
+  writeReg(kRegOutput, g_output & ~(1 << EXIO_LCD_RST));
+  delay(10);
+  writeReg(kRegOutput, g_output | (1 << EXIO_LCD_RST));
+  delay(200);
 }
 
 }  // namespace expander

@@ -123,13 +123,13 @@ static inline const char *fwVersionFull() {
 
 // ------------------------------------------------------------- minneskort --
 #if defined(BOARD_LCD35)
-// Kortplatsen sitter pa SPI. CS gar via io-expandern och halls fast lag;
-// biblioteket far en attrapp-pinne att vifta med - kameraklockans, som gar
-// till en tom kamerakontakt och inte stor nagon.
-#define PIN_SD_MISO 9
-#define PIN_SD_MOSI 10
-#define PIN_SD_SCK 11
-#define PIN_SD_CS_DUMMY 38
+// Kortplatsen sitter pa SDMMC i 1-bitslage, precis som pa 2.41-kortet -
+// Waveshares egen SD-demo kor SD_MMC.setPins(11, 10, 9). Kortets D3/CS
+// gar via io-expandern och maste hallas HOG, annars hamnar kortet i
+// SPI-lage vid forsta kommandot.
+#define PIN_SD_CLK 11
+#define PIN_SD_CMD 10
+#define PIN_SD_D0 9
 #else
 // Kortplatsen sitter pa SDMMC i 1-bitslage.
 #define PIN_SD_CLK 4
