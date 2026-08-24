@@ -1,16 +1,10 @@
-// Minneskortet, bakom ett gemensamt namn. AMOLED 2.41-kortet har sin
-// kortplats pa SDMMC-bussen; LCD 3.5-kortet har sin pa vanlig SPI. Bada
-// exponerar samma FS-granssnitt, sa all filkod skriver SDCARD och slipper
-// veta vilken buss som bar den. Monteringen - det enda som faktiskt skiljer -
-// bor i sensors.cpp.
+// Minneskortet, bakom ett gemensamt namn. Bada korten har kortplatsen pa
+// SDMMC-bussen i 1-bitslage - bara pinnarna skiljer, och 3.5-kortet later
+// dessutom D3/CS ga via io-expandern (hog = SD-lage). All filkod skriver
+// SDCARD; monteringen bor i sensors.cpp.
 #pragma once
 
 #include "config.h"
 
-#if defined(BOARD_LCD35)
-#include <SD.h>
-#define SDCARD SD
-#else
 #include <SD_MMC.h>
 #define SDCARD SD_MMC
-#endif

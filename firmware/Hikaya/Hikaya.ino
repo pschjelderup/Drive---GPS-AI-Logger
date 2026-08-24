@@ -209,14 +209,28 @@ void setup() {
 
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
-  ledcAttach(PIN_LCD_BL, 20000, 8);
-  const bool panelOk = panel->begin(40000000L);
-  gui::panelBrightness(235);
-  // Bring-up-kvitto som syns utan seriekabel: rott betyder att panelen
-  // svarar och ritningen gar fram. Fastnar skarmen svart ar det stromm,
-  // reset eller bussen; fastnar den rod ar det LVGL-steget.
+  // Versionskvitto som syns aven om panelen ar dod: bakgrundsljuset
+  // blinkar tva ganger innan det tands pa riktigt. Blinkar det inte
+  // kor enheten en aldre firmware.
+  pinMode(PIN_LCD_BL, OUTPUT);
+  for (int i = 0; i < 2; i++) {
+    digitalWrite(PIN_LCD_BL, HIGH);
+    delay(150);
+    digitalWrite(PIN_LCD_BL, LOW);
+    delay(150);
+  }
+
+  // Init exakt som Waveshares demokod: begin() utan hastighet sa att
+  // bussens standard galler, och rita innan ljuset tands.
+  const bool panelOk = panel->begin();
   panel->fillScreen(0xF800);
-  delay(400);
+
+  ledcAttach(PIN_LCD_BL, 20000, 8);
+  gui::panelBrightness(235);
+  // Bring-up-kvitto: rott betyder att panelen svarar och ritningen gar
+  // fram. Fastnar skarmen svart ar det strom, reset eller bussen;
+  // fastnar den rod ar det LVGL-steget.
+  delay(1000);
   panel->fillScreen(0x0000);
   Serial.printf("skarm: begin %s\n", panelOk ? "ok" : "MISSLYCKADES");
 #else
