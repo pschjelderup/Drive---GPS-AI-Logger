@@ -1,6 +1,6 @@
 #include "customers.h"
 
-#include <SD_MMC.h>
+#include "storage.h"
 
 #include "config.h"
 #include "sensors.h"
@@ -38,7 +38,7 @@ void reload() {
   g_count = 0;
   if (!sensors::sdMounted()) return;
 
-  File f = SD_MMC.open(CUSTOMERS_FILE, FILE_READ);
+  File f = SDCARD.open(CUSTOMERS_FILE, FILE_READ);
   if (!f) return;
 
   char line[96];

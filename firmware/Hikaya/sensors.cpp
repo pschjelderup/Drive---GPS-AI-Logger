@@ -1,6 +1,6 @@
 #include "sensors.h"
 
-#include <SD_MMC.h>
+#include "storage.h"
 #include <SensorPCF85063.hpp>
 #include <SensorQMI8658.hpp>
 #include <Wire.h>
@@ -98,8 +98,8 @@ void refreshFreeSpace() {
     unlock();
     return;
   }
-  const uint64_t total = SD_MMC.totalBytes();
-  const uint64_t used = SD_MMC.usedBytes();
+  const uint64_t total = SDCARD.totalBytes();
+  const uint64_t used = SDCARD.usedBytes();
   lock();
   g_cardBytes = total;
   g_freeBytes = (total > used) ? (total - used) : 0;
@@ -232,14 +232,25 @@ bool imuOk() { return g_imuOk; }
 bool sdMounted() { return g_sdOk; }
 
 bool remount() {
-  if (g_sdOk) SD_MMC.end();
+  if (g_sdOk) SDCARD.end();
   g_sdOk = false;
 
-  SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
-  // true = enbitslage, vilket ar sa kortplatsen ar kopplad pa det har kortet.
-  if (SD_MMC.begin("/sdcard", true, false)) {
-    g_sdOk = (SD_MMC.cardType() != CARD_NONE);
+#if defined(BOARD_LCD35)
+  // Kortplatsen sitter pa SPI. Riktiga CS-signalen halls permanent lag av
+  // io-expandern (satt i expander::begin) - kortet ar ensamt pa bussen, sa
+  // det far vara valt jamt. Biblioteket kraver anda en CS-pinne att vifta
+  // med; det far kameraklockans, som gar till en tom kontakt.
+  SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS_DUMMY);
+  if (SDCARD.begin(PIN_SD_CS_DUMMY, SPI, 25000000, "/sdcard")) {
+    g_sdOk = (SDCARD.cardType() != CARD_NONE);
   }
+#else
+  SDCARD.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0);
+  // true = enbitslage, vilket ar sa kortplatsen ar kopplad pa det har kortet.
+  if (SDCARD.begin("/sdcard", true, false)) {
+    g_sdOk = (SDCARD.cardType() != CARD_NONE);
+  }
+#endif
   refreshFreeSpace();
   return g_sdOk;
 }

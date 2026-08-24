@@ -1,7 +1,7 @@
 #include "trip.h"
 
 #include <Preferences.h>
-#include <SD_MMC.h>
+#include "storage.h"
 #include <math.h>
 #include <unistd.h>
 
@@ -163,9 +163,9 @@ void unlock() {
 }
 
 void ensureDirs() {
-  if (!SD_MMC.exists(DRIVE_DIR)) SD_MMC.mkdir(DRIVE_DIR);
-  if (!SD_MMC.exists(GPX_DIR)) SD_MMC.mkdir(GPX_DIR);
-  if (!SD_MMC.exists(GPX_SYNCED_DIR)) SD_MMC.mkdir(GPX_SYNCED_DIR);
+  if (!SDCARD.exists(DRIVE_DIR)) SDCARD.mkdir(DRIVE_DIR);
+  if (!SDCARD.exists(GPX_DIR)) SDCARD.mkdir(GPX_DIR);
+  if (!SDCARD.exists(GPX_SYNCED_DIR)) SDCARD.mkdir(GPX_SYNCED_DIR);
 }
 
 void gpxPath(uint32_t index, char *out, size_t len) {
@@ -200,11 +200,11 @@ void writeState() {
   g_state.seq = ++g_seq;
   stamp(g_state);
 
-  File f = SD_MMC.open(STATE_FILE, "r+");
+  File f = SDCARD.open(STATE_FILE, "r+");
   if (!f) {
     // Filen finns inte an. Skapa den i full storlek, sa att de tva slotsen
     // ligger i olika sektorer fran forsta stund.
-    f = SD_MMC.open(STATE_FILE, FILE_WRITE);
+    f = SDCARD.open(STATE_FILE, FILE_WRITE);
     if (!f) return;
     uint8_t zero[kSlotSize] = {0};
     f.write(zero, kSlotSize);
@@ -223,7 +223,7 @@ void writeState() {
 // ar den sanna.
 bool readState(StateRecord &out, uint8_t &slotOut) {
   if (!sensors::sdMounted()) return false;
-  File f = SD_MMC.open(STATE_FILE, FILE_READ);
+  File f = SDCARD.open(STATE_FILE, FILE_READ);
   if (!f) return false;
 
   bool found = false;
@@ -291,8 +291,8 @@ void appendTripRow(const StateRecord &r) {
 
   // ---- csv, for manniskor och Excel. Semikolon som avdelare, eftersom
   // decimaltecknet ar ett komma.
-  const bool fresh = !SD_MMC.exists(TRIPS_CSV);
-  File c = SD_MMC.open(TRIPS_CSV, FILE_APPEND);
+  const bool fresh = !SDCARD.exists(TRIPS_CSV);
+  File c = SDCARD.open(TRIPS_CSV, FILE_APPEND);
   if (c) {
     if (fresh) {
       c.print(
@@ -329,7 +329,7 @@ void appendTripRow(const StateRecord &r) {
     snprintf(ecoJson, sizeof(ecoJson), "null");
   }
 
-  File j = SD_MMC.open(TRIPS_JSONL, FILE_APPEND);
+  File j = SDCARD.open(TRIPS_JSONL, FILE_APPEND);
   if (j) {
     j.printf(
         "{\"resa\":%lu,\"start\":\"%s\",\"mal\":\"%s\",\"start_lat\":%.7f,"
@@ -369,7 +369,7 @@ bool openGpx(uint32_t index, TripPurpose purpose, const char *customer) {
 
   char path[48];
   gpxPath(index, path, sizeof(path));
-  g_gpx = SD_MMC.open(path, FILE_WRITE);
+  g_gpx = SDCARD.open(path, FILE_WRITE);
   if (!g_gpx) return false;
 
   char when[28];
@@ -433,7 +433,7 @@ uint32_t nextIndex() {
   char path[48];
   while (index < 100000) {
     gpxPath(index, path, sizeof(path));
-    if (!SD_MMC.exists(path)) break;
+    if (!SDCARD.exists(path)) break;
     index++;
   }
   g_prefs.putUInt("tripIdx", index);
@@ -585,7 +585,7 @@ void repairGpx(uint32_t index) {
   char path[48];
   gpxPath(index, path, sizeof(path));
 
-  File f = SD_MMC.open(path, FILE_READ);
+  File f = SDCARD.open(path, FILE_READ);
   if (!f) return;
   const size_t size = f.size();
   if (size == 0) {
@@ -640,7 +640,7 @@ void repairGpx(uint32_t index) {
   snprintf(full, sizeof(full), "/sdcard%s", path);
   if (truncate(full, (off_t)cut) != 0) return;
 
-  File w = SD_MMC.open(path, FILE_APPEND);
+  File w = SDCARD.open(path, FILE_APPEND);
   if (!w) return;
   w.write((const uint8_t *)kGpxFooter, footerLen);
   w.flush();

@@ -34,9 +34,46 @@ static inline const char *fwVersionFull() {
   return s;
 }
 
+// ------------------------------------------------------------- kortval ----
+// Tva kort, en kodbas. Bygget valjer med -DBOARD_LCD35; utan flaggan byggs
+// AMOLED 2.41-varianten. Flashsidan har en modellvaljare - korten har samma
+// processor, sa firmware kan inte kanna igen kortet sjalv.
+
+#if defined(BOARD_LCD35)
 // ---------------------------------------------------------------- skarm ----
-// RM690B0 AMOLED via QSPI. Panelen ar 450x600 (staende) och har 16 pixlars
-// kolumnoffset.
+// Waveshare ESP32-S3-Touch-LCD-3.5: ST7796 via vanlig SPI, 320x480 staende.
+// CS ar fast strappad pa kortet (skarmen ar ensam pa bussen) och RST gar via
+// io-expandern - darfor finns ingen CS/RST-pinne har. Pinnarna ar lasta ur
+// Waveshares schema (ESP32-S3-Touch-LCD-3.5-Schematic.pdf).
+#define PIN_LCD_MOSI 1
+#define PIN_LCD_MISO 2
+#define PIN_LCD_DC 3
+#define PIN_LCD_SCK 5
+#define PIN_LCD_BL 6
+
+#define SCREEN_W 320
+#define SCREEN_H 480
+#define LCD_COL_OFFSET 0
+
+// ------------------------------------------------------------------ i2c ----
+// Delad buss: FT6336 (pekskarm), QMI8658 (rorelse), PCF85063 (klocka),
+// AXP2101 (strom), TCA9554 (io-expander) - och GPS:en via stiftlisten.
+#define PIN_I2C_SDA 8
+#define PIN_I2C_SCL 7
+#define PIN_TOUCH_RST -1
+
+// Io-expandern ager tre signaler vi behover: skarmens reset, kortplatsens CS
+// och pekskarmens avbrott (som vi anda pollar).
+#define EXPANDER_I2C_ADDR 0x20
+#define EXIO_LCD_RST 1
+#define EXIO_TP_INT 2
+#define EXIO_SD_CS 3
+
+#else
+// ---------------------------------------------------------------- skarm ----
+// Waveshare ESP32-S3-Touch-AMOLED-2.41: RM690B0 AMOLED via QSPI. Panelen ar
+// 450x600 (staende) och har 16 pixlars kolumnoffset. Pinnarna ar verifierade
+// mot Waveshares kortdefinition och CircuitPythons, och provkorda i Gmate.
 #define PIN_LCD_CS 9
 #define PIN_LCD_SCK 10
 #define PIN_LCD_D0 11
@@ -59,6 +96,7 @@ static inline const char *fwVersionFull() {
 #define PIN_I2C_SDA 47
 #define PIN_I2C_SCL 48
 #define PIN_TOUCH_RST 3
+#endif
 
 // Pekskarmens avbrottssignal gar via io-expandern, inte till en riktig GPIO,
 // sa vi lasar av pekskarmen med pollning i stallet.
@@ -84,10 +122,20 @@ static inline const char *fwVersionFull() {
 #define TOUCH_SWAP_XY 0
 
 // ------------------------------------------------------------- minneskort --
+#if defined(BOARD_LCD35)
+// Kortplatsen sitter pa SPI. CS gar via io-expandern och halls fast lag;
+// biblioteket far en attrapp-pinne att vifta med - kameraklockans, som gar
+// till en tom kamerakontakt och inte stor nagon.
+#define PIN_SD_MISO 9
+#define PIN_SD_MOSI 10
+#define PIN_SD_SCK 11
+#define PIN_SD_CS_DUMMY 38
+#else
 // Kortplatsen sitter pa SDMMC i 1-bitslage.
 #define PIN_SD_CLK 4
 #define PIN_SD_CMD 5
 #define PIN_SD_D0 6
+#endif
 
 // ---------------------------------------------------------------- knappar --
 // BOOT-knappen. Anvands som skarm av/pa.
@@ -207,6 +255,11 @@ static inline const char *fwVersionFull() {
 // Punkterna ligger tatt langs vagarna, sa ett langre avstand an sa har betyder
 // att vi kor pa en vag som inte finns i filen.
 #define LIMIT_MATCH_RADIUS_M 60
+
+// Delstorleken pa molnets stora filer - ett kontrakt med webappen
+// (PART_BYTES i DataFiles.jsx). Hela delar ar giltiga aterupptagnings-
+// punkter: en bruten nedladdning kostar en del, inte hela filen.
+#define CLOUD_PART_BYTES (4UL * 1024UL * 1024UL)
 
 // Overhastighet raknas forst har. Bilens hastighetsmatare visar med flit for
 // mycket, gps-farten ar den sanna, och ingen vill bli tillsagd for tre km/h.

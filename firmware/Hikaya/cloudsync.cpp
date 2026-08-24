@@ -2,7 +2,7 @@
 
 #include <HTTPClient.h>
 #include <Preferences.h>
-#include <SD_MMC.h>
+#include "storage.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
@@ -112,9 +112,10 @@ bool fileVersion(const String &body, const char *name, char *ver, size_t vlen,
   return true;
 }
 
-// En version som misslyckats tva ganger sedan uppstart lamnas ifred tills
-// molnet har en ny - annars tuggar synken samma jattefil var kvart, och en
-// hotspot betalar per gigabyte.
+// En version som misslyckats manga ganger sedan uppstart lamnas ifred tills
+// molnet har en ny. Gransen ar generos: med ateruppupptagningen gor varje
+// forsok framsteg - de hela delarna ligger kvar - sa fler forsok betyder
+// narmare mal, inte samma gigabyte om igen.
 struct FileAttempt {
   char ver[24];
   uint8_t fails;
@@ -128,7 +129,7 @@ bool worthTrying(FileAttempt &a, const char *ver) {
     a.ver[sizeof(a.ver) - 1] = '\0';
     a.fails = 0;
   }
-  return a.fails < 2;
+  return a.fails < 12;
 }
 
 bool httpBegin(HTTPClient &http, WiFiClientSecure &tls, const String &path) {
@@ -142,7 +143,7 @@ bool httpBegin(HTTPClient &http, WiFiClientSecure &tls, const String &path) {
 // ------------------------------------------------------------ synkstegen ---
 
 bool uploadTrips(long lastSynced) {
-  File f = SD_MMC.open(TRIPS_JSONL, FILE_READ);
+  File f = SDCARD.open(TRIPS_JSONL, FILE_READ);
   if (!f) return true;  // ingen dagbok ar inte ett fel
 
   // Raderna efter senast synkade resa samlas i sma klumpar. Sma av ett skal:
@@ -209,7 +210,7 @@ bool uploadTrips(long lastSynced) {
 }
 
 bool uploadGpx() {
-  File dir = SD_MMC.open(GPX_DIR);
+  File dir = SDCARD.open(GPX_DIR);
   if (!dir) return true;
 
   // Namnen samlas forst, sa att flytten till UPPLADDAT inte sker mitt i en
@@ -229,7 +230,7 @@ bool uploadGpx() {
     if (!name.endsWith(".GPX")) continue;
 
     String path = String(GPX_DIR) + "/" + name;
-    File f = SD_MMC.open(path, FILE_READ);
+    File f = SDCARD.open(path, FILE_READ);
     if (!f) continue;
 
     WiFiClientSecure tls;
@@ -249,8 +250,8 @@ bool uploadGpx() {
     // Uppladdad ar inte raderad: filen flyttas till UPPLADDAT och ligger kvar
     // pa kortet. Kortet ar en kopia av sanningen aven efter synken.
     String to = String(GPX_SYNCED_DIR) + "/" + name;
-    if (SD_MMC.exists(to)) SD_MMC.remove(to);
-    SD_MMC.rename(path, to);
+    if (SDCARD.exists(to)) SDCARD.remove(to);
+    SDCARD.rename(path, to);
 
     lock();
     g_status.gpxUploaded++;
@@ -262,19 +263,60 @@ bool uploadGpx() {
 
 // Hamtar en fil - i en eller flera delar - till en tillfallig fil, kontrollerar
 // storlek och magi, och byter forst da. En halv fil pa riktig plats ar varre
-// an ingen - och en avbruten strom slutar med got==0, inte med ett fel, sa
-// utan storlekskontrollen passerade trunkerade filer som hela.
+// an ingen.
+//
+// Delarna ar exakt CLOUD_PART_BYTES (utom den sista), och varje del strommas
+// forst till en egen liten tempfil som laggs pa huvudfilen forst nar den ar
+// hel. Darfor ar huvudfilens langd alltid en delgrans - och en bruten
+// nedladdning kan aterupptas dar den var, over bade omstarter och resor.
+// Hastighetsfilen ar 144 MB for att Sveriges vagnat ar stort; utan
+// ateruppupptagning hann den aldrig fram over en hotspot.
 bool downloadFile(const char *urlName, int parts, const char *target,
-                  const uint32_t magic, long expectBytes) {
+                  const uint32_t magic, long expectBytes, const char *ver) {
   const char *tmp = "/DRIVE/NED.TMP";
-  if (SD_MMC.exists(tmp)) SD_MMC.remove(tmp);
+  const char *del = "/DRIVE/DEL.TMP";
 
-  File out = SD_MMC.open(tmp, FILE_WRITE);
-  if (!out) return false;
+  // Ateruppta dar det brots - om tmp-filen tillhor samma fil och version
+  // och slutar pa en delgrans. Allt annat borjar om fran noll.
+  int startPart = 0;
+  {
+    char tf[16] = "", tv[24] = "";
+    g_prefs.getString("tmpFil", tf, sizeof(tf));
+    g_prefs.getString("tmpVer", tv, sizeof(tv));
+    if (SDCARD.exists(tmp) && strcmp(tf, urlName) == 0 &&
+        strcmp(tv, ver) == 0 && expectBytes > 0) {
+      File h = SDCARD.open(tmp, FILE_READ);
+      if (h) {
+        const uint64_t sz = h.size();
+        h.close();
+        if (sz > 0 && sz % CLOUD_PART_BYTES == 0 &&
+            (int)(sz / CLOUD_PART_BYTES) < parts) {
+          startPart = (int)(sz / CLOUD_PART_BYTES);
+        }
+      }
+    }
+    if (startPart == 0 && SDCARD.exists(tmp)) SDCARD.remove(tmp);
+    g_prefs.putString("tmpFil", urlName);
+    g_prefs.putString("tmpVer", ver);
+  }
+  if (startPart > 0) {
+    Serial.printf("moln: %s aterupptas fran del %d/%d\n", urlName,
+                  startPart + 1, parts);
+  }
 
   uint8_t buf[4096];
-  for (int p = 0; p < parts; p++) {
-    if (mustAbort()) { out.close(); SD_MMC.remove(tmp); return false; }
+  for (int p = startPart; p < parts; p++) {
+    // Resan har foretrade - men tmp-filen lamnas kvar, sa att delarna som
+    // redan ar hemma inte behover hamtas igen.
+    if (mustAbort()) return false;
+
+    const long partExpect = (p < parts - 1 || expectBytes <= 0)
+        ? (long)CLOUD_PART_BYTES
+        : expectBytes - (long)(parts - 1) * (long)CLOUD_PART_BYTES;
+
+    if (SDCARD.exists(del)) SDCARD.remove(del);
+    File out = SDCARD.open(del, FILE_WRITE);
+    if (!out) return false;
 
     WiFiClientSecure tls;
     HTTPClient http;
@@ -287,37 +329,54 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     if (!httpBegin(http, tls, path)) { out.close(); return false; }
 
     const int code = http.GET();
-    if (code != 200) { http.end(); out.close(); SD_MMC.remove(tmp); return false; }
+    if (code != 200) { http.end(); out.close(); return false; }
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
     while (remaining != 0) {
-      if (mustAbort()) { http.end(); out.close(); SD_MMC.remove(tmp); return false; }
+      if (mustAbort()) { http.end(); out.close(); return false; }
       const size_t got = stream->readBytes(
           buf, min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
       if (got == 0) break;
       if (out.write(buf, got) != got) {
-        http.end(); out.close(); SD_MMC.remove(tmp); return false;
+        http.end(); out.close(); return false;
       }
       if (remaining > 0) remaining -= got;
     }
     http.end();
-    // Blev delen inte hel ar filen inte hel. Avbryt har - resten av delarna
-    // kan bara gora den trasigare.
-    if (remaining > 0) {
-      Serial.printf("moln: %s del %d/%d brots, %d byte saknas\n", urlName,
-                    p + 1, parts, remaining);
-      out.close();
-      SD_MMC.remove(tmp);
+    out.close();
+
+    // Delen maste vara exakt sa stor som kontraktet sager (sista delen ar
+    // resten). En trunkerad del kastas och hamtas om nasta varv - de hela
+    // delarna fore den ar redan i sakerhet i huvudfilen.
+    File dh = SDCARD.open(del, FILE_READ);
+    const long dsz = dh ? (long)dh.size() : -1;
+    if (dh && (expectBytes <= 0 || dsz == partExpect)) {
+      // Hel: lagg pa huvudfilen.
+      File main = SDCARD.open(tmp, p == 0 ? FILE_WRITE : FILE_APPEND);
+      bool ok = main;
+      while (ok && dh.available()) {
+        const size_t gotc = dh.read(buf, sizeof(buf));
+        if (gotc == 0) break;
+        ok = main.write(buf, gotc) == gotc;
+      }
+      if (main) main.close();
+      dh.close();
+      SDCARD.remove(del);
+      if (!ok) { SDCARD.remove(tmp); return false; }
+      Serial.printf("moln: %s del %d/%d klar\n", urlName, p + 1, parts);
+    } else {
+      if (dh) dh.close();
+      SDCARD.remove(del);
+      Serial.printf("moln: %s del %d/%d brots (%ld av %ld byte)\n", urlName,
+                    p + 1, parts, dsz, partExpect);
       return false;
     }
-    Serial.printf("moln: %s del %d/%d klar\n", urlName, p + 1, parts);
   }
-  out.close();
 
   // Storleken ar det yttre kvittot: molnet sa i /config exakt hur stor filen
   // ar, och en annan siffra ar en annan fil.
-  File check = SD_MMC.open(tmp, FILE_READ);
+  File check = SDCARD.open(tmp, FILE_READ);
   if (!check) return false;
   const long gotBytes = (long)check.size();
   uint32_t gotMagic = 0;
@@ -327,15 +386,17 @@ bool downloadFile(const char *urlName, int parts, const char *target,
       (expectBytes > 0 && gotBytes != expectBytes)) {
     Serial.printf("moln: %s forkastad (%ld av %ld byte)\n", urlName, gotBytes,
                   expectBytes);
-    SD_MMC.remove(tmp);
+    SDCARD.remove(tmp);
+    g_prefs.putString("tmpFil", "");
     return false;
   }
+  g_prefs.putString("tmpFil", "");
 
   // Kamerafilerna kan vara oppna i avlasningstraden - handslaget later den
   // slappa dem, och lasa om efterat.
   cams::beginUpdate();
-  if (SD_MMC.exists(target)) SD_MMC.remove(target);
-  const bool ok = SD_MMC.rename(tmp, target);
+  if (SDCARD.exists(target)) SDCARD.remove(target);
+  const bool ok = SDCARD.rename(tmp, target);
   cams::endUpdate();
 
   if (ok) {
@@ -356,7 +417,7 @@ bool downloadKunder() {
   http.end();
   if (!csv.length()) return false;
 
-  File f = SD_MMC.open(CUSTOMERS_FILE, FILE_WRITE);
+  File f = SDCARD.open(CUSTOMERS_FILE, FILE_WRITE);
   if (!f) return false;
   f.print(csv);
   f.close();
@@ -423,7 +484,7 @@ bool runSync() {
     g_prefs.getString("vKam", have, sizeof(have));
     if (strcmp(ver, have) != 0 && worthTrying(g_kamAttempt, ver)) {
       setState(CLOUD_SYNCING, "hamtar kamerafilen");
-      if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size)) {
+      if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size, ver)) {
         g_prefs.putString("vKam", ver);
       } else {
         g_kamAttempt.fails++;
@@ -437,7 +498,7 @@ bool runSync() {
       // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
       // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
       setState(CLOUD_SYNCING, "hamtar hastighetsfilen");
-      if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size)) {
+      if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size, ver)) {
         g_prefs.putString("vHast", ver);
       } else {
         g_hastAttempt.fails++;

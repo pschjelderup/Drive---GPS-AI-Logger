@@ -104,13 +104,20 @@ jobs:
           # en flashning tog, och det ar den forsta fragan nar nagot beter sig
           # gammalt. "b534928 PR8" pekar dessutom ut precis vilken andring det
           # var.
-          arduino-cli compile \
-            --fqbn "$FQBN" \
-            --output-dir build \
-            --warnings default \
-            --build-property "compiler.cpp.extra_flags=-DFW_VERSION=\"$VERSION\" -DFW_PR=\"$FW_PR\"" \
-            "$SKETCH"
-          ls -la build
+          #
+          # Tva kort, tva byggen: AMOLED 2.41 (utan flagga) och LCD 3.5
+          # (-DBOARD_LCD35). Samma kallkod, olika pinnar och skala.
+          for VAR in 241 35; do
+            EXTRA=""
+            [ "$VAR" = "35" ] && EXTRA=" -DBOARD_LCD35"
+            arduino-cli compile \
+              --fqbn "$FQBN" \
+              --output-dir "build-$VAR" \
+              --warnings default \
+              --build-property "compiler.cpp.extra_flags=-DFW_VERSION=\"$VERSION\" -DFW_PR=\"$FW_PR\"$EXTRA" \
+              "$SKETCH"
+          done
+          ls -la build-241 build-35
 
       - name: Sla ihop till flashbara delar
         run: |
@@ -120,52 +127,43 @@ jobs:
           # koden. Ett trasigt bygge ska ha en orsak man kan peka pa.
           python3 -m pip install --quiet esptool==5.3.1
 
-          # boot_app0 ligger i kortpaketet och behovs for att kortet ska starta
-          # ratt app efter flashning.
           BOOT_APP0=$(find "$HOME/.arduino15/packages/esp32" -name boot_app0.bin | head -1)
           echo "boot_app0: $BOOT_APP0"
 
-          # Tva delar, inte en. En enda sammanhangande fil fran adress 0 skulle
-          # tacka aven nvs-omradet 0x9000-0xE000, och eftersom flashningen
-          # raderar varje sektor den skriver skulle installningar, tara, inlard
-          # framatriktning och resenumret forsvinna vid varje omflashning.
-          # Delarna lamnar ett hal precis dar nvs ligger.
-          #
-          # Filnamnen innehaller byggets id. Ett fast namn ar samma adress for
-          # evigt, och en webblasare som en gang hamtat filen har ingen anledning
-          # att hamta om den - da flashas gammal firmware ur cachen hur mycket vi
-          # an bygger om.
+          # Tva delar per kort, inte en: delarna lamnar ett hal over nvs-omradet
+          # 0x9000-0xE000, sa installningar, tara och resenumret overlever varje
+          # omflashning. Filnamnen innehaller byggets id sa att webblasarens
+          # cache aldrig kan flasha en gammal firmware.
           VERSION="${GITHUB_SHA::7}"
           mkdir -p site
 
-          # Del A: 0x0 bootloader + 0x8000 partitionstabell. Slutar vid 0x8C00.
-          python3 -m esptool --chip esp32s3 merge-bin \
-            -o "site/hikaya-$VERSION-a.bin" \
-            --flash-mode dio \
-            --flash-freq 80m \
-            --flash-size 16MB \
-            0x0 build/Hikaya.ino.bootloader.bin \
-            0x8000 build/Hikaya.ino.partitions.bin
+          for VAR in 241 35; do
+            python3 -m esptool --chip esp32s3 merge-bin \
+              -o "site/hikaya-$VAR-$VERSION-a.bin" \
+              --flash-mode dio \
+              --flash-freq 80m \
+              --flash-size 16MB \
+              0x0 "build-$VAR/Hikaya.ino.bootloader.bin" \
+              0x8000 "build-$VAR/Hikaya.ino.partitions.bin"
 
-          # Del B: 0xe000 boot-valjare + 0x10000 sjalva appen.
-          python3 -m esptool --chip esp32s3 merge-bin \
-            -o "site/hikaya-$VERSION-b.bin" \
-            --target-offset 0xe000 \
-            --flash-mode dio \
-            --flash-freq 80m \
-            --flash-size 16MB \
-            0xe000 "$BOOT_APP0" \
-            0x10000 build/Hikaya.ino.bin
+            python3 -m esptool --chip esp32s3 merge-bin \
+              -o "site/hikaya-$VAR-$VERSION-b.bin" \
+              --target-offset 0xe000 \
+              --flash-mode dio \
+              --flash-freq 80m \
+              --flash-size 16MB \
+              0xe000 "$BOOT_APP0" \
+              0x10000 "build-$VAR/Hikaya.ino.bin"
 
-          # Halet maste finnas. Vaxer del A in i 0x9000 ar nvs inte langre
-          # skyddat, och det ska falla bygget - inte upptackas av en anvandare
-          # som undrar vart resenumret tog vagen.
-          SIZE_A=$(stat -c%s "site/hikaya-$VERSION-a.bin")
-          echo "del A: $SIZE_A byte, nvs borjar vid 36864"
-          if [ "$SIZE_A" -gt 36864 ]; then
-            echo "FEL: del A vaxer in i nvs-omradet" >&2
-            exit 1
-          fi
+            # Halet maste finnas. Vaxer del A in i 0x9000 ar nvs inte skyddat,
+            # och det ska falla bygget har.
+            SIZE_A=$(stat -c%s "site/hikaya-$VAR-$VERSION-a.bin")
+            echo "kort $VAR del A: $SIZE_A byte, nvs borjar vid 36864"
+            if [ "$SIZE_A" -gt 36864 ]; then
+              echo "FEL: del A vaxer in i nvs-omradet" >&2
+              exit 1
+            fi
+          done
 
           ls -la site
 
@@ -176,21 +174,23 @@ jobs:
           # av sidan. Da star den i svensk tid for den som ar i Sverige, utan
           # att bygget behover veta nagot om sommartid.
           BUILT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          for f in index.html manifest.json; do
+          for f in index.html manifest-241.json manifest-35.json; do
             sed -e "s/__VERSION__/$VERSION/g" -e "s/__BUILT__/$BUILT/g" \
               -e "s/__PR__/$FW_PR/g" \
               "web/$f" > "site/$f"
           done
-          echo "--- manifest.json ---"
-          cat site/manifest.json
+          echo "--- manifesten ---"
+          cat site/manifest-241.json site/manifest-35.json
           # Ett stavfel i en platshallare skulle annars ge en sida som ser hel ut
           # men laddar ner en fil som inte finns.
-          if grep -q '__VERSION__\|__BUILT__\|__PR__' site/index.html site/manifest.json; then
+          if grep -q '__VERSION__\|__BUILT__\|__PR__' site/index.html site/manifest-241.json site/manifest-35.json; then
             echo "FEL: platshallare kvar i den publicerade sidan" >&2
             exit 1
           fi
-          test -f "site/hikaya-$VERSION-a.bin"
-          test -f "site/hikaya-$VERSION-b.bin"
+          for VAR in 241 35; do
+            test -f "site/hikaya-$VAR-$VERSION-a.bin"
+            test -f "site/hikaya-$VAR-$VERSION-b.bin"
+          done
 
       - name: Spara firmware som nedladdningsbar artefakt
         # Ett fullt lagringsutrymme for artefakter ar ett kontoproblem, inte ett

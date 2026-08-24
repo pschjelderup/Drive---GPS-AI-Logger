@@ -1,6 +1,9 @@
 # Hikaya
 
-Reselogg för **Waveshare ESP32-S3-Touch-AMOLED-2.41**. Loggar varje resa i bilen
+Reselogg för **Waveshare ESP32-S3-Touch-AMOLED-2.41** och
+**ESP32-S3-Touch-LCD-3.5** (även `-C`-varianten – samma kort med fodral).
+Samma firmware och funktioner på båda; välj modell på flashsidan.
+Loggar varje resa i bilen
 till en GPX-fil och en rad i en resedagbok, märker resan som privat, företag
 eller diffus, och varnar för fartkameror ur Trafikverkets öppna data.
 
@@ -26,7 +29,7 @@ sensorer, samma deploykedja. Ecodrive-skärmen är flyttad hit oförändrad.
 
 | Sak | Krävs? | Kommentar |
 |---|---|---|
-| Waveshare ESP32-S3-Touch-AMOLED-2.41 | Ja | Med eller utan fodral (`-B` betyder bara att fodral ingår – samma kort) |
+| Waveshare ESP32-S3-Touch-AMOLED-2.41 **eller** ESP32-S3-Touch-LCD-3.5 | Ja | Fodralvarianterna (`-B`, `-C`) är samma kort med fodral. Välj modell på flashsidan |
 | u-blox-GPS, t.ex. SparkFun NEO-M9N | **Ja** | Utan position finns ingen resa att logga |
 | **GNSS-antenn** | **Ja, om kortet har U.FL** | Se nedan. Det här är det lättaste att missa |
 | Qwiic-kabel | Ja | Passar rakt in i `I2C`-porten. Ingen adapter, ingen lödning |
@@ -669,7 +672,8 @@ anger identiska pinnar, och de är dessutom provkörda i Gmate.
 - [Trafikverkets öppna API för trafikinformation](https://www.trafikverket.se/e-tjanster/trafikverkets-oppna-api-for-trafikinformation/) – `TrafficSafetyCamera`, CC0
 - [Hämta öppen data från Trafikverket](https://www.trafikverket.se/e-tjanster/hamta-data-fran-trafikverket/) – datautbytesportalen och Lastkajen
 - [NVDB-vägdata i det öppna API:et](https://www.nvdb.se/sv/aktuellt/nyhetsarkiv/2025/nvdb-vagdata-tillgangliga-i-trafikverkets-datautbytesportal-for-anvandning-i-oppet-api/) – hastighetsgränser
-- [Waveshare ESP32-S3-Touch-AMOLED-2.41](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.41) – kortets dokumentation
+- [Waveshare ESP32-S3-Touch-AMOLED-2.41](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.41) – 2.41-kortets dokumentation
+- [Waveshare ESP32-S3-Touch-LCD-3.5](https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-3.5) – 3.5-kortets dokumentation
 - [SparkFun GPS Breakout NEO-M9N, U.FL (Qwiic)](https://www.sparkfun.com/sparkfun-gps-breakout-neo-m9n-u-fl-qwiic.html) – kräver extern antenn
 - [SparkFun GPS NEO-M9N Hookup Guide](https://learn.sparkfun.com/tutorials/sparkfun-gps-neo-m9n-hookup-guide/all) – inkoppling och antennval
 - [Gmate](https://github.com/pschjelderup/Gmate) – prototypen det här bygger på

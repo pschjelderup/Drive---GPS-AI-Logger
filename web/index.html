@@ -113,14 +113,24 @@
     <main>
       <h1>Hikaya</h1>
       <p class="lead">
-        Reselogg för Waveshare ESP32-S3-Touch-AMOLED-2.41. Loggar varje resa till
+        Reselogg för Waveshare ESP32-S3-pekskärmskort. Loggar varje resa till
         en GPX-fil, märker den som privat, företag eller diffus, och varnar för
         fartkameror. Installeras direkt från webbläsaren – inget program behöver
         installeras.
       </p>
 
       <div class="card install">
-        <esp-web-install-button manifest="manifest.json">
+        <!-- Korten har samma processor, sa firmware kan inte kanna igen
+             kortet sjalv - modellen valjs har och styr vilket manifest
+             installationsknappen far. Valet star pa kartongens etikett:
+             Product Model. -->
+        <p style="margin-top:0">
+          <label><input type="radio" name="modell" value="241" checked>
+            AMOLED 2.41 <span style="color:#666d78">(ESP32-S3-Touch-AMOLED-2.41)</span></label><br>
+          <label><input type="radio" name="modell" value="35">
+            LCD 3.5 <span style="color:#666d78">(ESP32-S3-Touch-LCD-3.5 / 3.5-C)</span></label>
+        </p>
+        <esp-web-install-button manifest="manifest-241.json">
           <button slot="activate">Installera Hikaya på kortet</button>
           <span slot="unsupported" class="unsupported">
             Den här webbläsaren kan inte prata med kortet. Använd Chrome eller
@@ -239,13 +249,20 @@
     <script>
       // Manifestet hamtas alltid pa nytt. Utan det kan webblasaren lasa ett
       // gammalt manifest ur sin cache och installera en gammal firmware, hur
-      // manga ganger vi an bygger om.
-      const fraskt = "manifest.json?t=" + Date.now();
-      document.querySelector("esp-web-install-button").manifest = fraskt;
+      // manga ganger vi an bygger om. Vilket manifest beror pa vald modell.
+      function laddaManifest() {
+        const modell = document.querySelector('input[name="modell"]:checked').value;
+        const fraskt = "manifest-" + modell + ".json?t=" + Date.now();
+        document.querySelector("esp-web-install-button").manifest = fraskt;
+        visaVersion(fraskt);
+      }
+      document.querySelectorAll('input[name="modell"]').forEach((r) =>
+        r.addEventListener("change", laddaManifest));
 
       // Samma manifest lases en gang till for att visa vad som faktiskt kommer
       // att installeras. Utan den raden gar det inte att se skillnad pa ny och
       // gammal firmware forran kortet ar flashat.
+      function visaVersion(fraskt) {
       fetch(fraskt, { cache: "no-store" })
         .then((r) => {
           if (!r.ok) throw new Error(r.status);
@@ -286,6 +303,8 @@
           rad.className = "version fel";
           rad.textContent = "Kunde inte hämta versionsuppgifterna.";
         });
+      }
+      laddaManifest();
     </script>
   </body>
 </html>

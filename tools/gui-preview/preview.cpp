@@ -16,7 +16,8 @@
 #include "gui_model.h"
 #include "gui_screens.h"
 
-static const int W = 450, H = 600;
+// Matten foljer kortvalet: bygg med -DBOARD_LCD35 for 3.5-kortets 320x480.
+static const int W = GUI_W, H = GUI_H;
 static uint16_t fb[W * H];
 
 static uint32_t g_ms = 0;

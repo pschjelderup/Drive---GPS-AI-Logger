@@ -29,9 +29,15 @@ namespace gui {
 
 // Startar LVGL mot panelen och pekskarmen och bygger alla skarmar.
 // Installningarna ags av huvudskissen; gui ropar pa spara/tillampa nar
-// anvandaren andrar nagot.
-void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
+// anvandaren andrar nagot. Panelen tas emot som Arduino_GFX - ritningen ar
+// samma pa bada korten; det kortspecifika (ljusstyrkan) gar via kroken
+// nedan, som huvudskissen definierar per kort.
+void begin(Arduino_GFX *panel, TouchDrvFT6X36 *touch, bool touchOk,
            AppSettings *cfg, void (*saveSettings)(), void (*applySettings)());
+
+// Ljusstyrkan, 0-255. AMOLED-kortet styr panelens egen ljusregister;
+// LCD-kortet pwm:ar bakgrundsbelysningen. Definieras i huvudskissen.
+void panelBrightness(uint8_t level);
 
 // Anropas fran huvudloopen sa ofta det gar. Skoter LVGL:s tidshantering,
 // modellfyllningen, fragan efter avslutad resa och skarmslackningen.

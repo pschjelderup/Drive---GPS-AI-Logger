@@ -1,7 +1,7 @@
 #include "websync.h"
 
 #include <DNSServer.h>
-#include <SD_MMC.h>
+#include "storage.h"
 #include <WebServer.h>
 #include <WiFi.h>
 
@@ -269,7 +269,7 @@ void sendJsonStatus() {
 }
 
 void handleResor() {
-  File f = SD_MMC.open(TRIPS_JSONL, FILE_READ);
+  File f = SDCARD.open(TRIPS_JSONL, FILE_READ);
   if (!f) {
     g_server.send(200, "application/x-ndjson", "");
     return;
@@ -287,11 +287,11 @@ void handleGpx() {
   // Under en pagaende resa ar natet nere, sa filen som skrivs just nu kan
   // aldrig hamtas halvfardig har.
   String path = String(GPX_DIR) + "/" + name;
-  File f = SD_MMC.open(path, FILE_READ);
+  File f = SDCARD.open(path, FILE_READ);
   if (!f) {
     // Redan arkiverad? Da finns den i UPPLADDAT och ska ga att hamta igen.
     path = String(GPX_SYNCED_DIR) + "/" + name;
-    f = SD_MMC.open(path, FILE_READ);
+    f = SDCARD.open(path, FILE_READ);
   }
   if (!f) {
     g_server.send(404, "text/plain", "filen finns inte");
@@ -304,7 +304,7 @@ void handleGpx() {
 }
 
 void handleCsv() {
-  File f = SD_MMC.open(TRIPS_CSV, FILE_READ);
+  File f = SDCARD.open(TRIPS_CSV, FILE_READ);
   if (!f) {
     g_server.send(404, "text/plain", "ingen dagbok annu");
     return;
@@ -323,14 +323,14 @@ void handleArkivera() {
   }
   const String from = String(GPX_DIR) + "/" + name;
   const String to = String(GPX_SYNCED_DIR) + "/" + name;
-  if (!SD_MMC.exists(from)) {
+  if (!SDCARD.exists(from)) {
     g_server.send(404, "text/plain", "filen finns inte");
     return;
   }
   // Flyttas, raderas inte. Kortet ar den enda kopian tills nagot annat
   // bevisats, och UPPLADDAT ar just det - en markering, inte en soptunna.
-  if (SD_MMC.exists(to)) SD_MMC.remove(to);
-  if (!SD_MMC.rename(from, to)) {
+  if (SDCARD.exists(to)) SDCARD.remove(to);
+  if (!SDCARD.rename(from, to)) {
     g_server.send(500, "text/plain", "kunde inte flytta");
     return;
   }
@@ -350,7 +350,7 @@ const char *uploadTarget(const String &name) {
 // ska avvisas har - inte upptackas av en bil som slutat varna.
 bool uploadContentOk(const String &name) {
   if (name == "KUNDER.CSV") return true;
-  File f = SD_MMC.open(kUploadTmp, FILE_READ);
+  File f = SDCARD.open(kUploadTmp, FILE_READ);
   if (!f) return false;
   uint8_t magic[4] = {0};
   const bool got = f.read(magic, 4) == 4;
@@ -366,9 +366,9 @@ void handleUploadData() {
 
   if (up.status == UPLOAD_FILE_START) {
     g_uploadOk = false;
-    if (!SD_MMC.exists(DRIVE_DIR)) SD_MMC.mkdir(DRIVE_DIR);
-    if (SD_MMC.exists(kUploadTmp)) SD_MMC.remove(kUploadTmp);
-    g_upload = SD_MMC.open(kUploadTmp, FILE_WRITE);
+    if (!SDCARD.exists(DRIVE_DIR)) SDCARD.mkdir(DRIVE_DIR);
+    if (SDCARD.exists(kUploadTmp)) SDCARD.remove(kUploadTmp);
+    g_upload = SDCARD.open(kUploadTmp, FILE_WRITE);
   } else if (up.status == UPLOAD_FILE_WRITE) {
     if (g_upload) g_upload.write(up.buf, up.currentSize);
   } else if (up.status == UPLOAD_FILE_END) {
@@ -379,7 +379,7 @@ void handleUploadData() {
     }
   } else if (up.status == UPLOAD_FILE_ABORTED) {
     if (g_upload) g_upload.close();
-    SD_MMC.remove(kUploadTmp);
+    SDCARD.remove(kUploadTmp);
   }
 }
 
@@ -388,17 +388,17 @@ void handleUploadDone() {
   const char *target = uploadTarget(name);
 
   if (!target) {
-    SD_MMC.remove(kUploadTmp);
+    SDCARD.remove(kUploadTmp);
     g_server.send(400, "text/plain", "okant filnamn");
     return;
   }
   if (!g_uploadOk) {
-    SD_MMC.remove(kUploadTmp);
+    SDCARD.remove(kUploadTmp);
     g_server.send(500, "text/plain", "uppladdningen kom inte fram hel");
     return;
   }
   if (!uploadContentOk(name)) {
-    SD_MMC.remove(kUploadTmp);
+    SDCARD.remove(kUploadTmp);
     g_server.send(400, "text/plain",
                   "filen ser inte ut som en " + name);
     return;
@@ -410,8 +410,8 @@ void handleUploadDone() {
   const bool camsFile = (name == "KAMEROR.BIN" || name == "HASTIGHET.BIN");
   if (camsFile) cams::beginUpdate();
 
-  if (SD_MMC.exists(target)) SD_MMC.remove(target);
-  const bool ok = SD_MMC.rename(kUploadTmp, target);
+  if (SDCARD.exists(target)) SDCARD.remove(target);
+  const bool ok = SDCARD.rename(kUploadTmp, target);
 
   if (camsFile) cams::endUpdate();
   if (name == "KUNDER.CSV") customers::reload();

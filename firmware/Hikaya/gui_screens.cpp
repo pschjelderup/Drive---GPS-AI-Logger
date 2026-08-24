@@ -23,6 +23,34 @@
 #define COL_DIFFUST lv_color_hex(0xC98500)
 #define COL_VIOLET lv_color_hex(0x7C5CFF)
 
+// ---------------------------------------------------------------- skalan --
+// Allt nedan ar ritat i 450x600. SX/SY raknar om till skarmens verkliga
+// matt - pa AMOLED-kortet ar de identitetsfunktioner. Runda saker maste
+// skalas med SAMMA faktor pa bada axlarna (annars blir cirklar agg), sa de
+// anvander SX for bade bredd och hojd.
+#define SX(v) ((int)(((long)(v) * GUI_W) / 450))
+#define SY(v) ((int)(((long)(v) * GUI_H) / 600))
+
+// Typsnitten i samma skala: 3.5-kortets uppsattning ar genererad ur samma
+// snitt i 0,71 ganger storleken.
+#if defined(BOARD_LCD35)
+#define F16 (&ui_font_12)
+#define F20 (&ui_font_14)
+#define F26 (&ui_font_18)
+#define F44 (&ui_font_32)
+#define F150 (&ui_font_110)
+#define FSYM20 (&lv_font_montserrat_14)
+#define FSYM28 (&lv_font_montserrat_20)
+#else
+#define F16 (&ui_font_16)
+#define F20 (&ui_font_20)
+#define F26 (&ui_font_26)
+#define F44 (&ui_font_44)
+#define F150 (&ui_font_150)
+#define FSYM20 (&lv_font_montserrat_20)
+#define FSYM28 (&lv_font_montserrat_28)
+#endif
+
 static const GuiActions *g_act = nullptr;
 static GuiModel g_m = {};  // senaste modellen, for uppdateringarna
 static GuiScreen g_current = GUI_SCR_HOME;
@@ -115,15 +143,15 @@ static void gesture_cb(lv_event_t *e) {
 static void add_home_bar(lv_obj_t *scr) {
   lv_obj_t *hit = lv_button_create(scr);
   lv_obj_remove_style_all(hit);
-  lv_obj_set_size(hit, 220, 26);
-  lv_obj_align(hit, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_size(hit, SX(220), SY(26));
+  lv_obj_align(hit, LV_ALIGN_BOTTOM_MID, SX(0), SY(0));
   lv_obj_set_style_bg_opa(hit, 0, 0);
   lv_obj_add_event_cb(hit, go_home_cb, LV_EVENT_CLICKED, nullptr);
 
   lv_obj_t *bar = lv_obj_create(hit);
   lv_obj_remove_style_all(bar);
-  lv_obj_set_size(bar, 120, 5);
-  lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, 0, -5);
+  lv_obj_set_size(bar, SX(120), SY(5));
+  lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, SX(0), SY(-5));
   lv_obj_set_style_bg_color(bar, COL_PANEL_W, 0);
   lv_obj_set_style_bg_opa(bar, 110, 0);
   lv_obj_set_style_radius(bar, 3, 0);
@@ -143,15 +171,15 @@ static StatusRefs g_status[6];
 
 static void add_status(lv_obj_t *scr, GuiScreen idx) {
   StatusRefs &r = g_status[idx];
-  r.clock = label(scr, &ui_font_26, COL_TEXT, "--:--");
-  lv_obj_align(r.clock, LV_ALIGN_TOP_LEFT, 18, 8);
+  r.clock = label(scr, F26, COL_TEXT, "--:--");
+  lv_obj_align(r.clock, LV_ALIGN_TOP_LEFT, SX(18), SY(8));
 
-  r.cloud = label(scr, &lv_font_montserrat_20, COL_FAINT, LV_SYMBOL_WIFI);
-  lv_obj_align(r.cloud, LV_ALIGN_TOP_RIGHT, -18, 12);
-  r.sd = label(scr, &lv_font_montserrat_20, COL_FAINT, LV_SYMBOL_SD_CARD);
-  lv_obj_align(r.sd, LV_ALIGN_TOP_RIGHT, -56, 12);
-  r.gps = label(scr, &lv_font_montserrat_20, COL_FAINT, LV_SYMBOL_GPS " 0");
-  lv_obj_align(r.gps, LV_ALIGN_TOP_RIGHT, -94, 12);
+  r.cloud = label(scr, FSYM20, COL_FAINT, LV_SYMBOL_WIFI);
+  lv_obj_align(r.cloud, LV_ALIGN_TOP_RIGHT, SX(-18), SY(12));
+  r.sd = label(scr, FSYM20, COL_FAINT, LV_SYMBOL_SD_CARD);
+  lv_obj_align(r.sd, LV_ALIGN_TOP_RIGHT, SX(-56), SY(12));
+  r.gps = label(scr, FSYM20, COL_FAINT, LV_SYMBOL_GPS " 0");
+  lv_obj_align(r.gps, LV_ALIGN_TOP_RIGHT, SX(-94), SY(12));
 }
 
 static void update_status(GuiScreen idx, const GuiModel *m) {
@@ -230,23 +258,23 @@ static void build_home() {
 
   lv_obj_t *glow = lv_obj_create(scr);
   lv_obj_remove_style_all(glow);
-  lv_obj_set_size(glow, 380, 380);
-  lv_obj_align(glow, LV_ALIGN_TOP_MID, 0, -160);
+  lv_obj_set_size(glow, SX(380), SY(380));
+  lv_obj_align(glow, LV_ALIGN_TOP_MID, SX(0), SY(-160));
   lv_obj_set_style_radius(glow, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(glow, COL_ACCENT, 0);
   lv_obj_set_style_bg_opa(glow, 26, 0);
 
   add_status(scr, GUI_SCR_HOME);
 
-  lv_obj_t *brand = label(scr, &ui_font_16, COL_DIM, "Hikaya");
-  lv_obj_align(brand, LV_ALIGN_TOP_LEFT, 18, 42);
+  lv_obj_t *brand = label(scr, F16, COL_DIM, "Hikaya");
+  lv_obj_align(brand, LV_ALIGN_TOP_LEFT, SX(18), SY(42));
 
   // Rutnatet: 2 x 3 ikoner. Matten ar valda sa att alla tre rader och
   // resechipet far plats pa 600 pixlar utan att trangas.
-  const int16_t tile = 112, gapx = 58;
-  const int16_t x0 = (450 - 2 * tile - gapx) / 2;
-  const int16_t y0 = 84;
-  const int16_t step = tile + 44;
+  const int16_t tile = SX(112), gapx = SX(58);
+  const int16_t x0 = (GUI_W - 2 * tile - gapx) / 2;
+  const int16_t y0 = SY(84);
+  const int16_t step = tile + SY(44);
 
   for (int i = 0; i < 6; i++) {
     const AppDef &a = kApps[i];
@@ -272,21 +300,21 @@ static void build_home() {
     lv_obj_set_style_transform_scale(b, 242, LV_STATE_PRESSED);
     lv_obj_add_event_cb(b, app_tap_cb, LV_EVENT_CLICKED, (void *)&a);
 
-    lv_obj_t *sym = label(b, &lv_font_montserrat_28, lv_color_white(),
+    lv_obj_t *sym = label(b, FSYM28, lv_color_white(),
                           a.symbol);
     lv_obj_center(sym);
 
-    lv_obj_t *name = label(scr, &ui_font_16, COL_TEXT, a.name);
-    lv_obj_set_width(name, tile + 40);
+    lv_obj_t *name = label(scr, F16, COL_TEXT, a.name);
+    lv_obj_set_width(name, tile + SX(40));
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(name, x - 20, y + tile + 5);
+    lv_obj_set_pos(name, x - SX(20), y + tile + SY(5));
   }
 
   // Chip som visar att en resa pagar - trycket leder rakt in i korningen.
   g_tripChip = lv_button_create(scr);
   lv_obj_remove_style_all(g_tripChip);
-  lv_obj_set_size(g_tripChip, 320, 38);
-  lv_obj_align(g_tripChip, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_set_size(g_tripChip, SX(320), SY(38));
+  lv_obj_align(g_tripChip, LV_ALIGN_BOTTOM_MID, SX(0), SY(-8));
   lv_obj_set_style_radius(g_tripChip, 20, 0);
   lv_obj_set_style_bg_color(g_tripChip, COL_GREEN, 0);
   lv_obj_set_style_bg_opa(g_tripChip, 46, 0);
@@ -294,7 +322,7 @@ static void build_home() {
   lv_obj_set_style_border_opa(g_tripChip, 140, 0);
   lv_obj_set_style_border_width(g_tripChip, 1, 0);
   lv_obj_add_event_cb(g_tripChip, trip_chip_cb, LV_EVENT_CLICKED, nullptr);
-  g_tripChipLabel = label(g_tripChip, &ui_font_20, COL_GREEN, "");
+  g_tripChipLabel = label(g_tripChip, F20, COL_GREEN, "");
   lv_obj_center(g_tripChipLabel);
   lv_obj_add_flag(g_tripChip, LV_OBJ_FLAG_HIDDEN);
 }
@@ -357,7 +385,7 @@ static void build_drive() {
   g_screens[GUI_SCR_DRIVE] = scr;
   add_status(scr, GUI_SCR_DRIVE);
 
-  const int16_t cx = 225, cy = 240, r = 180;
+  const int16_t cx = GUI_W / 2, cy = SY(240), r = SX(180);
 
   // Gloden bakom mataren - det ar den som gor att ringen ser tand ut.
   lv_obj_t *glow = lv_obj_create(scr);
@@ -385,7 +413,7 @@ static void build_drive() {
   lv_obj_set_style_line_color(g_scale, COL_DIM, LV_PART_INDICATOR);
   lv_obj_set_style_line_width(g_scale, 3, LV_PART_INDICATOR);
   lv_obj_set_style_length(g_scale, 16, LV_PART_INDICATOR);
-  lv_obj_set_style_text_font(g_scale, &ui_font_16, LV_PART_INDICATOR);
+  lv_obj_set_style_text_font(g_scale, F16, LV_PART_INDICATOR);
   lv_obj_set_style_text_color(g_scale, COL_DIM, LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(g_scale, 0, LV_PART_MAIN);
 
@@ -417,18 +445,18 @@ static void build_drive() {
 
   // Farten. Hogerstalld hade hallit entalssiffran stilla, men centrerat ar
   // lugnare mot ringen - och siffrorna ar breda nog att inte hoppa mycket.
-  g_speedLbl = label(scr, &ui_font_150, COL_TEXT, "0");
-  lv_obj_align(g_speedLbl, LV_ALIGN_TOP_MID, 0, 130);
-  g_kmhLbl = label(scr, &ui_font_20, COL_DIM, "km/h");
-  lv_obj_align(g_kmhLbl, LV_ALIGN_TOP_MID, 0, 292);
-  g_deltaLbl = label(scr, &ui_font_26, COL_DIM, "");
-  lv_obj_align(g_deltaLbl, LV_ALIGN_TOP_MID, 0, 330);
+  g_speedLbl = label(scr, F150, COL_TEXT, "0");
+  lv_obj_align(g_speedLbl, LV_ALIGN_TOP_MID, SX(0), SY(130));
+  g_kmhLbl = label(scr, F20, COL_DIM, "km/h");
+  lv_obj_align(g_kmhLbl, LV_ALIGN_TOP_MID, SX(0), SY(292));
+  g_deltaLbl = label(scr, F26, COL_DIM, "");
+  lv_obj_align(g_deltaLbl, LV_ALIGN_TOP_MID, SX(0), SY(330));
 
   // Skylten: rund med rod ring, dar matarringen oppnar sig.
   g_signRing = lv_obj_create(scr);
   lv_obj_remove_style_all(g_signRing);
-  lv_obj_set_size(g_signRing, 92, 92);
-  lv_obj_align(g_signRing, LV_ALIGN_TOP_MID, 0, 372);
+  lv_obj_set_size(g_signRing, SX(92), SX(92));
+  lv_obj_align(g_signRing, LV_ALIGN_TOP_MID, SX(0), SY(372));
   lv_obj_set_style_radius(g_signRing, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_signRing, lv_color_hex(0xF5F5F5), 0);
   lv_obj_set_style_bg_opa(g_signRing, LV_OPA_COVER, 0);
@@ -437,28 +465,28 @@ static void build_drive() {
   lv_obj_set_style_shadow_color(g_signRing, lv_color_hex(0xD42B2B), 0);
   lv_obj_set_style_shadow_width(g_signRing, 22, 0);
   lv_obj_set_style_shadow_opa(g_signRing, 60, 0);
-  g_signNum = label(g_signRing, &ui_font_44, lv_color_hex(0x101010), "50");
+  g_signNum = label(g_signRing, F44, lv_color_hex(0x101010), "50");
   lv_obj_center(g_signNum);
-  g_signOff = label(scr, &ui_font_16, COL_FAINT, "gräns okänd");
-  lv_obj_align(g_signOff, LV_ALIGN_TOP_MID, 0, 412);
+  g_signOff = label(scr, F16, COL_FAINT, "gräns okänd");
+  lv_obj_align(g_signOff, LV_ALIGN_TOP_MID, SX(0), SY(412));
 
   // Kameravarningen: ett lager OVER mataren, genomskinligt nog att farten
   // fortfarande syns bakom.
   g_camPanel = glass(scr);
-  lv_obj_set_size(g_camPanel, 414, 66);
-  lv_obj_align(g_camPanel, LV_ALIGN_TOP_MID, 0, 40);
+  lv_obj_set_size(g_camPanel, SX(414), SY(66));
+  lv_obj_align(g_camPanel, LV_ALIGN_TOP_MID, SX(0), SY(40));
   lv_obj_set_style_bg_color(g_camPanel, COL_AMBER, 0);
   lv_obj_set_style_bg_opa(g_camPanel, 90, 0);
   lv_obj_set_style_border_color(g_camPanel, COL_AMBER, 0);
   lv_obj_set_style_border_opa(g_camPanel, 200, 0);
-  g_camTitle = label(g_camPanel, &ui_font_26, COL_TEXT, "FARTKAMERA 800 m");
-  lv_obj_align(g_camTitle, LV_ALIGN_TOP_LEFT, 14, 6);
-  g_camLimit = label(g_camPanel, &ui_font_44, COL_TEXT, "80");
-  lv_obj_align(g_camLimit, LV_ALIGN_RIGHT_MID, -12, 0);
+  g_camTitle = label(g_camPanel, F26, COL_TEXT, "FARTKAMERA 800 m");
+  lv_obj_align(g_camTitle, LV_ALIGN_TOP_LEFT, SX(14), SY(6));
+  g_camLimit = label(g_camPanel, F44, COL_TEXT, "80");
+  lv_obj_align(g_camLimit, LV_ALIGN_RIGHT_MID, SX(-12), SY(0));
   g_camBar = lv_bar_create(g_camPanel);
   lv_obj_remove_style_all(g_camBar);
-  lv_obj_set_size(g_camBar, 300, 8);
-  lv_obj_align(g_camBar, LV_ALIGN_BOTTOM_LEFT, 14, -8);
+  lv_obj_set_size(g_camBar, SX(300), SY(8));
+  lv_obj_align(g_camBar, LV_ALIGN_BOTTOM_LEFT, SX(14), SY(-8));
   lv_bar_set_range(g_camBar, 0, 800);
   lv_obj_set_style_bg_color(g_camBar, COL_PANEL_W, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(g_camBar, 60, LV_PART_MAIN);
@@ -470,16 +498,18 @@ static void build_drive() {
 
   // Resepanelen.
   g_tripPanel = glass(scr);
-  lv_obj_set_size(g_tripPanel, 414, 64);
-  lv_obj_align(g_tripPanel, LV_ALIGN_TOP_MID, 0, 470);
-  g_tripTitle = label(g_tripPanel, &ui_font_20, COL_TEXT, "Ingen resa pågår");
-  lv_obj_align(g_tripTitle, LV_ALIGN_TOP_LEFT, 14, 8);
+  lv_obj_set_size(g_tripPanel, SX(414), SY(64));
+  lv_obj_align(g_tripPanel, LV_ALIGN_TOP_MID, SX(0), SY(470));
+  g_tripTitle = label(g_tripPanel, F20, COL_TEXT, "Ingen resa pågår");
+  lv_obj_align(g_tripTitle, LV_ALIGN_TOP_LEFT, SX(14), SY(8));
   lv_label_set_long_mode(g_tripTitle, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(g_tripTitle, 230);
-  g_tripSub = label(g_tripPanel, &ui_font_16, COL_DIM, "");
-  lv_obj_align(g_tripSub, LV_ALIGN_BOTTOM_LEFT, 14, -8);
+  lv_obj_set_width(g_tripTitle, SX(230));
+  lv_obj_set_height(g_tripTitle, lv_font_get_line_height(F20) + 2);
+  g_tripSub = label(g_tripPanel, F16, COL_DIM, "");
+  lv_obj_align(g_tripSub, LV_ALIGN_BOTTOM_LEFT, SX(14), SY(-8));
   lv_label_set_long_mode(g_tripSub, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(g_tripSub, 230);
+  lv_obj_set_width(g_tripSub, SX(230));
+  lv_obj_set_height(g_tripSub, lv_font_get_line_height(F16) + 2);
 
   // Start/stopp ar skarmens viktigaste knapp och sitter i en bil - den ska
   // ga att traffa med tummen utan att titta. Darfor ar den stor och ligger
@@ -487,8 +517,8 @@ static void build_drive() {
   // 64 pixlar hog panel, sa den flyter over panelkanten.
   g_tripBtn = lv_button_create(scr);
   lv_obj_remove_style_all(g_tripBtn);
-  lv_obj_set_size(g_tripBtn, 96, 96);
-  lv_obj_align(g_tripBtn, LV_ALIGN_TOP_RIGHT, -18, 440);
+  lv_obj_set_size(g_tripBtn, SX(96), SX(96));
+  lv_obj_align(g_tripBtn, LV_ALIGN_TOP_RIGHT, SX(-18), SY(440));
   lv_obj_set_style_radius(g_tripBtn, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_tripBtn, COL_GREEN, 0);
   lv_obj_set_style_bg_opa(g_tripBtn, LV_OPA_COVER, 0);
@@ -496,14 +526,14 @@ static void build_drive() {
   lv_obj_set_style_shadow_width(g_tripBtn, 24, 0);
   lv_obj_set_style_shadow_opa(g_tripBtn, 90, 0);
   lv_obj_add_event_cb(g_tripBtn, trip_toggle_cb, LV_EVENT_CLICKED, nullptr);
-  g_tripBtnLbl = label(g_tripBtn, &lv_font_montserrat_28, lv_color_white(),
+  g_tripBtnLbl = label(g_tripBtn, FSYM28, lv_color_white(),
                        LV_SYMBOL_PLAY);
   lv_obj_center(g_tripBtnLbl);
 
   g_splitBtn = lv_button_create(scr);
   lv_obj_remove_style_all(g_splitBtn);
-  lv_obj_set_size(g_splitBtn, 64, 64);
-  lv_obj_align(g_splitBtn, LV_ALIGN_TOP_RIGHT, -126, 470);
+  lv_obj_set_size(g_splitBtn, SX(64), SX(64));
+  lv_obj_align(g_splitBtn, LV_ALIGN_TOP_RIGHT, SX(-126), SY(470));
   lv_obj_set_style_radius(g_splitBtn, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_splitBtn, COL_ACCENT, 0);
   lv_obj_set_style_bg_opa(g_splitBtn, 90, 0);
@@ -511,7 +541,7 @@ static void build_drive() {
   lv_obj_set_style_border_opa(g_splitBtn, 160, 0);
   lv_obj_set_style_border_width(g_splitBtn, 1, 0);
   lv_obj_add_event_cb(g_splitBtn, split_cb, LV_EVENT_CLICKED, nullptr);
-  lv_obj_t *sp = label(g_splitBtn, &lv_font_montserrat_20, COL_TEXT,
+  lv_obj_t *sp = label(g_splitBtn, FSYM20, COL_TEXT,
                        LV_SYMBOL_CUT);
   lv_obj_center(sp);
   lv_obj_add_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
@@ -521,13 +551,13 @@ static void build_drive() {
   for (int i = 0; i < 3; i++) {
     lv_obj_t *b = lv_button_create(scr);
     lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, 132, 44);
-    lv_obj_set_pos(b, 18 + i * 141, 540);
+    lv_obj_set_size(b, SX(132), SY(44));
+    lv_obj_set_pos(b, SX(18 + i * 141), SY(540));
     lv_obj_set_style_radius(b, 14, 0);
     lv_obj_add_event_cb(b, purpose_cb, LV_EVENT_CLICKED,
                         (void *)(intptr_t)(i + 1));
     g_purBtn[i] = b;
-    g_purLbl[i] = label(b, &ui_font_20, COL_DIM, names[i]);
+    g_purLbl[i] = label(b, F20, COL_DIM, names[i]);
     lv_obj_center(g_purLbl[i]);
   }
 
@@ -671,7 +701,7 @@ static lv_obj_t *g_ecoArc, *g_ecoScoreLbl, *g_ecoAvgLbl;
 static lv_obj_t *g_ecoBubbleWrap, *g_ecoBubble, *g_ecoMagLbl;
 static lv_obj_t *g_ecoRingSoft, *g_ecoRingHard;
 static lv_obj_t *g_ecoInfo;
-static int16_t kEcoR = 130;
+static int16_t kEcoR = SX(130);
 
 static void eco_reset_cb(lv_event_t *e) {
   (void)e;
@@ -694,14 +724,14 @@ static void build_eco() {
   g_screens[GUI_SCR_ECO] = scr;
   add_status(scr, GUI_SCR_ECO);
 
-  lv_obj_t *title = label(scr, &ui_font_26, COL_TEXT, "Ecodrive");
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 44);
+  lv_obj_t *title = label(scr, F26, COL_TEXT, "Ecodrive");
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, SX(18), SY(44));
 
   // Resans medel som ring uppe till hoger.
   g_ecoArc = lv_arc_create(scr);
   lv_obj_remove_style_all(g_ecoArc);
-  lv_obj_set_size(g_ecoArc, 96, 96);
-  lv_obj_align(g_ecoArc, LV_ALIGN_TOP_RIGHT, -18, 40);
+  lv_obj_set_size(g_ecoArc, SX(96), SY(96));
+  lv_obj_align(g_ecoArc, LV_ALIGN_TOP_RIGHT, SX(-18), SY(52));
   lv_arc_set_rotation(g_ecoArc, 135);
   lv_arc_set_bg_angles(g_ecoArc, 0, 270);
   lv_arc_set_range(g_ecoArc, 0, 100);
@@ -713,16 +743,16 @@ static void build_eco() {
   lv_obj_set_style_arc_color(g_ecoArc, COL_GREEN, LV_PART_INDICATOR);
   lv_obj_set_style_arc_rounded(g_ecoArc, true, LV_PART_INDICATOR);
   lv_obj_set_style_bg_opa(g_ecoArc, 0, LV_PART_KNOB);
-  g_ecoScoreLbl = label(g_ecoArc, &ui_font_44, COL_TEXT, "100");
+  g_ecoScoreLbl = label(g_ecoArc, F44, COL_TEXT, "100");
   lv_obj_center(g_ecoScoreLbl);
-  g_ecoAvgLbl = label(scr, &ui_font_16, COL_DIM, "resans medel");
-  lv_obj_align(g_ecoAvgLbl, LV_ALIGN_TOP_RIGHT, -18, 140);
+  g_ecoAvgLbl = label(scr, F16, COL_DIM, "resans medel");
+  lv_obj_align(g_ecoAvgLbl, LV_ALIGN_TOP_RIGHT, SX(-18), SY(140));
 
   // Bubblan: ett vattenpass baklanges - den ska sta stilla i mitten.
   g_ecoBubbleWrap = lv_obj_create(scr);
   lv_obj_remove_style_all(g_ecoBubbleWrap);
   lv_obj_set_size(g_ecoBubbleWrap, 2 * kEcoR + 4, 2 * kEcoR + 4);
-  lv_obj_align(g_ecoBubbleWrap, LV_ALIGN_TOP_MID, 0, 170);
+  lv_obj_align(g_ecoBubbleWrap, LV_ALIGN_TOP_MID, SX(0), SY(170));
   lv_obj_set_style_radius(g_ecoBubbleWrap, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_color(g_ecoBubbleWrap, COL_FAINT, 0);
   lv_obj_set_style_border_width(g_ecoBubbleWrap, 1, 0);
@@ -745,7 +775,7 @@ static void build_eco() {
 
   g_ecoBubble = lv_obj_create(g_ecoBubbleWrap);
   lv_obj_remove_style_all(g_ecoBubble);
-  lv_obj_set_size(g_ecoBubble, 34, 34);
+  lv_obj_set_size(g_ecoBubble, SX(34), SY(34));
   lv_obj_set_style_radius(g_ecoBubble, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(g_ecoBubble, COL_GREEN, 0);
   lv_obj_set_style_bg_opa(g_ecoBubble, LV_OPA_COVER, 0);
@@ -754,22 +784,22 @@ static void build_eco() {
   lv_obj_set_style_shadow_opa(g_ecoBubble, 140, 0);
   lv_obj_center(g_ecoBubble);
 
-  g_ecoMagLbl = label(g_ecoBubbleWrap, &ui_font_26, COL_TEXT, "0,00 g");
-  lv_obj_align(g_ecoMagLbl, LV_ALIGN_CENTER, 0, -6);
+  g_ecoMagLbl = label(g_ecoBubbleWrap, F26, COL_TEXT, "0,00 g");
+  lv_obj_align(g_ecoMagLbl, LV_ALIGN_CENTER, SX(0), SY(-6));
 
-  g_ecoInfo = label(scr, &ui_font_16, COL_DIM, "");
-  lv_obj_align(g_ecoInfo, LV_ALIGN_TOP_MID, 0, 448);
+  g_ecoInfo = label(scr, F16, COL_DIM, "");
+  lv_obj_align(g_ecoInfo, LV_ALIGN_TOP_MID, SX(0), SY(448));
   lv_obj_set_style_text_align(g_ecoInfo, LV_TEXT_ALIGN_CENTER, 0);
 
-  lv_obj_t *reset = ghost_button(scr, COL_ACCENT, "NOLLSTÄLL", &ui_font_20,
+  lv_obj_t *reset = ghost_button(scr, COL_ACCENT, "NOLLSTÄLL", F20,
                                  eco_reset_cb, nullptr);
-  lv_obj_set_size(reset, 200, 48);
-  lv_obj_align(reset, LV_ALIGN_BOTTOM_LEFT, 18, -34);
+  lv_obj_set_size(reset, SX(200), SY(48));
+  lv_obj_align(reset, LV_ALIGN_BOTTOM_LEFT, SX(18), SY(-34));
 
-  lv_obj_t *tare = ghost_button(scr, COL_CYAN, "TARA", &ui_font_20,
+  lv_obj_t *tare = ghost_button(scr, COL_CYAN, "TARA", F20,
                                 tare_cb, nullptr);
-  lv_obj_set_size(tare, 200, 48);
-  lv_obj_align(tare, LV_ALIGN_BOTTOM_RIGHT, -18, -34);
+  lv_obj_set_size(tare, SX(200), SY(48));
+  lv_obj_align(tare, LV_ALIGN_BOTTOM_RIGHT, SX(-18), SY(-34));
   g_tareBtnLbl = lv_obj_get_child(tare, 0);
 
   add_home_bar(scr);
@@ -843,12 +873,12 @@ static lv_obj_t *g_statCard;
 static lv_obj_t *stat_tile(lv_obj_t *parent, int16_t x, int16_t y,
                            const char *cap, lv_obj_t **valOut) {
   lv_obj_t *p = glass(parent);
-  lv_obj_set_size(p, 198, 74);
+  lv_obj_set_size(p, SX(198), SY(74));
   lv_obj_set_pos(p, x, y);
-  *valOut = label(p, &ui_font_26, COL_TEXT, "–");
-  lv_obj_align(*valOut, LV_ALIGN_TOP_LEFT, 14, 8);
-  lv_obj_t *c = label(p, &ui_font_16, COL_DIM, cap);
-  lv_obj_align(c, LV_ALIGN_BOTTOM_LEFT, 14, -8);
+  *valOut = label(p, F26, COL_TEXT, "–");
+  lv_obj_align(*valOut, LV_ALIGN_TOP_LEFT, SX(14), SY(8));
+  lv_obj_t *c = label(p, F16, COL_DIM, cap);
+  lv_obj_align(c, LV_ALIGN_BOTTOM_LEFT, SX(14), SY(-8));
   return p;
 }
 
@@ -857,34 +887,34 @@ static void build_stats() {
   g_screens[GUI_SCR_STATS] = scr;
   add_status(scr, GUI_SCR_STATS);
 
-  lv_obj_t *title = label(scr, &ui_font_26, COL_TEXT, "Statistik");
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 44);
+  lv_obj_t *title = label(scr, F26, COL_TEXT, "Statistik");
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, SX(18), SY(44));
 
-  g_statKm = label(scr, &ui_font_44, COL_TEXT, "0");
-  lv_obj_align(g_statKm, LV_ALIGN_TOP_LEFT, 18, 84);
+  g_statKm = label(scr, F44, COL_TEXT, "0");
+  lv_obj_align(g_statKm, LV_ALIGN_TOP_LEFT, SX(18), SY(84));
 
-  stat_tile(scr, 18, 150, "resor", &g_statTiles[0]);
-  stat_tile(scr, 234, 150, "rullande tid", &g_statTiles[1]);
-  stat_tile(scr, 18, 232, "högsta fart", &g_statTiles[2]);
-  stat_tile(scr, 234, 232, "över gränsen", &g_statTiles[3]);
-  stat_tile(scr, 18, 314, "ledigt på kortet", &g_statTiles[4]);
-  stat_tile(scr, 234, 314, "räcker till", &g_statTiles[5]);
+  stat_tile(scr, SX(18), SY(150), "resor", &g_statTiles[0]);
+  stat_tile(scr, SX(234), SY(150), "rullande tid", &g_statTiles[1]);
+  stat_tile(scr, SX(18), SY(232), "högsta fart", &g_statTiles[2]);
+  stat_tile(scr, SX(234), SY(232), "över gränsen", &g_statTiles[3]);
+  stat_tile(scr, SX(18), SY(314), "ledigt på kortet", &g_statTiles[4]);
+  stat_tile(scr, SX(234), SY(314), "räcker till", &g_statTiles[5]);
 
   // Per syfte: tre staplar med samma farger som knapparna.
   g_statCard = glass(scr);
-  lv_obj_set_size(g_statCard, 414, 130);
-  lv_obj_align(g_statCard, LV_ALIGN_TOP_MID, 0, 400);
-  lv_obj_t *cap = label(g_statCard, &ui_font_16, COL_DIM, "km per syfte");
-  lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 14, 6);
+  lv_obj_set_size(g_statCard, SX(414), SY(130));
+  lv_obj_align(g_statCard, LV_ALIGN_TOP_MID, SX(0), SY(400));
+  lv_obj_t *cap = label(g_statCard, F16, COL_DIM, "km per syfte");
+  lv_obj_align(cap, LV_ALIGN_TOP_LEFT, SX(14), SY(6));
   static const lv_color_t pc[3] = {COL_PRIVAT, COL_FORETAG, COL_DIFFUST};
   static const char *pn[3] = {"Privat", "Företag", "Diffust"};
   for (int i = 0; i < 3; i++) {
-    lv_obj_t *n = label(g_statCard, &ui_font_16, COL_DIM, pn[i]);
-    lv_obj_align(n, LV_ALIGN_TOP_LEFT, 14, 30 + i * 30);
+    lv_obj_t *n = label(g_statCard, F16, COL_DIM, pn[i]);
+    lv_obj_align(n, LV_ALIGN_TOP_LEFT, SX(14), 30 + i * 30);
     g_statBars[i] = lv_bar_create(g_statCard);
     lv_obj_remove_style_all(g_statBars[i]);
-    lv_obj_set_size(g_statBars[i], 220, 12);
-    lv_obj_align(g_statBars[i], LV_ALIGN_TOP_LEFT, 84, 34 + i * 30);
+    lv_obj_set_size(g_statBars[i], SX(220), SY(12));
+    lv_obj_align(g_statBars[i], LV_ALIGN_TOP_LEFT, SX(84), 34 + i * 30);
     lv_bar_set_range(g_statBars[i], 0, 100);
     lv_obj_set_style_bg_color(g_statBars[i], COL_PANEL_W, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(g_statBars[i], 24, LV_PART_MAIN);
@@ -892,8 +922,8 @@ static void build_stats() {
     lv_obj_set_style_bg_color(g_statBars[i], pc[i], LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(g_statBars[i], LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(g_statBars[i], 6, LV_PART_INDICATOR);
-    g_statBarLbl[i] = label(g_statCard, &ui_font_16, COL_TEXT, "0");
-    lv_obj_align(g_statBarLbl[i], LV_ALIGN_TOP_RIGHT, -14, 30 + i * 30);
+    g_statBarLbl[i] = label(g_statCard, F16, COL_TEXT, "0");
+    lv_obj_align(g_statBarLbl[i], LV_ALIGN_TOP_RIGHT, SX(-14), SY(30) + i * SY(30));
   }
 
   add_home_bar(scr);
@@ -962,48 +992,48 @@ static void build_cloud() {
   g_screens[GUI_SCR_CLOUD] = scr;
   add_status(scr, GUI_SCR_CLOUD);
 
-  lv_obj_t *title = label(scr, &ui_font_26, COL_TEXT, "Moln & wifi");
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 44);
+  lv_obj_t *title = label(scr, F26, COL_TEXT, "Moln & wifi");
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, SX(18), SY(44));
 
   lv_obj_t *p1 = glass(scr);
-  lv_obj_set_size(p1, 414, 120);
-  lv_obj_align(p1, LV_ALIGN_TOP_MID, 0, 92);
-  lv_obj_t *c1 = label(p1, &ui_font_16, COL_DIM, "ENHETENS EGET WIFI");
-  lv_obj_align(c1, LV_ALIGN_TOP_LEFT, 14, 8);
-  g_cloudAp = label(p1, &ui_font_20, COL_TEXT, "");
-  lv_obj_align(g_cloudAp, LV_ALIGN_TOP_LEFT, 14, 34);
+  lv_obj_set_size(p1, SX(414), SY(120));
+  lv_obj_align(p1, LV_ALIGN_TOP_MID, SX(0), SY(92));
+  lv_obj_t *c1 = label(p1, F16, COL_DIM, "ENHETENS EGET WIFI");
+  lv_obj_align(c1, LV_ALIGN_TOP_LEFT, SX(14), SY(8));
+  g_cloudAp = label(p1, F20, COL_TEXT, "");
+  lv_obj_align(g_cloudAp, LV_ALIGN_TOP_LEFT, SX(14), SY(34));
   lv_label_set_long_mode(g_cloudAp, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(g_cloudAp, 386);
+  lv_obj_set_width(g_cloudAp, SX(386));
 
   lv_obj_t *p2 = glass(scr);
-  lv_obj_set_size(p2, 414, 150);
-  lv_obj_align(p2, LV_ALIGN_TOP_MID, 0, 226);
-  lv_obj_t *c2 = label(p2, &ui_font_16, COL_DIM, "MOLNSYNKEN");
-  lv_obj_align(c2, LV_ALIGN_TOP_LEFT, 14, 8);
+  lv_obj_set_size(p2, SX(414), SY(150));
+  lv_obj_align(p2, LV_ALIGN_TOP_MID, SX(0), SY(226));
+  lv_obj_t *c2 = label(p2, F16, COL_DIM, "MOLNSYNKEN");
+  lv_obj_align(c2, LV_ALIGN_TOP_LEFT, SX(14), SY(8));
 
   // Autosynken av eller pa. Avslagen synkar enheten bara pa knappen nedanfor
   // - for den som vill valja nat och tillfalle sjalv.
-  lv_obj_t *al = label(p2, &ui_font_16, COL_DIM, "AUTO");
-  lv_obj_align(al, LV_ALIGN_TOP_RIGHT, -84, 12);
+  lv_obj_t *al = label(p2, F16, COL_DIM, "AUTO");
+  lv_obj_align(al, LV_ALIGN_TOP_RIGHT, SX(-84), SY(12));
   g_cloudAuto = lv_switch_create(p2);
-  lv_obj_set_size(g_cloudAuto, 64, 34);
-  lv_obj_align(g_cloudAuto, LV_ALIGN_TOP_RIGHT, -10, 4);
+  lv_obj_set_size(g_cloudAuto, SX(64), SY(34));
+  lv_obj_align(g_cloudAuto, LV_ALIGN_TOP_RIGHT, SX(-10), SY(4));
   lv_obj_set_style_bg_color(g_cloudAuto, COL_ACCENT,
                             LV_PART_INDICATOR | LV_STATE_CHECKED);
   lv_obj_add_event_cb(g_cloudAuto, auto_sync_cb, LV_EVENT_VALUE_CHANGED,
                       nullptr);
-  g_cloudState = label(p2, &ui_font_20, COL_TEXT, "");
-  lv_obj_align(g_cloudState, LV_ALIGN_TOP_LEFT, 14, 34);
+  g_cloudState = label(p2, F20, COL_TEXT, "");
+  lv_obj_align(g_cloudState, LV_ALIGN_TOP_LEFT, SX(14), SY(34));
   lv_label_set_long_mode(g_cloudState, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(g_cloudState, 386);
+  lv_obj_set_width(g_cloudState, SX(386));
 
-  g_cloudCams = label(scr, &ui_font_16, COL_DIM, "");
-  lv_obj_align(g_cloudCams, LV_ALIGN_TOP_MID, 0, 396);
+  g_cloudCams = label(scr, F16, COL_DIM, "");
+  lv_obj_align(g_cloudCams, LV_ALIGN_TOP_MID, SX(0), SY(396));
 
-  lv_obj_t *sync = ghost_button(scr, COL_CYAN, "SYNKA NU", &ui_font_20,
+  lv_obj_t *sync = ghost_button(scr, COL_CYAN, "SYNKA NU", F20,
                                 cloud_sync_cb, nullptr);
-  lv_obj_set_size(sync, 414, 52);
-  lv_obj_align(sync, LV_ALIGN_TOP_MID, 0, 430);
+  lv_obj_set_size(sync, SX(414), SY(52));
+  lv_obj_align(sync, LV_ALIGN_TOP_MID, SX(0), SY(430));
 
   add_home_bar(scr);
 }
@@ -1064,51 +1094,51 @@ static void build_settings() {
   g_screens[GUI_SCR_SETTINGS] = scr;
   add_status(scr, GUI_SCR_SETTINGS);
 
-  lv_obj_t *title = label(scr, &ui_font_26, COL_TEXT, "Inställningar");
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 44);
+  lv_obj_t *title = label(scr, F26, COL_TEXT, "Inställningar");
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, SX(18), SY(44));
 
   // Ljudet.
   lv_obj_t *p1 = glass(scr);
-  lv_obj_set_size(p1, 414, 70);
-  lv_obj_align(p1, LV_ALIGN_TOP_MID, 0, 92);
-  lv_obj_t *l1 = label(p1, &ui_font_20, COL_TEXT, "Ljud");
-  lv_obj_align(l1, LV_ALIGN_LEFT_MID, 14, -10);
-  lv_obj_t *h1 = label(p1, &ui_font_16, COL_DIM, "varningar och kvitton");
-  lv_obj_align(h1, LV_ALIGN_LEFT_MID, 14, 14);
+  lv_obj_set_size(p1, SX(414), SY(70));
+  lv_obj_align(p1, LV_ALIGN_TOP_MID, SX(0), SY(92));
+  lv_obj_t *l1 = label(p1, F20, COL_TEXT, "Ljud");
+  lv_obj_align(l1, LV_ALIGN_LEFT_MID, SX(14), SY(-10));
+  lv_obj_t *h1 = label(p1, F16, COL_DIM, "varningar och kvitton");
+  lv_obj_align(h1, LV_ALIGN_LEFT_MID, SX(14), SY(14));
   g_setSound = lv_switch_create(p1);
-  lv_obj_set_size(g_setSound, 64, 34);
-  lv_obj_align(g_setSound, LV_ALIGN_RIGHT_MID, -10, 0);
+  lv_obj_set_size(g_setSound, SX(64), SY(34));
+  lv_obj_align(g_setSound, LV_ALIGN_RIGHT_MID, SX(-10), SY(0));
   lv_obj_set_style_bg_color(g_setSound, COL_ACCENT,
                             LV_PART_INDICATOR | LV_STATE_CHECKED);
   lv_obj_add_event_cb(g_setSound, sound_cb, LV_EVENT_VALUE_CHANGED, nullptr);
 
   // Skarmslackningen: minus och plus, som pa gamla skarmen fast rundare.
   lv_obj_t *p2 = glass(scr);
-  lv_obj_set_size(p2, 414, 70);
-  lv_obj_align(p2, LV_ALIGN_TOP_MID, 0, 174);
-  lv_obj_t *l2 = label(p2, &ui_font_20, COL_TEXT, "Släck skärm");
-  lv_obj_align(l2, LV_ALIGN_LEFT_MID, 14, -10);
-  lv_obj_t *h2 = label(p2, &ui_font_16, COL_DIM, "när ingen resa pågår");
-  lv_obj_align(h2, LV_ALIGN_LEFT_MID, 14, 14);
-  lv_obj_t *minus = button(p2, COL_ACCENT, "–", &ui_font_26, lv_color_white(),
+  lv_obj_set_size(p2, SX(414), SY(70));
+  lv_obj_align(p2, LV_ALIGN_TOP_MID, SX(0), SY(174));
+  lv_obj_t *l2 = label(p2, F20, COL_TEXT, "Släck skärm");
+  lv_obj_align(l2, LV_ALIGN_LEFT_MID, SX(14), SY(-10));
+  lv_obj_t *h2 = label(p2, F16, COL_DIM, "när ingen resa pågår");
+  lv_obj_align(h2, LV_ALIGN_LEFT_MID, SX(14), SY(14));
+  lv_obj_t *minus = button(p2, COL_ACCENT, "–", F26, lv_color_white(),
                            screen_step_cb, (void *)(intptr_t)-1);
-  lv_obj_set_size(minus, 48, 44);
-  lv_obj_align(minus, LV_ALIGN_RIGHT_MID, -150, 0);
-  lv_obj_t *plus = button(p2, COL_ACCENT, "+", &ui_font_26, lv_color_white(),
+  lv_obj_set_size(minus, SX(48), SY(44));
+  lv_obj_align(minus, LV_ALIGN_RIGHT_MID, SX(-150), SY(0));
+  lv_obj_t *plus = button(p2, COL_ACCENT, "+", F26, lv_color_white(),
                           screen_step_cb, (void *)(intptr_t)1);
-  lv_obj_set_size(plus, 48, 44);
-  lv_obj_align(plus, LV_ALIGN_RIGHT_MID, -10, 0);
-  g_setScreenVal = label(p2, &ui_font_20, COL_TEXT, "5 min");
-  lv_obj_align(g_setScreenVal, LV_ALIGN_RIGHT_MID, -68, 0);
+  lv_obj_set_size(plus, SX(48), SY(44));
+  lv_obj_align(plus, LV_ALIGN_RIGHT_MID, SX(-10), SY(0));
+  g_setScreenVal = label(p2, F20, COL_TEXT, "5 min");
+  lv_obj_align(g_setScreenVal, LV_ALIGN_RIGHT_MID, SX(-68), SY(0));
 
   // Vad enheten vet om sig sjalv.
   lv_obj_t *p3 = glass(scr);
-  lv_obj_set_size(p3, 414, 210);
-  lv_obj_align(p3, LV_ALIGN_TOP_MID, 0, 256);
-  g_setVersion = label(p3, &ui_font_16, COL_DIM, "");
-  lv_obj_align(g_setVersion, LV_ALIGN_TOP_LEFT, 14, 10);
+  lv_obj_set_size(p3, SX(414), SY(210));
+  lv_obj_align(p3, LV_ALIGN_TOP_MID, SX(0), SY(256));
+  g_setVersion = label(p3, F16, COL_DIM, "");
+  lv_obj_align(g_setVersion, LV_ALIGN_TOP_LEFT, SX(14), SY(10));
   lv_label_set_long_mode(g_setVersion, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(g_setVersion, 386);
+  lv_obj_set_width(g_setVersion, SX(386));
   lv_obj_set_style_text_line_space(g_setVersion, 7, 0);
 
   add_home_bar(scr);
@@ -1152,28 +1182,28 @@ static void ask_pick_cb(lv_event_t *e) {
 static void build_ask() {
   g_askSheet = lv_obj_create(lv_layer_top());
   lv_obj_remove_style_all(g_askSheet);
-  lv_obj_set_size(g_askSheet, 450, 600);
+  lv_obj_set_size(g_askSheet, SX(450), SY(600));
   lv_obj_set_style_bg_color(g_askSheet, COL_BG, 0);
   lv_obj_set_style_bg_opa(g_askSheet, 248, 0);
   lv_obj_clear_flag(g_askSheet, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *t = label(g_askSheet, &ui_font_26, COL_TEXT, "Resan är klar");
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 46);
-  g_askTitle = label(g_askSheet, &ui_font_20, COL_DIM, "");
-  lv_obj_align(g_askTitle, LV_ALIGN_TOP_MID, 0, 92);
-  lv_obj_t *q = label(g_askSheet, &ui_font_26, COL_TEXT, "Vad var resan till?");
-  lv_obj_align(q, LV_ALIGN_TOP_MID, 0, 140);
-  g_askCount = label(g_askSheet, &ui_font_16, COL_FAINT, "");
-  lv_obj_align(g_askCount, LV_ALIGN_TOP_MID, 0, 178);
+  lv_obj_t *t = label(g_askSheet, F26, COL_TEXT, "Resan är klar");
+  lv_obj_align(t, LV_ALIGN_TOP_MID, SX(0), SY(46));
+  g_askTitle = label(g_askSheet, F20, COL_DIM, "");
+  lv_obj_align(g_askTitle, LV_ALIGN_TOP_MID, SX(0), SY(92));
+  lv_obj_t *q = label(g_askSheet, F26, COL_TEXT, "Vad var resan till?");
+  lv_obj_align(q, LV_ALIGN_TOP_MID, SX(0), SY(140));
+  g_askCount = label(g_askSheet, F16, COL_FAINT, "");
+  lv_obj_align(g_askCount, LV_ALIGN_TOP_MID, SX(0), SY(178));
 
   static const char *names[3] = {"PRIVAT", "FÖRETAG", "DIFFUST"};
   static const lv_color_t cols[3] = {COL_PRIVAT, COL_FORETAG, COL_DIFFUST};
   for (int i = 0; i < 3; i++) {
-    lv_obj_t *b = button(g_askSheet, cols[i], names[i], &ui_font_26,
+    lv_obj_t *b = button(g_askSheet, cols[i], names[i], F26,
                          lv_color_white(), ask_pick_cb,
                          (void *)(intptr_t)(i + 1));
-    lv_obj_set_size(b, 414, 106);
-    lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 216 + i * 122);
+    lv_obj_set_size(b, SX(414), SY(106));
+    lv_obj_align(b, LV_ALIGN_TOP_MID, SX(0), 216 + i * 122);
     lv_obj_set_style_radius(b, 24, 0);
     lv_obj_set_style_shadow_color(b, cols[i], 0);
     lv_obj_set_style_shadow_width(b, 30, 0);
@@ -1219,46 +1249,46 @@ void gui_screens_open_customers(const GuiModel *m) {
 
   g_custSheet = lv_obj_create(lv_layer_top());
   lv_obj_remove_style_all(g_custSheet);
-  lv_obj_set_size(g_custSheet, 450, 600);
+  lv_obj_set_size(g_custSheet, SX(450), SY(600));
   lv_obj_set_style_bg_color(g_custSheet, COL_BG, 0);
   lv_obj_set_style_bg_opa(g_custSheet, 248, 0);
   lv_obj_clear_flag(g_custSheet, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *t = label(g_custSheet, &ui_font_26, COL_TEXT, "Välj kund");
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 24);
+  lv_obj_t *t = label(g_custSheet, F26, COL_TEXT, "Välj kund");
+  lv_obj_align(t, LV_ALIGN_TOP_MID, SX(0), SY(24));
 
   lv_obj_t *listwrap = lv_obj_create(g_custSheet);
   lv_obj_remove_style_all(listwrap);
-  lv_obj_set_size(listwrap, 414, 400);
-  lv_obj_align(listwrap, LV_ALIGN_TOP_MID, 0, 70);
+  lv_obj_set_size(listwrap, SX(414), SY(400));
+  lv_obj_align(listwrap, LV_ALIGN_TOP_MID, SX(0), SY(70));
   lv_obj_set_flex_flow(listwrap, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(listwrap, 10, 0);
   lv_obj_set_scroll_dir(listwrap, LV_DIR_VER);
 
   if (m->customerCount == 0) {
-    lv_obj_t *empty = label(listwrap, &ui_font_20, COL_DIM,
+    lv_obj_t *empty = label(listwrap, F20, COL_DIM,
                             "Kundlistan är tom – lägg upp kunder i webben "
                             "och synka.");
     lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(empty, 380);
+    lv_obj_set_width(empty, SX(380));
   }
   for (uint8_t i = 0; i < m->customerCount; i++) {
     lv_obj_t *b = ghost_button(listwrap, COL_ACCENT, m->customerNames[i],
-                               &ui_font_20, cust_pick_cb,
+                               F20, cust_pick_cb,
                                (void *)m->customerNames[i]);
-    lv_obj_set_size(b, 400, 56);
+    lv_obj_set_size(b, SX(400), SY(56));
   }
 
   lv_obj_t *none = ghost_button(g_custSheet, COL_DIFFUST,
-                                "INGEN KUND – BARA FÖRETAG", &ui_font_20,
+                                "INGEN KUND – BARA FÖRETAG", F20,
                                 cust_pick_cb, nullptr);
-  lv_obj_set_size(none, 414, 52);
-  lv_obj_align(none, LV_ALIGN_BOTTOM_MID, 0, -76);
+  lv_obj_set_size(none, SX(414), SY(52));
+  lv_obj_align(none, LV_ALIGN_BOTTOM_MID, SX(0), SY(-76));
 
   lv_obj_t *close = ghost_button(g_custSheet, COL_ACCENT, "STÄNG",
-                                 &ui_font_20, cust_close_cb, nullptr);
-  lv_obj_set_size(close, 414, 52);
-  lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -16);
+                                 F20, cust_close_cb, nullptr);
+  lv_obj_set_size(close, SX(414), SY(52));
+  lv_obj_align(close, LV_ALIGN_BOTTOM_MID, SX(0), SY(-16));
 }
 
 // ----------------------------------------------------------------- apiet --

@@ -14,6 +14,18 @@
 
 #include <lvgl.h>
 
+// Skarmens logiska matt. Skarmarna ar ritade for 450x600 (AMOLED 2.41);
+// pa LCD 3.5-kortet ar ytan 320x480 och varje koordinat raknas om med
+// SX/SY-makrona i gui_screens.cpp. Host-forhandsvisningen bygger med samma
+// flagga och renderar da samma layout som kortet far.
+#if defined(BOARD_LCD35)
+#define GUI_W 320
+#define GUI_H 480
+#else
+#define GUI_W 450
+#define GUI_H 600
+#endif
+
 #include "gui_model.h"
 
 enum GuiScreen : uint8_t {

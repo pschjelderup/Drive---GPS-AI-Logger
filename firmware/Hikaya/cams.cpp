@@ -1,6 +1,6 @@
 #include "cams.h"
 
-#include <SD_MMC.h>
+#include "storage.h"
 #include <math.h>
 
 #include "config.h"
@@ -110,7 +110,7 @@ void loadCams() {
   freeCams();
   if (!sensors::sdMounted()) return;
 
-  File f = SD_MMC.open(CAMS_FILE, FILE_READ);
+  File f = SDCARD.open(CAMS_FILE, FILE_READ);
   if (!f) return;
 
   uint32_t count = 0;
@@ -146,7 +146,7 @@ void loadLimits() {
   g_limitCount = 0;
   if (!sensors::sdMounted()) return;
 
-  g_limitFile = SD_MMC.open(LIMITS_FILE, FILE_READ);
+  g_limitFile = SDCARD.open(LIMITS_FILE, FILE_READ);
   if (!g_limitFile) return;
 
   uint32_t count = 0;

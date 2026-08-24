@@ -11,11 +11,18 @@ LVGL="${LVGL_DIR:-$HOME/Arduino/libraries/lvgl}"
 
 test -d "$LVGL/src" || { echo "hittar inte lvgl i $LVGL" >&2; exit 1; }
 
-OUT="$HERE/out"
+# BOARD=lcd35 bygger 3.5-kortets variant till out35/, annars 2.41 till out/.
+if [ "${BOARD:-}" = "lcd35" ]; then
+  BOARDFLAG="-DBOARD_LCD35"
+  OUT="$HERE/out35"
+else
+  BOARDFLAG=""
+  OUT="$HERE/out"
+fi
 mkdir -p "$OUT/obj"
 cd "$OUT"
 
-CFLAGS="-O0 -g -w -DLV_CONF_PATH=\"$SKETCH/lv_conf.h\" -I$LVGL -I$LVGL/.. -I$SKETCH -I$HERE"
+CFLAGS="$BOARDFLAG -O0 -g -w -DLV_CONF_PATH=\"$SKETCH/lv_conf.h\" -I$LVGL -I$LVGL/.. -I$SKETCH -I$HERE"
 
 # C-filerna: lvgl och typsnitten. Objekten aterbrukas mellan korningar -
 # lvgl andras inte, sa andra korningen ar sekundsnabb.
