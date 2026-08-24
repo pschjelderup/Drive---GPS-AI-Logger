@@ -119,6 +119,19 @@ jobs:
           done
           ls -la build-241 build-35
 
+          # Vakt: "skarm: begin" finns bara i 3.5-koden. Skulle byggcachen
+          # nagonsin aterandvanda 241-objekten for 35-bygget (eller tvartom)
+          # ser binarerna hela ut men kor fel kort - och skarmen blir svart
+          # utan ett enda felmeddelande. Det har ar raden som fangar det.
+          if ! strings build-35/Hikaya.ino.bin | grep -q "skarm: begin"; then
+            echo "FEL: 35-binaren saknar 3.5-koden (byggcache?)" >&2
+            exit 1
+          fi
+          if strings build-241/Hikaya.ino.bin | grep -q "skarm: begin"; then
+            echo "FEL: 241-binaren innehaller 3.5-koden (byggcache?)" >&2
+            exit 1
+          fi
+
       - name: Sla ihop till flashbara delar
         run: |
           # Versionen ar last av samma skal som biblioteken ar det. Utan las
