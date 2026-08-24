@@ -236,12 +236,18 @@ bool remount() {
   g_sdOk = false;
 
 #if defined(BOARD_LCD35)
-  // Kortplatsen sitter pa SPI. Riktiga CS-signalen halls permanent lag av
-  // io-expandern (satt i expander::begin) - kortet ar ensamt pa bussen, sa
-  // det far vara valt jamt. Biblioteket kraver anda en CS-pinne att vifta
-  // med; det far kameraklockans, som gar till en tom kontakt.
-  SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS_DUMMY);
-  if (SDCARD.begin(PIN_SD_CS_DUMMY, SPI, 25000000, "/sdcard")) {
+  // Kortplatsen sitter pa SPI - men pa en EGEN vard (HSPI). Det globala
+  // SPI-objektet ar samma FSPI-vard som skarmens buss tar som standard, och
+  // ett SPI.begin() med kortets pinnar ringlar da om skarmbussens pinnar
+  // till kortet: skarmen dor i samma ogonblick. Precis det hande.
+  //
+  // Riktiga CS-signalen halls permanent lag av io-expandern (satt i
+  // expander::begin) - kortet ar ensamt pa sin buss, sa det far vara valt
+  // jamt. Biblioteket kraver anda en CS-pinne att vifta med; det far
+  // kameraklockans, som gar till en tom kontakt.
+  static SPIClass sdSpi(HSPI);
+  sdSpi.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS_DUMMY);
+  if (SDCARD.begin(PIN_SD_CS_DUMMY, sdSpi, 25000000, "/sdcard")) {
     g_sdOk = (SDCARD.cardType() != CARD_NONE);
   }
 #else

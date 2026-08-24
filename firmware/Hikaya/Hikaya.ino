@@ -210,9 +210,15 @@ void setup() {
   pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
 
   ledcAttach(PIN_LCD_BL, 20000, 8);
-  panel->begin(40000000L);
-  panel->fillScreen(0x0000);
+  const bool panelOk = panel->begin(40000000L);
   gui::panelBrightness(235);
+  // Bring-up-kvitto som syns utan seriekabel: rott betyder att panelen
+  // svarar och ritningen gar fram. Fastnar skarmen svart ar det stromm,
+  // reset eller bussen; fastnar den rod ar det LVGL-steget.
+  panel->fillScreen(0xF800);
+  delay(400);
+  panel->fillScreen(0x0000);
+  Serial.printf("skarm: begin %s\n", panelOk ? "ok" : "MISSLYCKADES");
 #else
   // Skarmens matning maste sla pa forst av allt.
   pinMode(PIN_PANEL_POWER, OUTPUT);
