@@ -21,7 +21,7 @@ void openCustomersFromGui();
 
 namespace {
 
-Arduino_RM690B0 *g_panel = nullptr;
+Arduino_GFX *g_panel = nullptr;
 TouchDrvFT6X36 *g_touch = nullptr;
 bool g_touchOk = false;
 AppSettings *g_cfg = nullptr;
@@ -54,6 +54,7 @@ void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   lv_display_flush_ready(disp);
 }
 
+#if !defined(BOARD_LCD35)
 // RM690B0-panelens adressfonster kraver jamna koordinater; ett fonster som
 // borjar pa udda kolumn ritas forskjutet sa att bilden delas och halva
 // hamnar pa andra sidan. Varje omritad yta knuffas darfor ut till narmast
@@ -65,6 +66,7 @@ void rounder_cb(lv_event_t *e) {
   a->x2 |= 1;
   a->y2 |= 1;
 }
+#endif
 
 void touch_cb(lv_indev_t *indev, lv_indev_data_t *data) {
   (void)indev;
@@ -307,7 +309,7 @@ void openCustomersFromGui() {
 
 namespace gui {
 
-void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
+void begin(Arduino_GFX *panel, TouchDrvFT6X36 *touch, bool touchOk,
            AppSettings *cfg, void (*saveSettings)(), void (*applySettings)()) {
   g_panel = panel;
   g_touch = touch;
@@ -332,7 +334,11 @@ void begin(Arduino_RM690B0 *panel, TouchDrvFT6X36 *touch, bool touchOk,
   lv_display_set_buffers(g_disp, buf, nullptr, bufBytes,
                          LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(g_disp, flush_cb);
+#if !defined(BOARD_LCD35)
+  // Avrundaren behovs bara for RM690B0-panelens jamna adressfonster;
+  // ST7796 tar vilka fonster som helst.
   lv_display_add_event_cb(g_disp, rounder_cb, LV_EVENT_INVALIDATE_AREA, nullptr);
+#endif
 
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
@@ -389,11 +395,11 @@ void setDisplayOn(bool on) {
   g_displayOn = on;
   if (on) {
     g_panel->displayOn();
-    g_panel->setBrightness(235);
+    panelBrightness(235);
     lv_display_trigger_activity(g_disp);
     lv_obj_invalidate(lv_screen_active());
   } else {
-    g_panel->setBrightness(0);
+    panelBrightness(0);
     g_panel->displayOff();
   }
 }

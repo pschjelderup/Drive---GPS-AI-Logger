@@ -37,11 +37,18 @@
 #define LV_FONT_MONTSERRAT_28 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 
+/* Bada kortens typsnittsuppsattningar deklareras; skarmkoden valjer per
+ * kort. 12/14/18/32/110 ar 3.5-kortets skala av 16/20/26/44/150. */
 #define LV_FONT_CUSTOM_DECLARE \
+  LV_FONT_DECLARE(ui_font_12)  \
+  LV_FONT_DECLARE(ui_font_14)  \
   LV_FONT_DECLARE(ui_font_16)  \
+  LV_FONT_DECLARE(ui_font_18)  \
   LV_FONT_DECLARE(ui_font_20)  \
   LV_FONT_DECLARE(ui_font_26)  \
+  LV_FONT_DECLARE(ui_font_32)  \
   LV_FONT_DECLARE(ui_font_44)  \
+  LV_FONT_DECLARE(ui_font_110) \
   LV_FONT_DECLARE(ui_font_150)
 
 /* Widgets: bara det som anvands, resten ar flash i onodan. */

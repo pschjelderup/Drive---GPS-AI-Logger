@@ -1,6 +1,6 @@
 #include "stats.h"
 
-#include <SD_MMC.h>
+#include "storage.h"
 
 #include "config.h"
 #include "sensors.h"
@@ -82,7 +82,7 @@ void begin() {
   }
 
   // ---- dagboken, rad for rad
-  File f = SD_MMC.open(TRIPS_JSONL, FILE_READ);
+  File f = SDCARD.open(TRIPS_JSONL, FILE_READ);
   if (f) {
     // En rad ar nagra hundra byte; bufferten tal det dubbla.
     static char line[768];
@@ -122,7 +122,7 @@ void begin() {
   // fortfarande kostat sin plats pa kortet, den har bara bytt hylla.
   const char *dirs[2] = {GPX_DIR, GPX_SYNCED_DIR};
   for (uint8_t i = 0; i < 2; i++) {
-    File dir = SD_MMC.open(dirs[i]);
+    File dir = SDCARD.open(dirs[i]);
     if (!dir) continue;
     File entry;
     while ((entry = dir.openNextFile())) {

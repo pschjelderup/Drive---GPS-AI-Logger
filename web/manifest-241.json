@@ -1,0 +1,17 @@
+{
+  "name": "Hikaya reselogg (AMOLED 2.41)",
+  "version": "__VERSION__",
+  "pr": "__PR__",
+  "built": "__BUILT__",
+  "home_assistant_domain": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "hikaya-241-__VERSION__-a.bin", "offset": 0 },
+        { "path": "hikaya-241-__VERSION__-b.bin", "offset": 57344 }
+      ]
+    }
+  ]
+}

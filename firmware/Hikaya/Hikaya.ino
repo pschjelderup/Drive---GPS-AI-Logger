@@ -22,6 +22,7 @@
 #include "customers.h"
 #include "eco.h"
 #include "gnss.h"
+#include "expander.h"
 #include "gui.h"
 #include "sensors.h"
 #include "sound.h"
@@ -30,12 +31,34 @@
 #include "websync.h"
 
 // ------------------------------------------------------------- skarmen ----
+#if defined(BOARD_LCD35)
+// ST7796 pa vanlig SPI. CS ar fast strappad pa kortet och RST gar via
+// io-expandern, sa bada ar GFX_NOT_DEFINED har.
+Arduino_DataBus *bus = new Arduino_ESP32SPI(PIN_LCD_DC, GFX_NOT_DEFINED,
+                                            PIN_LCD_SCK, PIN_LCD_MOSI,
+                                            PIN_LCD_MISO);
+Arduino_GFX *panel = new Arduino_ST7796(bus, GFX_NOT_DEFINED, 0 /* rotation */,
+                                        true /* ips */, SCREEN_W, SCREEN_H);
+#else
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(PIN_LCD_CS, PIN_LCD_SCK, PIN_LCD_D0,
                                              PIN_LCD_D1, PIN_LCD_D2, PIN_LCD_D3);
 
 Arduino_RM690B0 *panel =
     new Arduino_RM690B0(bus, PIN_LCD_RST, 0 /* rotation */, SCREEN_W, SCREEN_H,
                         LCD_COL_OFFSET, 0, LCD_COL_OFFSET, 0);
+#endif
+
+// Ljusstyrkan ar det enda skarmglittet som skiljer korten at: AMOLED:en har
+// ett eget ljusregister, LCD:n en pwm:ad bakgrundsbelysning.
+namespace gui {
+void panelBrightness(uint8_t level) {
+#if defined(BOARD_LCD35)
+  ledcWrite(PIN_LCD_BL, level);
+#else
+  static_cast<Arduino_RM690B0 *>(panel)->setBrightness(level);
+#endif
+}
+}  // namespace gui
 
 TouchDrvFT6X36 touch;
 bool touchOk = false;
@@ -177,6 +200,20 @@ void setup() {
   Serial.println(fwVersionFull());
   Serial.println("byggd " __DATE__ " " __TIME__);
 
+#if defined(BOARD_LCD35)
+  // Io-expandern ager skarmens reset och kortets CS, sa i2c-bussen och
+  // expandern maste upp innan panelen kan startas.
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  expander::begin();
+  expander::lcdReset();
+
+  pinMode(PIN_BOOT_BUTTON, INPUT_PULLUP);
+
+  ledcAttach(PIN_LCD_BL, 20000, 8);
+  panel->begin(40000000L);
+  panel->fillScreen(0x0000);
+  gui::panelBrightness(235);
+#else
   // Skarmens matning maste sla pa forst av allt.
   pinMode(PIN_PANEL_POWER, OUTPUT);
   digitalWrite(PIN_PANEL_POWER, HIGH);
@@ -190,6 +227,7 @@ void setup() {
   panel->begin(80000000L);
   panel->fillScreen(0x0000);
   panel->setBrightness(235);
+#endif
 
   loadSettings();
   sound::begin();
