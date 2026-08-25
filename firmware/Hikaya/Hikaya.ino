@@ -16,6 +16,7 @@
 #include <TouchDrv.hpp>
 #include <Wire.h>
 
+#include "axp.h"
 #include "cams.h"
 #include "cloudsync.h"
 #include "config.h"
@@ -34,9 +35,14 @@
 #if defined(BOARD_LCD35)
 // ST7796 pa vanlig SPI. CS ar fast strappad pa kortet och RST gar via
 // io-expandern, sa bada ar GFX_NOT_DEFINED har.
-Arduino_DataBus *bus = new Arduino_ESP32SPI(PIN_LCD_DC, GFX_NOT_DEFINED,
-                                            PIN_LCD_SCK, PIN_LCD_MOSI,
-                                            PIN_LCD_MISO);
+//
+// HWSPI, inte ESP32SPI: den registerbaserade ESP32SPI-klassen lamnar
+// panelen svart pa den har kortrevisionen (bit-bangad SWSPI och QSPI
+// fungerar, ESP32SPI gor det inte), sa bussen far ga via Arduinos
+// SPI-bibliotek i stallet.
+Arduino_DataBus *bus = new Arduino_HWSPI(PIN_LCD_DC, GFX_NOT_DEFINED,
+                                         PIN_LCD_SCK, PIN_LCD_MOSI,
+                                         PIN_LCD_MISO);
 Arduino_GFX *panel = new Arduino_ST7796(bus, GFX_NOT_DEFINED, 0 /* rotation */,
                                         true /* ips */, SCREEN_W, SCREEN_H);
 #else
@@ -208,9 +214,11 @@ void setup() {
 #endif
 
 #if defined(BOARD_LCD35)
-  // Io-expandern ager skarmens reset och kortets CS, sa i2c-bussen och
-  // expandern maste upp innan panelen kan startas.
+  // Ordningen ar viktig: i2c-bussen forst, sedan strommen (panelens
+  // matning ligger pa PMIC:ens LDO-skenor och ar av efter kallstart),
+  // sedan expandern som ager skarmens reset.
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  axp::begin();
   expander::begin();
   expander::lcdReset();
 

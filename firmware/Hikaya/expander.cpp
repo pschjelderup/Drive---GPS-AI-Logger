@@ -10,15 +10,15 @@ namespace {
 const uint8_t kRegOutput = 0x01;
 const uint8_t kRegConfig = 0x03;
 
-// Utgangar: bit 0 (kamerans PWDN), 1 (skarmens RST), 3 (kortets CS),
-// 7 (forstarkarens CTRL). Resten lamnas som ingangar.
-const uint8_t kConfig = 0b01110100;
+// BARA skarmens reset (bit 1) gors till utgang - precis som Waveshares
+// demos och de tester som faktiskt tande panelen. Kamerans PWDN, kortets
+// CS och forstarkaren lamnas som ingangar med kortets egna motstand;
+// att driva dem har visat sig onodigt och var en av avvikelserna mot
+// den fungerande demokoden.
+const uint8_t kConfig = 0b11111101;
 
-// Grundlagen: kameran avstangd (PWDN hog), skarmen ur reset (RST hog),
-// kortets D3/CS HOG - minneskortet gar pa SDMMC och maste ha CS hog vid
-// forsta kommandot, annars trillar det ner i SPI-lage - och forstarkaren
-// tyst (CTRL lag).
-const uint8_t kIdle = 0b00001011;
+// Grundlaget: skarmen ur reset (RST hog).
+const uint8_t kIdle = 0b00000010;
 
 uint8_t g_output = kIdle;
 
@@ -35,8 +35,8 @@ namespace expander {
 
 bool begin() {
   g_output = kIdle;
-  const bool ok = writeReg(kRegOutput, g_output) &&
-                  writeReg(kRegConfig, kConfig);
+  const bool ok = writeReg(kRegConfig, kConfig) &&
+                  writeReg(kRegOutput, g_output);
   if (!ok) Serial.println("expander: TCA9554 svarar inte pa 0x20");
   return ok;
 }
