@@ -219,6 +219,19 @@ html[data-theme="dark"] .map .leaflet-tile { filter: brightness(.72) contrast(1.
   background: var(--panel-2); border-radius: 10px; padding: 1rem; min-height: 4rem;
 }
 
+/* Sparade analyser: ett minikort per analys, senaste overst. */
+.ai-mini {
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: .7rem .8rem; margin: .6rem 0; cursor: pointer;
+}
+.ai-mini:hover { border-color: var(--accent); }
+.ai-mini-head {
+  display: flex; justify-content: space-between; gap: .8rem;
+  font-size: .85rem; margin-bottom: .45rem;
+}
+.ai-mini-head span { color: var(--dim); }
+.ai-mini .ai-out { padding: .7rem .8rem; }
+
 .charttip {
   position: absolute; pointer-events: none; background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 8px; padding: .35rem .6rem;

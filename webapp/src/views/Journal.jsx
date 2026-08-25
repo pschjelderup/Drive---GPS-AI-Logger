@@ -36,7 +36,17 @@ function TrackMini({ pts, color }) {
   const [dim, setDim] = useState(null);
   useEffect(() => {
     const el = boxRef.current;
-    if (el) setDim({ w: el.clientWidth || 260, h: el.clientHeight || 96 });
+    if (!el) return;
+    // Plattorna laggs i fasta pixlar for den uppmatta bredden medan
+    // SVG-sparet skalar med rutan - vaxer kortet utan ommatning glider
+    // sparet isar fran kartan. Darfor mats och ritas allt om sa fort
+    // rutan byter storlek.
+    const measure = () =>
+      setDim({ w: el.clientWidth || 260, h: el.clientHeight || 96 });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   let content = null;
