@@ -59,17 +59,60 @@ privat/företag och vad den betyder för körjournalen, fart och fortkörning,
 ecodrive-utveckling, och till sist två eller tre konkreta observationer värda att
 agera på. Om datan är tunn för någon slutsats, säg det hellre än att gissa.`;
 
+// Ett minikort per sparad analys: datum, underlag och en kort forsmak.
+// Klicket faller ut hela texten; senaste ligger overst i listan.
+function AnalysisCard({ row, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const when = new Date(row.at).toLocaleString("sv-SE", {
+    dateStyle: "medium", timeStyle: "short",
+  });
+  const preview = row.content.length > 220
+    ? row.content.slice(0, 220).trimEnd() + " …"
+    : row.content;
+  return (
+    <div className="ai-mini" onClick={() => setOpen((o) => !o)}>
+      <div className="ai-mini-head">
+        <b>{when}</b>
+        <span>
+          {row.trips != null ? `${intFmt.format(row.trips)} resor` : ""}
+          {row.km != null ? ` · ${intFmt.format(row.km)} km` : ""}
+        </span>
+      </div>
+      <div className="ai-out" style={open ? undefined : { minHeight: 0 }}>
+        {open ? row.content : preview}
+      </div>
+      {open && (
+        <p style={{ margin: ".6rem 0 0" }}>
+          <button className="ghost" onClick={(e) => {
+            e.stopPropagation();
+            if (confirm("Ta bort den här analysen?")) onRemove(row.id);
+          }}>ta bort</button>
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function Ai() {
   const [trips, setTrips] = useState([]);
   const [out, setOut] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [history, setHistory] = useState([]);
 
   useEffect(() => {
     supabase.from("drive_trips").select("*")
       .order("start_utc", { ascending: false }).limit(400)
       .then(({ data }) => setTrips(data ?? []));
+    supabase.from("drive_analyses").select("*")
+      .order("at", { ascending: false }).limit(50)
+      .then(({ data }) => setHistory(data ?? []));
   }, []);
+
+  const removeAnalysis = async (id) => {
+    await supabase.from("drive_analyses").delete().eq("id", id);
+    setHistory((h) => h.filter((r) => r.id !== id));
+  };
 
   const analyze = async () => {
     if (!trips.length) { setError("Inga resor att analysera än."); return; }
@@ -101,6 +144,23 @@ export default function Ai() {
       const final = await stream.finalMessage();
       if (final.stop_reason === "refusal") {
         setError("Analysen avböjdes av modellen. Försök igen.");
+      } else {
+        // Fardig analys sparas som ett minikort i historiken; den
+        // strommade rutan toms - kortet overst AR den nya analysen.
+        const text = final.content
+          .filter((b) => b.type === "text").map((b) => b.text).join("");
+        const km = Math.round(
+          trips.reduce((a, t) => a + (t.distance_m || 0), 0) / 1000);
+        const { data, error: dbErr } = await supabase
+          .from("drive_analyses")
+          .insert({ content: text, trips: trips.length, km })
+          .select().single();
+        if (dbErr) {
+          setError("Analysen kunde inte sparas: " + dbErr.message);
+        } else {
+          setHistory((h) => [data, ...h]);
+          setOut("");
+        }
       }
     } catch (e) {
       setError(e?.message ?? String(e));
@@ -124,6 +184,14 @@ export default function Ai() {
       </p>
       {error && <p className="status error">{error}</p>}
       {out && <div className="ai-out">{out}</div>}
+      {history.length > 0 && (
+        <>
+          <h3 style={{ margin: "1.2rem 0 .5rem" }}>Tidigare analyser</h3>
+          {history.map((row) => (
+            <AnalysisCard key={row.id} row={row} onRemove={removeAnalysis} />
+          ))}
+        </>
+      )}
     </div>
   );
 }

@@ -542,61 +542,83 @@ void syncTask(void *) {
     if (!g_syncNow && (!g_autoSync || now < nextAttemptMs)) continue;
     g_syncNow = false;
 
-    // Vilket av de sparade naten finns har? En skanning ser dem som sander,
-    // och det starkaste vinner - bilen kan sta pa jobbet, hemma eller vid
-    // en paslagen hotspot, och ratt nat ar det som faktiskt hors.
+    // Alla sparade nat provas i EN runda tills nagot gar upp - inte ett
+    // per runda med lang backoff emellan. Ordningen: de nat skanningen
+    // faktiskt hor forst, starkast forst; darefter de ohorbara i tur och
+    // ordning - dolda ssid syns aldrig i en skanning och en hotspot kan
+    // annonsera glest, men bada svarar pa ett riktigt forsok.
     setState(CLOUD_CONNECTING, "soker naten");
     WiFi.enableSTA(true);
-    int pick = -1;
+    int16_t rssi[cloudsync::kNetMax];
+    bool heard[cloudsync::kNetMax] = {};
     {
       const int16_t found = WiFi.scanNetworks();
-      int bestRssi = -1000;
-      for (int16_t i = 0; i < found; i++) {
-        const String seen = WiFi.SSID(i);
-        for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
-          if (g_ssids[s][0] && seen == g_ssids[s] && WiFi.RSSI(i) > bestRssi) {
-            bestRssi = WiFi.RSSI(i);
-            pick = s;
+      for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
+        rssi[s] = -1000;
+        if (!g_ssids[s][0]) continue;
+        for (int16_t i = 0; i < found; i++) {
+          if (WiFi.SSID(i) == g_ssids[s] && WiFi.RSSI(i) > rssi[s]) {
+            rssi[s] = WiFi.RSSI(i);
+            heard[s] = true;
           }
         }
       }
       WiFi.scanDelete();
     }
 
-    // Syntes inget: prova nasta sparade nat i tur och ordning anda. Dolda
-    // ssid syns aldrig i en skanning, och en hotspot kan annonsera glest -
-    // men bada svarar pa ett riktigt anslutningsforsok.
-    uint32_t waitS = 30;
-    if (pick < 0) {
+    uint8_t order[cloudsync::kNetMax];
+    uint8_t nOrder = 0;
+    {
+      bool taken[cloudsync::kNetMax] = {};
+      for (;;) {
+        int best = -1;
+        for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
+          if (heard[s] && !taken[s] && (best < 0 || rssi[s] > rssi[best])) {
+            best = s;
+          }
+        }
+        if (best < 0) break;
+        taken[best] = true;
+        order[nOrder++] = (uint8_t)best;
+      }
       for (uint8_t s = 0; s < cloudsync::kNetMax; s++) {
         const uint8_t cand = (g_rr + s) % cloudsync::kNetMax;
-        if (g_ssids[cand][0]) { pick = cand; break; }
+        if (g_ssids[cand][0] && !taken[cand]) {
+          taken[cand] = true;
+          order[nOrder++] = cand;
+        }
       }
-      g_rr = (uint8_t)(pick + 1) % cloudsync::kNetMax;
-      waitS = 12;
+      g_rr = (uint8_t)((g_rr + 1) % cloudsync::kNetMax);
     }
 
     char msg[64];
-    snprintf(msg, sizeof(msg), "ansluter till %s", g_ssids[pick]);
-    setState(CLOUD_CONNECTING, msg);
-    WiFi.begin(g_ssids[pick], g_passes[pick]);
-
     bool up = false;
-    for (uint32_t i = 0; i < waitS; i++) {
+    int pick = -1;
+    for (uint8_t k = 0; k < nOrder && !up; k++) {
+      const uint8_t cand = order[k];
       if (trip::status().active) break;
-      if (WiFi.status() == WL_CONNECTED) { up = true; break; }
-      delay(1000);
+      snprintf(msg, sizeof(msg), "ansluter till %s (%u/%u)", g_ssids[cand],
+               (unsigned)(k + 1), (unsigned)nOrder);
+      setState(CLOUD_CONNECTING, msg);
+      WiFi.begin(g_ssids[cand], g_passes[cand]);
+      // Ett hort nat far tid pa sig; ett ohorbart provas snabbt sa att
+      // rundan hinner vidare till nasta.
+      const uint32_t waitS = heard[cand] ? 30 : 12;
+      for (uint32_t i = 0; i < waitS; i++) {
+        if (trip::status().active) break;
+        if (WiFi.status() == WL_CONNECTED) { up = true; pick = cand; break; }
+        delay(1000);
+      }
+      if (!up) WiFi.disconnect(true);
     }
 
     if (!up) {
       WiFi.disconnect(true);
-      // Vanligaste orsakerna i den har ordningen: natet sander bara pa
+      // Vanligaste orsakerna i den har ordningen: naten sander bara pa
       // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
       // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
-      snprintf(msg, sizeof(msg), "%s nas inte - 2,4 GHz? hotspot pa?",
-               g_ssids[pick]);
-      setState(CLOUD_IDLE, msg);
-      nextAttemptMs = now + backoffS * 1000UL;
+      setState(CLOUD_IDLE, "inget av naten nas - 2,4 GHz? hotspot pa?");
+      nextAttemptMs = millis() + backoffS * 1000UL;
       backoffS = min<uint32_t>(backoffS * 2, 900);
       continue;
     }
@@ -717,7 +739,14 @@ String ssid() {
   return String("");
 }
 
-void requestSync() { g_syncNow = true; }
+void requestSync() {
+  g_syncNow = true;
+  // Kvittens direkt pa skarmen - synktraden vaknar inom en sekund, men
+  // utan den har raden ser trycket ut att inte ha tagit.
+  if (!trip::status().active && anyNet()) {
+    setState(CLOUD_CONNECTING, "synk pa gang");
+  }
+}
 
 void setAutoSync(bool on) { g_autoSync = on; }
 
