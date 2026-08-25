@@ -25,6 +25,7 @@
 #include "gnss.h"
 #include "expander.h"
 #include "gui.h"
+#include "panel35.h"
 #include "sensors.h"
 #include "sound.h"
 #include "stats.h"
@@ -33,18 +34,11 @@
 
 // ------------------------------------------------------------- skarmen ----
 #if defined(BOARD_LCD35)
-// ST7796 pa vanlig SPI. CS ar fast strappad pa kortet och RST gar via
-// io-expandern, sa bada ar GFX_NOT_DEFINED har.
-//
-// HWSPI, inte ESP32SPI: den registerbaserade ESP32SPI-klassen lamnar
-// panelen svart pa den har kortrevisionen (bit-bangad SWSPI och QSPI
-// fungerar, ESP32SPI gor det inte), sa bussen far ga via Arduinos
-// SPI-bibliotek i stallet.
-Arduino_DataBus *bus = new Arduino_HWSPI(PIN_LCD_DC, GFX_NOT_DEFINED,
-                                         PIN_LCD_SCK, PIN_LCD_MOSI,
-                                         PIN_LCD_MISO);
-Arduino_GFX *panel = new Arduino_ST7796(bus, GFX_NOT_DEFINED, 0 /* rotation */,
-                                        true /* ips */, SCREEN_W, SCREEN_H);
+// Panelen drivs av panel35 (esp_lcd, samma stack som Waveshares
+// factory-firmware) - Arduino_GFX:s SPI-klasser lamnar den har
+// kortrevisionen svart. Ingen Arduino_GFX-panel finns alltsa har;
+// gui-koden ropar pa panel35 direkt.
+Arduino_GFX *panel = nullptr;
 #else
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(PIN_LCD_CS, PIN_LCD_SCK, PIN_LCD_D0,
                                              PIN_LCD_D1, PIN_LCD_D2, PIN_LCD_D3);
@@ -235,10 +229,10 @@ void setup() {
     delay(150);
   }
 
-  // Init exakt som Waveshares demokod: begin() utan hastighet sa att
-  // bussens standard galler, och rita innan ljuset tands.
-  const bool panelOk = panel->begin();
-  panel->fillScreen(0xF800);
+  // esp_lcd-vagen, verifierad pa hardvaran: init som factory, rita
+  // innan ljuset tands.
+  const bool panelOk = panel35::begin();
+  panel35::fill(0xF800);
 
   ledcAttach(PIN_LCD_BL, 20000, 8);
   gui::panelBrightness(235);
@@ -246,7 +240,7 @@ void setup() {
   // fram. Fastnar skarmen svart ar det strom, reset eller bussen;
   // fastnar den rod ar det LVGL-steget.
   delay(1000);
-  panel->fillScreen(0x0000);
+  panel35::fill(0x0000);
   Serial.printf("skarm: begin %s\n", panelOk ? "ok" : "MISSLYCKADES");
 #else
   // Skarmens matning maste sla pa forst av allt.

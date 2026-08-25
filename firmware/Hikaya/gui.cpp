@@ -1,4 +1,5 @@
 #include "gui.h"
+#include "panel35.h"
 
 #include <lvgl.h>
 
@@ -50,7 +51,11 @@ const char *g_custPtrs[24];
 void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   const int32_t w = area->x2 - area->x1 + 1;
   const int32_t h = area->y2 - area->y1 + 1;
+#if defined(BOARD_LCD35)
+  panel35::blit(area->x1, area->y1, w, h, (uint16_t *)px);
+#else
   g_panel->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px, w, h);
+#endif
   lv_display_flush_ready(disp);
 }
 
@@ -394,13 +399,21 @@ void setDisplayOn(bool on) {
   if (on == g_displayOn) return;
   g_displayOn = on;
   if (on) {
+#if defined(BOARD_LCD35)
+    panel35::displayOn(true);
+#else
     g_panel->displayOn();
+#endif
     panelBrightness(235);
     lv_display_trigger_activity(g_disp);
     lv_obj_invalidate(lv_screen_active());
   } else {
     panelBrightness(0);
+#if defined(BOARD_LCD35)
+    panel35::displayOn(false);
+#else
     g_panel->displayOff();
+#endif
   }
 }
 

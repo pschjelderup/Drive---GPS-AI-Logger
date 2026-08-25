@@ -1,10 +1,15 @@
-// Anthropic-proxyn: SDK:t i webblasaren pekas hit i stallet for mot
-// api.anthropic.com, och nyckeln byts in har ur Vercels miljovariabler -
-// den ligger inte langre i nagon webblasare. Edge-runtime sa att den
-// strommande analysen passerar oforandrad.
+// Anthropic-proxyn: SDK:t i webblasaren pekas mot /api/anthropic och
+// skickar sina anrop till /v1/messages - som ar exakt den har filen.
+// Nyckeln byts in ur Vercels miljovariabler; den ligger inte i nagon
+// webblasare. Edge-runtime sa att den strommande analysen passerar
+// oforandrad.
 //
-// Bara inloggade slapps fram: en oppen proxy hade latit vem som helst brenna
-// anvandarens Anthropic-kredit.
+// Fast sokvag, inte catch-all: [...path]-filen byggdes aldrig av Vercel
+// (alla andra funktioner fanns, den gav 404), och SDK:t anvander anda
+// bara den har endpointen.
+//
+// Bara inloggade slapps fram: en oppen proxy hade latit vem som helst
+// branna anvandarens Anthropic-kredit.
 export const config = { runtime: "edge" };
 
 const SUPABASE_URL = "https://jdjkeloiwjkcycelmexq.supabase.co";
@@ -33,7 +38,6 @@ export default async function handler(req) {
   }
 
   const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/api\/anthropic/, "");
 
   const headers = new Headers(req.headers);
   headers.set("x-api-key", key);
@@ -41,7 +45,7 @@ export default async function handler(req) {
   headers.delete("host");
   headers.delete("content-length");
 
-  const upstream = await fetch(`https://api.anthropic.com${path}${url.search}`, {
+  const upstream = await fetch(`https://api.anthropic.com/v1/messages${url.search}`, {
     method: req.method,
     headers,
     body: req.body,
