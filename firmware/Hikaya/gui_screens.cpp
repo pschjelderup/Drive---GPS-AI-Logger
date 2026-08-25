@@ -546,13 +546,20 @@ static void build_drive() {
   lv_obj_center(sp);
   lv_obj_add_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
 
-  // Syftesknapparna: den valda fylls, de andra ar glas.
+  // Hemsvepet laggs FORE syftesknapparna: det som skapas sist ligger
+  // overst, och med baren under stjal den inte langre trycken ur
+  // knapparnas nederkant - en av anledningarna till att de var svara
+  // att traffa.
+  add_home_bar(scr);
+
+  // Syftesknapparna: den valda fylls, de andra ar glas. Stora nog att
+  // traffas med tummen i farthållarlage - 140 x 60 i designmatt.
   static const char *names[3] = {"PRIVAT", "FÖRETAG", "DIFFUST"};
   for (int i = 0; i < 3; i++) {
     lv_obj_t *b = lv_button_create(scr);
     lv_obj_remove_style_all(b);
-    lv_obj_set_size(b, SX(132), SY(44));
-    lv_obj_set_pos(b, SX(18 + i * 141), SY(540));
+    lv_obj_set_size(b, SX(140), SY(60));
+    lv_obj_set_pos(b, SX(9 + i * 146), SY(532));
     lv_obj_set_style_radius(b, 14, 0);
     lv_obj_add_event_cb(b, purpose_cb, LV_EVENT_CLICKED,
                         (void *)(intptr_t)(i + 1));
@@ -560,8 +567,6 @@ static void build_drive() {
     g_purLbl[i] = label(b, F20, COL_DIM, names[i]);
     lv_obj_center(g_purLbl[i]);
   }
-
-  add_home_bar(scr);
 }
 
 static void style_purpose(int i, lv_color_t tint, bool active) {
