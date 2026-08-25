@@ -45,7 +45,7 @@ jobs:
           path: |
             ~/.arduino15/packages
             ~/Arduino/libraries
-          key: arduino-esp32-3.3.11-gfx1.6.7-sensorlib0.4.1-ublox3.1.14-lvgl9.3.0
+          key: arduino-esp32-3.3.11-gfx1.6.7-sensorlib0.4.1-ublox3.1.14-lvgl9.3.0-xpowers0.2.9
 
       - name: Installera ESP32-kort och bibliotek
         if: steps.cache.outputs.cache-hit != 'true'
@@ -62,6 +62,7 @@ jobs:
           arduino-cli lib install "SensorLib"@0.4.1
           arduino-cli lib install "SparkFun u-blox GNSS v3"@3.1.14
           arduino-cli lib install "lvgl"@9.3.0
+          arduino-cli lib install "XPowersLib"@0.2.9
 
       - name: Konfigurera arduino-cli
         run: |
