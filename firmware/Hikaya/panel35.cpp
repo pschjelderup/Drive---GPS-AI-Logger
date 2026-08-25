@@ -99,7 +99,9 @@ bool begin() {
     cmd(0xE1, d, 14, 0); }
   { const uint8_t d[] = {0x3C}; cmd(0xF0, d, 1, 0); }   // las igen
   { const uint8_t d[] = {0x69}; cmd(0xF0, d, 1, 120); }
-  { const uint8_t d[] = {0x08}; cmd(0x36, d, 1, 0); }   // BGR
+  // MX + BGR: utan MX-biten ar bilden spegelvand langs X-axeln pa den
+  // har panelen - texten lases baklanges. 0x48 = spegla X, BGR-ordning.
+  { const uint8_t d[] = {0x48}; cmd(0x36, d, 1, 0); }
   cmd(0x21, nullptr, 0, 0);   // invertera - ips-glas
   cmd(0x29, nullptr, 0, 20);  // display pa
   return true;

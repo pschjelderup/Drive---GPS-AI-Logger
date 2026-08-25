@@ -350,7 +350,10 @@ void begin(Arduino_GFX *panel, TouchDrvFT6X36 *touch, bool touchOk,
   lv_indev_set_read_cb(indev, touch_cb);
   // Touchen lases var 20:e ms i stallet for var 33:e - ett snabbt tryck ska
   // fangas aven om fingret bara nuddar. Kanslan sitter i avlasningstakten.
-  lv_timer_set_period(lv_indev_get_read_timer(indev), 20);
+  // 10 ms mellan avlasningarna: touchen sitter pa 400 kHz-i2c och en
+  // lasning kostar under en millisekund, sa taten poll ar gratis - och
+  // varje halverad vantan syns direkt i hur kvickt ett tryck tar.
+  lv_timer_set_period(lv_indev_get_read_timer(indev), 10);
 
   gui_screens_create(&kActions);
 }
@@ -365,12 +368,16 @@ void tick() {
     sound::play(CUE_TRIP_END);
   } else if (!t.awaitingPurpose && g_askArmed) {
     g_askArmed = false;
+    // Resan ar avslutad och fardigmarkt - ratt ogonblick att synka: forst
+    // nu ar syfte och kund satta, sa uppladdningen far med sig allt.
+    cloudsync::requestSync();
   }
   if (g_askArmed && millis() - g_askStartMs > kAskMs) {
     // Ingen svarade. Resan var diffus, och det ar det som skrivs - att gissa
     // privat eller foretag ur tystnad vore att hitta pa.
     trip::setPurpose(PURPOSE_DIFFUST);
     g_askArmed = false;
+    cloudsync::requestSync();
   }
 
   // ---- modellen in i skarmarna, nagra ganger i sekunden

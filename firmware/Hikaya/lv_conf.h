@@ -22,6 +22,11 @@
 /* Tidsbasen far LVGL skota sjalv fran millis-kallan vi anger i gluet. */
 #define LV_USE_OS LV_OS_NONE
 
+/* Skarmen ritas om var 16:e ms i stallet for standardens 33 - halverad
+ * vantan fran tryck till synlig respons. Bada panelerna orkar det:
+ * AMOLED:en pa 80 MHz qspi, LCD:n pa 80 MHz spi med DMA. */
+#define LV_DEF_REFR_PERIOD 16
+
 /* Ritning: mjukvarurenderaren racker gott; ingen GPU pa kortet. */
 #define LV_USE_DRAW_SW 1
 #define LV_DRAW_SW_COMPLEX 1
