@@ -199,6 +199,13 @@ void setup() {
   Serial.print("version ");
   Serial.println(fwVersionFull());
   Serial.println("byggd " __DATE__ " " __TIME__);
+  // Kortvarianten i klartext. Fel firmware pa ratt kort ser ut precis som
+  // en trasig skarm - den har raden ar det som skiljer dem at i loggen.
+#if defined(BOARD_LCD35)
+  Serial.println("kort: LCD 3.5");
+#else
+  Serial.println("kort: AMOLED 2.41");
+#endif
 
 #if defined(BOARD_LCD35)
   // Io-expandern ager skarmens reset och kortets CS, sa i2c-bussen och

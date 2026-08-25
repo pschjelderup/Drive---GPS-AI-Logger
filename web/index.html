@@ -253,7 +253,12 @@
       function laddaManifest() {
         const modell = document.querySelector('input[name="modell"]:checked').value;
         const fraskt = "manifest-" + modell + ".json?t=" + Date.now();
-        document.querySelector("esp-web-install-button").manifest = fraskt;
+        // Bade attributet och egenskapen satts. Satts bara egenskapen innan
+        // knappens webbkomponent hunnit definieras kan den skuggas och
+        // knappen flasha fel modell - attributet gar aldrig att skugga.
+        const knapp = document.querySelector("esp-web-install-button");
+        knapp.setAttribute("manifest", fraskt);
+        knapp.manifest = fraskt;
         visaVersion(fraskt);
       }
       document.querySelectorAll('input[name="modell"]').forEach((r) =>
