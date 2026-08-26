@@ -127,15 +127,29 @@ export default function DataFiles() {
             <tr><th>Fil</th><th>Version</th><th>Storlek</th><th>Uppdaterad</th></tr>
           </thead>
           <tbody>
-            {files.map((f) => (
-              <tr key={f.name}>
-                <td>{f.name}</td>
-                <td><code>{f.version}</code></td>
-                <td>{fmtBytes(f.size_bytes)}
-                  {f.parts > 1 ? ` (${f.parts} delar)` : ""}</td>
-                <td>{fmtDateTime(f.updated_at)}</td>
-              </tr>
-            ))}
+            {files.map((f) => {
+              // Delformatet ar ett kontrakt med enheten: varje del utom den
+              // sista ar exakt PART_BYTES. En fil uppladdad fore kontraktet
+              // har farre, storre delar - enheten vagrar dem, tyst. Da ska
+              // det synas HAR, inte uppdagas i bilen.
+              const gammal = f.parts > 1 &&
+                f.parts !== Math.ceil(f.size_bytes / PART_BYTES);
+              return (
+                <tr key={f.name}>
+                  <td>{f.name}</td>
+                  <td><code>{f.version}</code></td>
+                  <td>{fmtBytes(f.size_bytes)}
+                    {f.parts > 1 ? ` (${f.parts} delar)` : ""}
+                    {gammal && (
+                      <div className="status error" style={{ margin: 0 }}>
+                        gammalt delformat – enheten kan inte hämta den.
+                        Kör "Uppdatera allt".
+                      </div>
+                    )}</td>
+                  <td>{fmtDateTime(f.updated_at)}</td>
+                </tr>
+              );
+            })}
             {!files.length && (
               <tr><td colSpan="4" className="status">inga filer uppladdade än</td></tr>
             )}
