@@ -36,7 +36,7 @@ namespace {
 // stromen mitt i den, och da ar sista kanda position resans mal.
 
 const uint32_t kStateMagic = 0x31565244;  // "DRV1"
-const uint16_t kStateVersion = 1;
+const uint16_t kStateVersion = 2;  // 2: gransstatistiken tillkom
 const size_t kSlotSize = 512;
 
 #pragma pack(push, 1)
@@ -68,6 +68,12 @@ struct StateRecord {
   float ecoScore;
   uint32_t hardEvents;
   char customer[40];
+
+  // Korning per skyltad grans: index ar gransen/10 (0 = okand grans,
+  // 13 = over 120). Sekunder och meter i rullning - grunden for
+  // vagtypsstatistiken i webbappen.
+  uint32_t limitS[14];
+  float limitM[14];
 
   uint32_t crc;  // over alla byte fore detta falt
 };
@@ -148,6 +154,10 @@ uint32_t g_lastPointMs = 0;
 uint32_t g_movingTotalMs = 0;
 uint32_t g_speedingTotalMs = 0;
 
+// Rullning per skyltad grans, samma indexering som i StateRecord.
+uint32_t g_limitMs[14] = {};
+double g_limitM[14] = {};
+
 // Sista punkten dar bilen faktiskt rorde sig. Det ar den som blir resans mal -
 // inte dar den stod nar de fyra minuterna gick ut. Annars hade varje resa fatt
 // parkeringstiden pahangd och malet hamnat i gps-bruset kring parkeringen.
@@ -186,6 +196,10 @@ void refreshLiveStats() {
   if (!g_active) return;
   g_state.movingS = g_movingTotalMs / 1000;
   g_state.speedingS = g_speedingTotalMs / 1000;
+  for (uint8_t i = 0; i < 14; i++) {
+    g_state.limitS[i] = g_limitMs[i] / 1000;
+    g_state.limitM[i] = (float)g_limitM[i];
+  }
 
   const EcoStatus e = eco::status();
   g_state.ecoScore = e.tripScore;
@@ -329,6 +343,22 @@ void appendTripRow(const StateRecord &r) {
     snprintf(ecoJson, sizeof(ecoJson), "null");
   }
 
+  // Vagtypsstatistiken som kompakt json: bara granser med innehall,
+  // {"50":[sekunder,meter], ...}. Nyckeln "0" ar okand grans.
+  char granser[220];
+  {
+    size_t p = 0;
+    granser[p++] = '{';
+    for (uint8_t i = 0; i < 14 && p < sizeof(granser) - 24; i++) {
+      if (r.limitS[i] == 0 && r.limitM[i] < 1.0f) continue;
+      p += snprintf(granser + p, sizeof(granser) - p, "%s\"%u\":[%lu,%lu]",
+                    p > 1 ? "," : "", (unsigned)(i * 10),
+                    (unsigned long)r.limitS[i], (unsigned long)r.limitM[i]);
+    }
+    granser[p++] = '}';
+    granser[p] = '\0';
+  }
+
   File j = SDCARD.open(TRIPS_JSONL, FILE_APPEND);
   if (j) {
     j.printf(
@@ -336,12 +366,13 @@ void appendTripRow(const StateRecord &r) {
         "\"start_lon\":%.7f,\"mal_lat\":%.7f,\"mal_lon\":%.7f,\"meter\":%.1f,"
         "\"punkter\":%lu,\"syfte\":\"%s\",\"kund\":\"%s\",\"maxfart_kmh\":%.1f,"
         "\"fortkorning_s\":%lu,\"rullande_s\":%lu,\"ecopoang\":%s,"
-        "\"harda_moment\":%lu,\"avslut\":\"%s\",\"gpx\":\"R%04lu.GPX\"}\n",
+        "\"harda_moment\":%lu,\"avslut\":\"%s\",\"granser\":%s,"
+        "\"gpx\":\"R%04lu.GPX\"}\n",
         (unsigned long)r.index, startIso, endIso, r.startLat, r.startLon,
         r.lastLat, r.lastLon, r.distanceM, (unsigned long)r.points,
         trip::purposeSlug((TripPurpose)r.purpose), r.customer, r.maxSpeedKmh,
         (unsigned long)r.speedingS, (unsigned long)r.movingS, ecoJson,
-        (unsigned long)r.hardEvents, slut, (unsigned long)r.index);
+        (unsigned long)r.hardEvents, slut, granser, (unsigned long)r.index);
     j.flush();
     j.close();
   }
@@ -511,6 +542,8 @@ void startTrip(double lat, double lon, bool haveFix) {
   g_lastPointMs = 0;
   g_movingTotalMs = 0;
   g_speedingTotalMs = 0;
+  memset(g_limitMs, 0, sizeof(g_limitMs));
+  memset(g_limitM, 0, sizeof(g_limitM));
   g_haveMoving = haveFix;
   g_movingLat = lat;
   g_movingLon = lon;
@@ -895,13 +928,13 @@ void tick() {
   // annars for att satta en maxfart ingen bil kan kora - dagboken har haft
   // 362 388 km/h fran precis det. Positionen kan fortfarande duga till
   // sparet; det ar bara siffrorna om fart som star over.
+  const uint8_t limit = f.speedTrusted ? cams::currentLimitKmh() : 0;
   if (f.speedTrusted) {
     if (f.speedKmh > g_state.maxSpeedKmh) g_state.maxSpeedKmh = f.speedKmh;
 
     // Overhastighet raknas mot den skyltade hastigheten dar vi ar, nar den ar
     // kand. Ar den okand raknas ingen overhastighet - hellre en lucka i
     // statiken an en siffra som bygger pa en gissning.
-    const uint8_t limit = cams::currentLimitKmh();
     if (limit > 0 && f.speedKmh > (float)limit + LIMIT_TOLERANCE_KMH) {
       g_speedingTotalMs += dt;
     }
@@ -913,6 +946,12 @@ void tick() {
   if (moving) {
     g_stoppedMs = 0;
     g_movingTotalMs += dt;
+
+    // Vagtypsstatistiken: tid och strecka bokforda pa den skyltade gransen
+    // dar bilen rullar just nu. Index 0 ar okand grans, 13 allt over 120.
+    const uint8_t li = (limit <= 130) ? limit / 10 : 13;
+    g_limitMs[li] += dt;
+    g_limitM[li] += (double)f.speedKmh / 3.6 * (double)dt / 1000.0;
   } else if (f.speedTrusted) {
     g_stoppedMs += dt;
     if (g_stoppedMs >= (uint32_t)TRIP_STOP_S * 1000) {

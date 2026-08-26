@@ -275,9 +275,92 @@ function aggregateGroup(group, members) {
   };
 }
 
+// Vagtypsstatistiken: hur korningen fordelar sig over skyltade granser.
+// Enheten bokfor sekunder och meter per grans under varje resa
+// (limit_stats), sa har behovs bara summering - och en stapel per
+// kategori sa att fordelningen syns pa en blick. Bara resor synkade
+// efter att funktionen kom in bar data; de utan raknas inte med.
+function LimitStatsCard({ trips }) {
+  const agg = useMemo(() => {
+    const per = {};
+    let totM = 0, totS = 0, withData = 0;
+    for (const t of trips) {
+      const ls = t.limit_stats;
+      if (!ls || typeof ls !== "object") continue;
+      withData++;
+      for (const [k, v] of Object.entries(ls)) {
+        if (!Array.isArray(v)) continue;
+        const [s, m] = v;
+        if (!per[k]) per[k] = { s: 0, m: 0 };
+        per[k].s += s || 0;
+        per[k].m += m || 0;
+        totS += s || 0;
+        totM += m || 0;
+      }
+    }
+    const rows = Object.entries(per)
+      .map(([k, v]) => ({ limit: Number(k), ...v }))
+      .filter((r) => r.m >= 100)
+      .sort((a, b) => b.m - a.m);
+    return { rows, totM, totS, withData };
+  }, [trips]);
+
+  if (!agg.rows.length) return null;
+  return (
+    <div className="card">
+      <h2>Vägtyper</h2>
+      <p style={{ color: "var(--dim)", marginTop: 0, fontSize: ".85rem" }}>
+        Körning per skyltad hastighetsgräns, ur {agg.withData} resor med
+        mätning. Totalt {kmFmt.format(agg.totM / 1000)} km
+        på {fmtDur(agg.totS)}.
+      </p>
+      <table className="journal">
+        <thead>
+          <tr><th>Gräns</th><th>Andel</th><th></th><th>Km</th><th>Tid</th></tr>
+        </thead>
+        <tbody>
+          {agg.rows.map((r) => {
+            const pct = agg.totM ? (r.m / agg.totM) * 100 : 0;
+            return (
+              <tr key={r.limit}>
+                <td>{r.limit ? `${r.limit} km/h` : "okänd gräns"}</td>
+                <td>{pct >= 10 ? Math.round(pct) : pct.toFixed(1)} %</td>
+                <td style={{ width: "34%" }}>
+                  <div style={{
+                    height: ".55rem", borderRadius: "4px",
+                    width: `${Math.max(2, pct)}%`,
+                    background: r.limit ? "var(--accent)" : "var(--dim)",
+                  }} />
+                </td>
+                <td>{kmFmt.format(r.m / 1000)}</td>
+                <td>{fmtDur(r.s)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Gruppkortet: helheten overst, delstrackorna under - var och en klickbar.
-function GroupModal({ entry, onClose, onOpenTrip, onUngroup, onRelabel }) {
+// Syfte, kund, start- och malplats redigeras har precis som pa en enskild
+// resa: syfte och kund satts pa alla delresor, startplatsen pa den forsta
+// och malplatsen pa den sista - gruppen behover aldrig slas isar for det.
+function GroupModal({ entry, onClose, onOpenTrip, onUngroup, onRelabel,
+                      customers, onPatch }) {
   const t = entry.view;
+  const sorted = [...entry.trips].sort(
+    (a, b) => (a.start_utc ?? "").localeCompare(b.start_utc ?? ""));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const patchAll = (fields) => { for (const m of entry.trips) onPatch(m.id, fields); };
+  // Modalen haller sina egna val: entry ar en stillbild fran nar den
+  // oppnades, sa utan detta skulle valjaren se ororbar ut fast andringen
+  // sparats pa alla delresor.
+  const [selPurpose, setSelPurpose] = useState(
+    entry.view.purpose === "blandat" ? "" : (entry.view.purpose ?? "omarkt"));
+  const [selCustomer, setSelCustomer] = useState(entry.view.customer ?? "");
   const kv = (label, value) => (
     <div className="kv"><span>{label}</span><b>{value}</b></div>
   );
@@ -297,6 +380,51 @@ function GroupModal({ entry, onClose, onOpenTrip, onUngroup, onRelabel }) {
           {kv("Rullande tid", t.moving_s != null ? fmtDur(t.moving_s) : "–")}
           {kv("Toppfart", t.max_speed_kmh ? `${Math.round(t.max_speed_kmh)} km/h` : "–")}
           {kv("Ecopoäng", t.eco_score != null ? Math.round(t.eco_score) : "omätt")}
+        </div>
+        <div className="kvgrid" style={{ marginBottom: ".6rem" }}>
+          <div className="kv"><span>Syfte</span>
+            <select value={selPurpose}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setSelPurpose(e.target.value);
+                patchAll({ purpose: e.target.value });
+              }}>
+              {selPurpose === "" && <option value="">(blandat)</option>}
+              {selPurpose === "omarkt" && <option value="omarkt">Omärkt</option>}
+              {PURPOSES.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="kv"><span>Kund</span>
+            <select value={selCustomer}
+              onChange={(e) => {
+                setSelCustomer(e.target.value);
+                patchAll({ customer: e.target.value || null });
+              }}>
+              <option value="">–</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.name}>{c.name}</option>
+              ))}
+              {selCustomer && !customers.some((c) => c.name === selCustomer) && (
+                <option value={selCustomer}>{selCustomer}</option>
+              )}
+            </select>
+          </div>
+          {first && (
+            <div className="kv"><span>Startplats</span>
+              <PlacePicker lat={first.start_lat} lon={first.start_lon}
+                value={first.start_place}
+                onPick={(name) => onPatch(first.id, { start_place: name })} />
+            </div>
+          )}
+          {last && (
+            <div className="kv"><span>Målplats</span>
+              <PlacePicker lat={last.end_lat} lon={last.end_lon}
+                value={last.end_place}
+                onPick={(name) => onPatch(last.id, { end_place: name })} />
+            </div>
+          )}
         </div>
         <h2 style={{ fontSize: ".85rem", color: "var(--dim)", textTransform: "uppercase" }}>
           Delsträckor
@@ -1067,6 +1195,8 @@ export default function Journal() {
         )}
       </div>
 
+      <LimitStatsCard trips={shown} />
+
       {perKund.rows.length > 0 && (
         <div className="card">
           <h2>Per kund</h2>
@@ -1205,7 +1335,7 @@ export default function Journal() {
           patch={patch} onDelete={removeTrip} onClose={() => setSelected(null)} />
       )}
       {openGroup && (
-        <GroupModal entry={openGroup}
+        <GroupModal entry={openGroup} customers={customers} onPatch={patch}
           onClose={() => setOpenGroup(null)}
           onOpenTrip={(t) => { setOpenGroup(null); setSelected(t); }}
           onUngroup={ungroup}
