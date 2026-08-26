@@ -333,11 +333,22 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
+    // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
+    // stannar upp i sekunder mitt i en overforing, och att doma ut delen
+    // vid forsta hacket var darfor detsamma som att aldrig fa hem den.
+    // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
+    uint32_t lastProgressMs = millis();
     while (remaining != 0) {
       if (mustAbort()) { http.end(); out.close(); return false; }
       const size_t got = stream->readBytes(
           buf, min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
-      if (got == 0) break;
+      if (got == 0) {
+        const bool dead = !stream->connected() && stream->available() == 0;
+        if (dead || millis() - lastProgressMs > 20000UL) break;
+        delay(50);  // vanta ut hacket utan att snurra varm
+        continue;
+      }
+      lastProgressMs = millis();
       if (out.write(buf, got) != got) {
         http.end(); out.close(); return false;
       }
