@@ -5,12 +5,25 @@ export function parseGpx(xmlText) {
   const doc = new DOMParser().parseFromString(xmlText, "application/xml");
   if (doc.querySelector("parsererror")) return null;
 
+  // Segment for segment, med pennlyft (null) emellan: den rekonstruerade
+  // kallstartsstrackan ligger i ett eget trkseg, och sommen mellan den och
+  // det riktiga sparet ska inte ritas som om den vore kord i ett svep.
+  const segs = Array.from(doc.getElementsByTagName("trkseg"));
+  const sources = segs.length ? segs : [doc];
   const pts = [];
-  for (const el of doc.getElementsByTagName("trkpt")) {
-    const lat = parseFloat(el.getAttribute("lat"));
-    const lon = parseFloat(el.getAttribute("lon"));
-    if (Number.isFinite(lat) && Number.isFinite(lon)) pts.push([lat, lon]);
+  for (const seg of sources) {
+    let added = false;
+    for (const el of seg.getElementsByTagName("trkpt")) {
+      const lat = parseFloat(el.getAttribute("lat"));
+      const lon = parseFloat(el.getAttribute("lon"));
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        pts.push([lat, lon]);
+        added = true;
+      }
+    }
+    if (added) pts.push(null);
   }
+  if (pts.length && pts[pts.length - 1] === null) pts.pop();
   return pts;
 }
 

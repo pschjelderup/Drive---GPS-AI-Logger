@@ -612,6 +612,9 @@ function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
           {kv("Spårpunkter", t.points ?? "–")}
           {kv("Avslut", t.end_reason ?? "–")}
           {kv("GPX", t.gpx_name ?? "–")}
+          {t.gap_filled_m > 0 && kv("Rekonstruerad",
+            `första ${fmtKm(t.gap_filled_m)} km enligt ruttförslag – ` +
+            "gps-fixen kom efter start")}
         </div>
 
         <div className="kvgrid" style={{ marginTop: ".6rem" }}>
@@ -831,10 +834,6 @@ export default function Journal() {
       const hasPos = (la, lo) =>
         Number.isFinite(la) && Number.isFinite(lo) && (la || lo);
 
-      // Egna platser forst: en resa som borjar eller slutar inom 400 meter
-      // fran hemmet eller kontoret far platsens namn - "Hemma -> Kontoret"
-      // i stallet for tva namnlosa koordinater. Bara tomma falt fylls i;
-      // det nagon valt sjalv ror vi aldrig.
       const nearOwn = (la, lo) => {
         let best = null;
         for (const p of places) {
@@ -844,6 +843,90 @@ export default function Journal() {
         }
         return best?.p ?? null;
       };
+
+      // Kallstartsluckan: gps-fixen kan droja minuter efter start, och da
+      // borjar sparet forst dar fixen kom - inte dar bilen parkerades.
+      // Parkeringen ar forra resans mal, sa nar avstandet dit ar for stort
+      // hamtas ett ruttforslag och skarvas in i gpx-filen som ett eget
+      // trkseg; resans start flyttas till parkeringen och den ifyllda
+      // strackan bokfors oppet i gap_filled_m. null = inte provad,
+      // 0 = ingen lucka.
+      {
+        const GAP_MIN_M = 300, GAP_MAX_M = 30000;
+        let gapBudget = 8;  // rutt + gpx-omskrivning ar tungt; resten nasta besok
+        for (const t of trips) {
+          if (gapBudget <= 0) break;
+          if (t.gap_filled_m != null) continue;
+          if (!hasPos(t.start_lat, t.start_lon) || !t.gpx_path) continue;
+          const prev = trips.find((p) =>
+            p.device_id === t.device_id && p.trip_no === t.trip_no - 1);
+          if (!prev || !hasPos(prev.end_lat, prev.end_lon)) {
+            await patch(t.id, { gap_filled_m: 0 });
+            continue;
+          }
+          const gap = distanceM(prev.end_lat, prev.end_lon,
+                                t.start_lat, t.start_lon);
+          if (gap < GAP_MIN_M || gap > GAP_MAX_M) {
+            await patch(t.id, { gap_filled_m: 0 });
+            continue;
+          }
+          gapBudget--;
+          try {
+            const r = await fetch(
+              `/api/rutt?flat=${prev.end_lat}&flon=${prev.end_lon}` +
+              `&tlat=${t.start_lat}&tlon=${t.start_lon}`,
+              { headers: { Authorization: `Bearer ${token}` } });
+            if (!r.ok) continue;  // provas igen nasta besok
+            const route = await r.json();
+            if (!route.points || route.points.length < 2) continue;
+
+            const { data } = await supabase.storage
+              .from(GPX_BUCKET).download(t.gpx_path);
+            if (!data) continue;
+            const xml = await data.text();
+            const segAt = xml.indexOf("<trkseg>");
+            if (segAt < 0) continue;
+
+            // Tiderna ar en uppskattning: rutten laggs sa att den slutar
+            // dar det riktiga sparet borjar, med ruttens korlangd bakat.
+            const firstTime = /<time>([^<]+)<\/time>/.exec(xml);
+            const endMs = firstTime ? Date.parse(firstTime[1])
+                                    : Date.parse(t.start_utc ?? 0);
+            const durMs = Math.max(30, route.seconds || 60) * 1000;
+            const n = route.points.length;
+            const seg = "<trkseg>\n" + route.points.map(([la, lo], i) => {
+              const ts = new Date(endMs - durMs + (durMs * i) / (n - 1));
+              return `<trkpt lat="${la.toFixed(6)}" lon="${lo.toFixed(6)}">` +
+                `<time>${ts.toISOString()}</time></trkpt>`;
+            }).join("\n") + "\n</trkseg>\n";
+
+            const patched = xml.slice(0, segAt) + seg + xml.slice(segAt);
+            const up = await supabase.storage.from(GPX_BUCKET)
+              .upload(t.gpx_path, new Blob([patched]), {
+                upsert: true, contentType: "application/gpx+xml",
+              });
+            if (up.error) continue;
+
+            const fields = {
+              start_lat: prev.end_lat,
+              start_lon: prev.end_lon,
+              gap_filled_m: Math.round(route.meters),
+              distance_m: (t.distance_m || 0) + route.meters,
+            };
+            // Nya startpunkten far ny adress och eventuell egen plats.
+            const own = nearOwn(prev.end_lat, prev.end_lon);
+            fields.start_place = own ? own.label : null;
+            fields.start_addr =
+              (await lookup(prev.end_lat, prev.end_lon)) ?? null;
+            await patch(t.id, fields);
+          } catch { /* natfel: fortfarande oprovad, tas nasta besok */ }
+        }
+      }
+
+      // Egna platser forst: en resa som borjar eller slutar inom 400 meter
+      // fran hemmet eller kontoret far platsens namn - "Hemma -> Kontoret"
+      // i stallet for tva namnlosa koordinater. Bara tomma falt fylls i;
+      // det nagon valt sjalv ror vi aldrig.
       for (const t of trips) {
         const fields = {};
         if (!t.start_place && hasPos(t.start_lat, t.start_lon)) {
