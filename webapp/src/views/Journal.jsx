@@ -858,13 +858,17 @@ export default function Journal() {
         let ruttBudget = 8;   // ruttuppslag ar tunga; resten nasta besok
         let skanBudget = 12;  // gpx-nedladdningar for lucksokning
 
+        // Ruttuppslag med tre utfall: en rutt, "saknas" (404 - ingen korbar
+        // vag, da far fagelvagen duga), eller null (tillfalligt fel - forsok
+        // igen nasta besok i stallet for att fylla i formycket).
         const hamtaRutt = async (fla, flo, tla, tlo) => {
           const r = await fetch(
             `/api/rutt?flat=${fla}&flon=${flo}&tlat=${tla}&tlon=${tlo}`,
             { headers: { Authorization: `Bearer ${token}` } });
+          if (r.status === 404) return "saknas";
           if (!r.ok) return null;
           const route = await r.json();
-          return route.points && route.points.length >= 2 ? route : null;
+          return route.points && route.points.length >= 2 ? route : "saknas";
         };
         // Ett trkseg med linjart fordelade tider t0..t1.
         const segXml = (points, t0, t1) => {
@@ -921,9 +925,18 @@ export default function Journal() {
             for (const h of holes.slice(0, 3)) {
               if (ruttBudget <= 0) break;
               ruttBudget--;
-              const route = await hamtaRutt(h.a.lat, h.a.lon, h.b.lat, h.b.lon);
-              if (!route) { anyFail = true; continue; }
-              if (route.meters > h.d * 4) continue;
+              let route = await hamtaRutt(h.a.lat, h.a.lon, h.b.lat, h.b.lon);
+              if (route === null) { anyFail = true; continue; }
+              // Ingen rutt, eller en absurd omvag (4x fagelvagen ar en
+              // gps-glitch, inte en tunnel): fagelvagen ar battre an ett
+              // hal - segmentet finns, pennlyften visar att det ar en
+              // rekonstruktion, och strackan var redan raknad.
+              if (route === "saknas" || route.meters > h.d * 4) {
+                route = {
+                  points: [[h.a.lat, h.a.lon], [h.b.lat, h.b.lon]],
+                  meters: h.d,
+                };
+              }
               // Rutten klipps in som eget segment mitt i det riktiga:
               // stang, skjut in, oppna igen. Att bygga pa radens innehall
               // rubbar inga andra radnummer.
@@ -943,9 +956,20 @@ export default function Journal() {
                                     t.start_lat, t.start_lon);
               if (gap >= GAP_MIN_M && gap <= GAP_MAX_M) {
                 ruttBudget--;
-                const route = await hamtaRutt(prev.end_lat, prev.end_lon,
-                                              t.start_lat, t.start_lon);
-                if (!route) {
+                let route = await hamtaRutt(prev.end_lat, prev.end_lon,
+                                            t.start_lat, t.start_lon);
+                // Fagelvagen aven har: hellre en synligt rekonstruerad
+                // strecka fran parkeringen an ett spar som borjar i tomma
+                // intet.
+                if (route === "saknas") {
+                  route = {
+                    points: [[prev.end_lat, prev.end_lon],
+                             [t.start_lat, t.start_lon]],
+                    meters: gap,
+                    seconds: gap / 14,
+                  };
+                }
+                if (route === null) {
                   anyFail = true;
                 } else {
                   const segAt = xml.indexOf("<trkseg>");
