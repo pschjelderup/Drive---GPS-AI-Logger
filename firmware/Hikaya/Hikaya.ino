@@ -156,7 +156,11 @@ void printStatusLine() {
   const TripStatus t = trip::status();
 
   if (!d.present) {
+#if defined(GNSS_UART)
+    Serial.println("GPS: inga nmea-meningar pa uarten (GPIO44)");
+#else
     Serial.println("GPS: ingen modul pa 0x42");
+#endif
   } else {
     // Paket utan satelliter ar antennfallet: modulen mar bra, den ser bara
     // ingenting. Inga paket alls ar ett busproblem.

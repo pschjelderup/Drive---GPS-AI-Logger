@@ -613,8 +613,8 @@ function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
           {kv("Avslut", t.end_reason ?? "–")}
           {kv("GPX", t.gpx_name ?? "–")}
           {t.gap_filled_m > 0 && kv("Rekonstruerad",
-            `första ${fmtKm(t.gap_filled_m)} km enligt ruttförslag – ` +
-            "gps-fixen kom efter start")}
+            `${fmtKm(t.gap_filled_m)} km enligt ruttförslag – ` +
+            "gps-täckning saknades (kallstart eller tunnel)")}
         </div>
 
         <div className="kvgrid" style={{ marginTop: ".6rem" }}>
@@ -844,82 +844,178 @@ export default function Journal() {
         return best?.p ?? null;
       };
 
-      // Kallstartsluckan: gps-fixen kan droja minuter efter start, och da
-      // borjar sparet forst dar fixen kom - inte dar bilen parkerades.
-      // Parkeringen ar forra resans mal, sa nar avstandet dit ar for stort
-      // hamtas ett ruttforslag och skarvas in i gpx-filen som ett eget
-      // trkseg; resans start flyttas till parkeringen och den ifyllda
-      // strackan bokfors oppet i gap_filled_m. null = inte provad,
-      // 0 = ingen lucka.
+      // Gps-luckorna: fixen kan droja minuter efter kallstart (sparet
+      // borjar dar fixen kom, inte dar bilen parkerades), och tackningen
+      // kan forsvinna mitt i resan - tunnlar, garage, radioskugga. Bada
+      // fallen fylls med ruttforslag som skarvas in i gpx-filen som EGNA
+      // trkseg (pennlyft i kartan - rekonstruktion ritas aldrig som
+      // uppmatt spar). Kallstartens start flyttas till parkeringen =
+      // forra resans mal. Total ifylld stracka bokfors oppet i
+      // gap_filled_m: null = inte provad, 0 = inga luckor.
       {
         const GAP_MIN_M = 300, GAP_MAX_M = 30000;
-        let gapBudget = 8;  // rutt + gpx-omskrivning ar tungt; resten nasta besok
-        for (const t of trips) {
-          if (gapBudget <= 0) break;
-          if (t.gap_filled_m != null) continue;
-          if (!hasPos(t.start_lat, t.start_lon) || !t.gpx_path) continue;
-          const prev = trips.find((p) =>
-            p.device_id === t.device_id && p.trip_no === t.trip_no - 1);
-          if (!prev || !hasPos(prev.end_lat, prev.end_lon)) {
-            await patch(t.id, { gap_filled_m: 0 });
-            continue;
-          }
-          const gap = distanceM(prev.end_lat, prev.end_lon,
-                                t.start_lat, t.start_lon);
-          if (gap < GAP_MIN_M || gap > GAP_MAX_M) {
-            await patch(t.id, { gap_filled_m: 0 });
-            continue;
-          }
-          gapBudget--;
-          try {
-            const r = await fetch(
-              `/api/rutt?flat=${prev.end_lat}&flon=${prev.end_lon}` +
-              `&tlat=${t.start_lat}&tlon=${t.start_lon}`,
-              { headers: { Authorization: `Bearer ${token}` } });
-            if (!r.ok) continue;  // provas igen nasta besok
-            const route = await r.json();
-            if (!route.points || route.points.length < 2) continue;
+        const HOLE_DIST_M = 500, HOLE_TIME_S = 60, HOLE_MAX_M = 20000;
+        let ruttBudget = 8;   // ruttuppslag ar tunga; resten nasta besok
+        let skanBudget = 12;  // gpx-nedladdningar for lucksokning
 
+        // Ruttuppslag med tre utfall: en rutt, "saknas" (404 - ingen korbar
+        // vag, da far fagelvagen duga), eller null (tillfalligt fel - forsok
+        // igen nasta besok i stallet for att fylla i formycket).
+        const hamtaRutt = async (fla, flo, tla, tlo) => {
+          const r = await fetch(
+            `/api/rutt?flat=${fla}&flon=${flo}&tlat=${tla}&tlon=${tlo}`,
+            { headers: { Authorization: `Bearer ${token}` } });
+          if (r.status === 404) return "saknas";
+          if (!r.ok) return null;
+          const route = await r.json();
+          return route.points && route.points.length >= 2 ? route : "saknas";
+        };
+        // Ett trkseg med linjart fordelade tider t0..t1.
+        const segXml = (points, t0, t1) => {
+          const n = points.length;
+          return "<trkseg>\n" + points.map(([la, lo], i) => {
+            const ts = new Date(t0 + ((t1 - t0) * i) / (n - 1));
+            return `<trkpt lat="${la.toFixed(6)}" lon="${lo.toFixed(6)}">` +
+              `<time>${ts.toISOString()}</time></trkpt>`;
+          }).join("\n") + "\n</trkseg>\n";
+        };
+
+        for (const t of trips) {
+          if (ruttBudget <= 0 || skanBudget <= 0) break;
+          if (t.gap_filled_m != null) continue;
+          if (!t.gpx_path || !hasPos(t.start_lat, t.start_lon)) continue;
+          skanBudget--;
+
+          try {
             const { data } = await supabase.storage
               .from(GPX_BUCKET).download(t.gpx_path);
             if (!data) continue;
-            const xml = await data.text();
-            const segAt = xml.indexOf("<trkseg>");
-            if (segAt < 0) continue;
+            let xml = await data.text();
+            let filled = 0;   // total rekonstruerad stracka
+            let added = 0;    // det som ska laggas pa resans langd
+            let anyFail = false;
 
-            // Tiderna ar en uppskattning: rutten laggs sa att den slutar
-            // dar det riktiga sparet borjar, med ruttens korlangd bakat.
-            const firstTime = /<time>([^<]+)<\/time>/.exec(xml);
-            const endMs = firstTime ? Date.parse(firstTime[1])
-                                    : Date.parse(t.start_utc ?? 0);
-            const durMs = Math.max(30, route.seconds || 60) * 1000;
-            const n = route.points.length;
-            const seg = "<trkseg>\n" + route.points.map(([la, lo], i) => {
-              const ts = new Date(endMs - durMs + (durMs * i) / (n - 1));
-              return `<trkpt lat="${la.toFixed(6)}" lon="${lo.toFixed(6)}">` +
-                `<time>${ts.toISOString()}</time></trkpt>`;
-            }).join("\n") + "\n</trkseg>\n";
+            // --- hal mitt i sparet. Enheten skriver en trkpt per rad,
+            // sa radvis lasning ar formatsaker. Ett hal ar ett stort
+            // hopp mellan tva grannpunkter; en absurd omvag i rutt-
+            // svaret (4x fagelvagen) ar en gps-glitch, inte en tunnel,
+            // och lamnas ifylld. Raka linjen ar redan raknad i resans
+            // langd, sa bara mellanskillnaden laggs till.
+            const lines = xml.split("\n");
+            const pts = [];
+            for (let i = 0; i < lines.length; i++) {
+              const m = /^<trkpt lat="([-\d.]+)" lon="([-\d.]+)">.*?<time>([^<]+)<\/time>/
+                .exec(lines[i]);
+              if (!m) continue;
+              const ms = Date.parse(m[3]);
+              if (!Number.isFinite(ms)) continue;
+              pts.push({ lat: +m[1], lon: +m[2], t: ms, line: i });
+            }
+            const holes = [];
+            for (let i = 1; i < pts.length; i++) {
+              const a = pts[i - 1], b = pts[i];
+              const d = distanceM(a.lat, a.lon, b.lat, b.lon);
+              const dtS = (b.t - a.t) / 1000;
+              if (d > HOLE_MAX_M) continue;
+              if (d > HOLE_DIST_M || (d > GAP_MIN_M && dtS > HOLE_TIME_S)) {
+                holes.push({ a, b, d });
+              }
+            }
+            holes.sort((x, y) => y.d - x.d);
+            for (const h of holes.slice(0, 3)) {
+              if (ruttBudget <= 0) break;
+              ruttBudget--;
+              let route = await hamtaRutt(h.a.lat, h.a.lon, h.b.lat, h.b.lon);
+              if (route === null) { anyFail = true; continue; }
+              // Ingen rutt, eller en absurd omvag (4x fagelvagen ar en
+              // gps-glitch, inte en tunnel): fagelvagen ar battre an ett
+              // hal - segmentet finns, pennlyften visar att det ar en
+              // rekonstruktion, och strackan var redan raknad.
+              if (route === "saknas" || route.meters > h.d * 4) {
+                route = {
+                  points: [[h.a.lat, h.a.lon], [h.b.lat, h.b.lon]],
+                  meters: h.d,
+                };
+              }
+              // Rutten klipps in som eget segment mitt i det riktiga:
+              // stang, skjut in, oppna igen. Att bygga pa radens innehall
+              // rubbar inga andra radnummer.
+              lines[h.a.line] += "\n</trkseg>\n" +
+                segXml(route.points, h.a.t, h.b.t) + "<trkseg>";
+              filled += route.meters;
+              added += Math.max(0, route.meters - h.d);
+            }
+            xml = lines.join("\n");
 
-            const patched = xml.slice(0, segAt) + seg + xml.slice(segAt);
-            const up = await supabase.storage.from(GPX_BUCKET)
-              .upload(t.gpx_path, new Blob([patched]), {
-                upsert: true, contentType: "application/gpx+xml",
-              });
-            if (up.error) continue;
+            // --- kallstartsluckan: parkeringen ar forra resans mal.
+            let newStart = null;
+            const prev = trips.find((p) =>
+              p.device_id === t.device_id && p.trip_no === t.trip_no - 1);
+            if (prev && hasPos(prev.end_lat, prev.end_lon) && ruttBudget > 0) {
+              const gap = distanceM(prev.end_lat, prev.end_lon,
+                                    t.start_lat, t.start_lon);
+              if (gap >= GAP_MIN_M && gap <= GAP_MAX_M) {
+                ruttBudget--;
+                let route = await hamtaRutt(prev.end_lat, prev.end_lon,
+                                            t.start_lat, t.start_lon);
+                // Fagelvagen aven har: hellre en synligt rekonstruerad
+                // strecka fran parkeringen an ett spar som borjar i tomma
+                // intet.
+                if (route === "saknas") {
+                  route = {
+                    points: [[prev.end_lat, prev.end_lon],
+                             [t.start_lat, t.start_lon]],
+                    meters: gap,
+                    seconds: gap / 14,
+                  };
+                }
+                if (route === null) {
+                  anyFail = true;
+                } else {
+                  const segAt = xml.indexOf("<trkseg>");
+                  if (segAt >= 0) {
+                    // Rutten laggs sa att den slutar dar det riktiga
+                    // sparet borjar, med ruttens korlangd bakat.
+                    const firstTime = /<time>([^<]+)<\/time>/.exec(xml);
+                    const endMs = firstTime ? Date.parse(firstTime[1])
+                                            : Date.parse(t.start_utc ?? 0);
+                    const durMs = Math.max(30, route.seconds || 60) * 1000;
+                    xml = xml.slice(0, segAt) +
+                      segXml(route.points, endMs - durMs, endMs) +
+                      xml.slice(segAt);
+                    filled += route.meters;
+                    added += route.meters;
+                    newStart = [prev.end_lat, prev.end_lon];
+                  }
+                }
+              }
+            }
 
-            const fields = {
-              start_lat: prev.end_lat,
-              start_lon: prev.end_lon,
-              gap_filled_m: Math.round(route.meters),
-              distance_m: (t.distance_m || 0) + route.meters,
-            };
-            // Nya startpunkten far ny adress och eventuell egen plats.
-            const own = nearOwn(prev.end_lat, prev.end_lon);
-            fields.start_place = own ? own.label : null;
-            fields.start_addr =
-              (await lookup(prev.end_lat, prev.end_lon)) ?? null;
-            await patch(t.id, fields);
-          } catch { /* natfel: fortfarande oprovad, tas nasta besok */ }
+            if (filled > 0) {
+              const up = await supabase.storage.from(GPX_BUCKET)
+                .upload(t.gpx_path, new Blob([xml]), {
+                  upsert: true, contentType: "application/gpx+xml",
+                });
+              if (up.error) continue;
+              const fields = {
+                gap_filled_m: Math.round(filled),
+                distance_m: (t.distance_m || 0) + added,
+              };
+              if (newStart) {
+                fields.start_lat = newStart[0];
+                fields.start_lon = newStart[1];
+                // Nya startpunkten far ny adress och eventuell egen plats.
+                const own = nearOwn(newStart[0], newStart[1]);
+                fields.start_place = own ? own.label : null;
+                fields.start_addr =
+                  (await lookup(newStart[0], newStart[1])) ?? null;
+              }
+              await patch(t.id, fields);
+            } else if (!anyFail) {
+              await patch(t.id, { gap_filled_m: 0 });
+            }
+            // anyFail utan ifyllnad: oprovad kvar, tas nasta besok.
+          } catch { /* natfel: oprovad kvar, tas nasta besok */ }
         }
       }
 

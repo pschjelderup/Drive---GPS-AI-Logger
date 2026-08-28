@@ -80,10 +80,17 @@ void output(uint16_t hz) {
 namespace sound {
 
 void begin() {
+#if defined(BOARD_LCD35)
+  // Ingen piezo har - och GPIO43 ar GPS-uartens TX. Att ansluta ledc dit
+  // hade tystat mottagaren, inte gett nagot ljud. Ljudet forblir en stub
+  // tills ES8311-kodeken far en egen drivning.
+  g_attached = false;
+#else
   // Atta bitars upplosning racker: dutycykeln behover bara vara halv, och en
   // hogre upplosning skulle bara begransa vilka frekvenser som gar att stalla.
   g_attached = ledcAttach(PIN_BUZZER, BUZZER_RESONANCE_HZ, 8);
   if (g_attached) output(0);
+#endif
 }
 
 void setEnabled(bool on) {

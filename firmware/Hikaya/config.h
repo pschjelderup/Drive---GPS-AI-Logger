@@ -57,10 +57,22 @@ static inline const char *fwVersionFull() {
 
 // ------------------------------------------------------------------ i2c ----
 // Delad buss: FT6336 (pekskarm), QMI8658 (rorelse), PCF85063 (klocka),
-// AXP2101 (strom), TCA9554 (io-expander) - och GPS:en via stiftlisten.
+// AXP2101 (strom), TCA9554 (io-expander).
 #define PIN_I2C_SDA 8
 #define PIN_I2C_SCL 7
 #define PIN_TOUCH_RST -1
+
+// ------------------------------------------------------------------ gps ----
+// GPS:en pa det har kortet ar en GT-U7 (NEO-6M-klon) pa stiftlistens
+// uart, inte qwiic-i2c som pa 2.41: korsade kablar, modulens TXD till
+// GPIO44 (RXD) och modulens RXD till GPIO43 (TXD), plus 3V3 och GND.
+// NEO-6M pratar nmea pa 9600 baud - u-blox-biblioteket (M8+) kan den
+// inte, sa gnss.cpp har en egen nmea-tolk for det har kortet.
+// OBS: GPIO43 ar darmed upptagen - piezo-stubben far aldrig rora den.
+#define GNSS_UART 1
+#define PIN_GNSS_RX 44
+#define PIN_GNSS_TX 43
+#define GNSS_BAUD 9600
 
 // Io-expandern ager tre signaler vi behover: skarmens reset, kortplatsens CS
 // och pekskarmens avbrott (som vi anda pollar).
