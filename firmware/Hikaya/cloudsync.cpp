@@ -379,10 +379,19 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     } else {
       snprintf(path, sizeof(path), "/file/%s", urlName);
     }
-    if (!httpBegin(http, tls, path)) { out.close(); return false; }
+    if (!httpBegin(http, tls, path)) {
+      out.close();
+      logg::event("%s del %d/%d: tls fick inte plats", urlName, p + 1, parts);
+      return false;
+    }
 
     const int code = http.GET();
-    if (code != 200) { http.end(); out.close(); return false; }
+    if (code != 200) {
+      http.end();
+      out.close();
+      logg::event("%s del %d/%d: svar %d", urlName, p + 1, parts, code);
+      return false;
+    }
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
@@ -432,8 +441,11 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     } else {
       if (dh) dh.close();
       SDCARD.remove(del);
-      Serial.printf("moln: %s del %d/%d brots (%ld av %ld byte)\n", urlName,
-                    p + 1, parts, dsz, partExpect);
+      // Siffran ar sjalva diagnosen, sa den gar till enhetsloggen: noll byte
+      // ar en dod forbindelse, nastan hela delen ar en klippt strom - tva
+      // helt olika fel som ser likadana ut pa skarmen.
+      logg::event("%s del %d/%d brots (%ld av %ld byte)", urlName, p + 1,
+                  parts, dsz, partExpect);
       return false;
     }
   }
