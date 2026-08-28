@@ -288,6 +288,46 @@ bool uploadGpx(uint8_t &failed) {
 // ateruppupptagning hann den aldrig fram over en hotspot.
 const char *kTmpFile = "/DRIVE/NED.TMP";
 
+// Chunkad http-strom: svar utan Content-Length ramas in bit for bit som
+// "storlek-i-hex\r\n data \r\n", avslutat med en nollstor bit. Ramarna ar
+// inte innehall - det var de som gjorde varje nedladdad del nagra hundra
+// byte "for stor" sa att storlekskontrollen forkastade den, om och om igen.
+// Har skalas ramen av och bara nyttolasten skrivs till filen.
+bool readChunked(WiFiClient *stream, File &out, uint8_t *buf, size_t bufLen) {
+  char line[20];
+  for (;;) {
+    if (mustAbort()) return false;
+    const size_t n = stream->readBytesUntil('\n', line, sizeof(line) - 1);
+    if (n == 0) return false;
+    line[n] = '\0';
+    const long sz = strtol(line, nullptr, 16);
+    if (sz < 0) return false;
+    if (sz == 0) {
+      stream->readBytesUntil('\n', line, sizeof(line) - 1);  // avslutande tomrad
+      return true;
+    }
+    long left = sz;
+    uint32_t lastProgressMs = millis();
+    while (left > 0) {
+      if (mustAbort()) return false;
+      const size_t got =
+          stream->readBytes(buf, min((long)bufLen, left));
+      if (got == 0) {
+        // Samma talamod som den olanka lasningen: hotspots hackar, och
+        // forst en dod lank eller 20 s utan framsteg ar slutet.
+        const bool dead = !stream->connected() && stream->available() == 0;
+        if (dead || millis() - lastProgressMs > 20000UL) return false;
+        delay(50);
+        continue;
+      }
+      lastProgressMs = millis();
+      if (out.write(buf, got) != got) return false;
+      left -= got;
+    }
+    stream->readBytesUntil('\n', line, sizeof(line) - 1);  // bitens \r\n
+  }
+}
+
 // Hur langt den pagaende nedladdningen kommit. Filen vaxer bara med hela,
 // kontrollerade delar, sa siffran ar ett arligt matt pa framsteg.
 long tmpBytes() {
@@ -303,7 +343,10 @@ long tmpBytes() {
 // den magi som molnet utlovar. Da ar nedladdningen redan gjord, bara inte av
 // enheten sjalv. (Tva olika versioner med exakt samma bytelangd skulle luras
 // har, men filerna byggs om fran hela NVDB och landar aldrig pa pricken lika.)
-bool adoptLocal(const char *target, const uint32_t magic, long expectBytes) {
+// En fil som finns men inte matchar loggas med bada siffrorna - det ar exakt
+// det man behover se nar ett manuellt kort "inte tas emot".
+bool adoptLocal(const char *target, const char *namn, const uint32_t magic,
+                long expectBytes) {
   if (expectBytes <= 0) return false;
   File f = SDCARD.open(target, FILE_READ);
   if (!f) return false;
@@ -311,7 +354,13 @@ bool adoptLocal(const char *target, const uint32_t magic, long expectBytes) {
   uint32_t m = 0;
   const bool okRead = f.read((uint8_t *)&m, 4) == 4;
   f.close();
-  return okRead && m == magic && sz == expectBytes;
+  const bool ok = okRead && m == magic && sz == expectBytes;
+  if (!ok) {
+    logg::event("%s pa kortet (%ld byte, %s) matchar inte molnets (%ld byte)",
+                namn, sz, okRead && m == magic ? "ratt signatur" : "fel signatur",
+                expectBytes);
+  }
+  return ok;
 }
 
 bool downloadFile(const char *urlName, int parts, const char *target,
@@ -336,6 +385,11 @@ bool downloadFile(const char *urlName, int parts, const char *target,
         if (sz > 0 && sz % CLOUD_PART_BYTES == 0 &&
             (int)(sz / CLOUD_PART_BYTES) < parts) {
           startPart = (int)(sz / CLOUD_PART_BYTES);
+        } else if (sz == expectBytes) {
+          // Hela filen ar redan hemma - bara kontrollen och filbytet
+          // aterstar. Sa har ser det ut nar sjalva inbytet misslyckades
+          // forra varvet; da ska inte 130 MB hamtas om for det.
+          startPart = parts;
         }
       }
     }
@@ -395,26 +449,32 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
-    // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
-    // stannar upp i sekunder mitt i en overforing, och att doma ut delen
-    // vid forsta hacket var darfor detsamma som att aldrig fa hem den.
-    // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
-    uint32_t lastProgressMs = millis();
-    while (remaining != 0) {
-      if (mustAbort()) { http.end(); out.close(); return false; }
-      const size_t got = stream->readBytes(
-          buf, min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
-      if (got == 0) {
-        const bool dead = !stream->connected() && stream->available() == 0;
-        if (dead || millis() - lastProgressMs > 20000UL) break;
-        delay(50);  // vanta ut hacket utan att snurra varm
-        continue;
+    if (remaining == -1) {
+      // Ingen Content-Length: svaret ar chunkat och ramarna maste skalas av.
+      readChunked(stream, out, buf, sizeof(buf));
+    } else {
+      // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
+      // stannar upp i sekunder mitt i en overforing, och att doma ut delen
+      // vid forsta hacket var darfor detsamma som att aldrig fa hem den.
+      // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
+      uint32_t lastProgressMs = millis();
+      while (remaining != 0) {
+        if (mustAbort()) { http.end(); out.close(); return false; }
+        const size_t got = stream->readBytes(
+            buf,
+            min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
+        if (got == 0) {
+          const bool dead = !stream->connected() && stream->available() == 0;
+          if (dead || millis() - lastProgressMs > 20000UL) break;
+          delay(50);  // vanta ut hacket utan att snurra varm
+          continue;
+        }
+        lastProgressMs = millis();
+        if (out.write(buf, got) != got) {
+          http.end(); out.close(); return false;
+        }
+        if (remaining > 0) remaining -= got;
       }
-      lastProgressMs = millis();
-      if (out.write(buf, got) != got) {
-        http.end(); out.close(); return false;
-      }
-      if (remaining > 0) remaining -= got;
     }
     http.end();
     out.close();
@@ -430,7 +490,10 @@ bool downloadFile(const char *urlName, int parts, const char *target,
       bool ok = main;
       while (ok && dh.available()) {
         const size_t gotc = dh.read(buf, sizeof(buf));
-        if (gotc == 0) break;
+        // En nollasning fran kortet mitt i en kopiering ar ett fel, inte
+        // ett slut: att tyst bryta har gjorde huvudfilen for kort, och
+        // felet syntes forst i slutkontrollen - av hela filen.
+        if (gotc == 0) { ok = false; break; }
         ok = main.write(buf, gotc) == gotc;
       }
       if (main) main.close();
@@ -460,27 +523,38 @@ bool downloadFile(const char *urlName, int parts, const char *target,
   check.close();
   if (!okRead || gotMagic != magic ||
       (expectBytes > 0 && gotBytes != expectBytes)) {
-    Serial.printf("moln: %s forkastad (%ld av %ld byte)\n", urlName, gotBytes,
-                  expectBytes);
+    // Orsaken i klartext till enhetsloggen - "forkastad" utan siffror var
+    // ofelsokbart fran webappen.
+    logg::event("%s forkastad (%ld av %ld byte, %s)", urlName, gotBytes,
+                expectBytes,
+                okRead && gotMagic == magic ? "ratt signatur" : "FEL signatur");
     SDCARD.remove(tmp);
     g_prefs.putString("tmpFil", "");
     return false;
   }
-  g_prefs.putString("tmpFil", "");
 
   // Kamerafilerna kan vara oppna i avlasningstraden - handslaget later den
   // slappa dem, och lasa om efterat.
   cams::beginUpdate();
-  if (SDCARD.exists(target)) SDCARD.remove(target);
-  const bool ok = SDCARD.rename(tmp, target);
+  bool removed = true;
+  if (SDCARD.exists(target)) removed = SDCARD.remove(target);
+  const bool ok = removed && SDCARD.rename(tmp, target);
   cams::endUpdate();
 
-  if (ok) {
-    lock();
-    g_status.filesDownloaded++;
-    unlock();
+  if (!ok) {
+    // Den hela, kontrollerade filen lamnas kvar som tmp och prefs pekar
+    // fortfarande pa den - nasta forsok hoppar direkt till inbytet i
+    // stallet for att hamta om alltihop.
+    logg::event("%s: kunde inte byta in filen pa plats (%s misslyckades)",
+                urlName, removed ? "namnbytet" : "borttagningen");
+    return false;
   }
-  return ok;
+  g_prefs.putString("tmpFil", "");
+
+  lock();
+  g_status.filesDownloaded++;
+  unlock();
+  return true;
 }
 
 bool downloadKunder() {
@@ -577,6 +651,33 @@ bool runSync() {
   long size = 0;
   char have[24] = "";
 
+  // Manuellt ditlagda filer antas forst av allt: de har stegen ar sma och
+  // hinner fram aven pa en lank som dor efter nagra sekunder, och ett
+  // fardigt kort ska inte sta som "vill ladda ner" for att uppladdningarna
+  // rakade stryka med forst.
+  if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
+    g_prefs.getString("vKam", have, sizeof(have));
+    if (strcmp(ver, have) != 0 &&
+        adoptLocal(CAMS_FILE, "kamerafilen", 0x31434C44, size)) {
+      g_prefs.putString("vKam", ver);
+      logg::event("kamerafilen fanns redan pa kortet - version %s antagen",
+                  ver);
+      cams::beginUpdate();
+      cams::endUpdate();
+    }
+  }
+  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
+    g_prefs.getString("vHast", have, sizeof(have));
+    if (strcmp(ver, have) != 0 &&
+        adoptLocal(LIMITS_FILE, "hastighetsfilen", 0x31484C44, size)) {
+      g_prefs.putString("vHast", ver);
+      logg::event("hastighetsfilen fanns redan pa kortet - version %s antagen",
+                  ver);
+      cams::beginUpdate();
+      cams::endUpdate();
+    }
+  }
+
   // Kundlistan forst: hundra byte som gui:t behover ska aldrig fa vanta pa
   // en jattefil eller stoppas av en uppladdning som strular.
   if (fileVersion(cfg, "kunder", ver, sizeof(ver), &parts, &size)) {
@@ -617,15 +718,10 @@ bool runSync() {
 
   if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKam", have, sizeof(have));
+    // Adoptionen ar redan provad i borjan av rundan - hit nar bara
+    // versioner som faktiskt maste hamtas.
     if (strcmp(ver, have) != 0) {
-      if (adoptLocal(CAMS_FILE, 0x31434C44, size)) {
-        // Filen ligger redan pa kortet, ditlagd for hand fran webbappen.
-        g_prefs.putString("vKam", ver);
-        logg::event("kamerafilen fanns redan pa kortet - version %s antagen",
-                    ver);
-        cams::beginUpdate();
-        cams::endUpdate();
-      } else if (worthTrying(g_kamAttempt, ver)) {
+      if (worthTrying(g_kamAttempt, ver)) {
         setState(CLOUD_SYNCING, "hamtar kamerafilen");
         if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size, ver,
                          "kamerafilen")) {
@@ -642,11 +738,7 @@ bool runSync() {
   if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vHast", have, sizeof(have));
     if (strcmp(ver, have) != 0) {
-      if (adoptLocal(LIMITS_FILE, 0x31484C44, size)) {
-        g_prefs.putString("vHast", ver);
-        logg::event(
-            "hastighetsfilen fanns redan pa kortet - version %s antagen", ver);
-      } else if (worthTrying(g_hastAttempt, ver)) {
+      if (worthTrying(g_hastAttempt, ver)) {
         // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
         // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
         //

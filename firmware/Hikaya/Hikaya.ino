@@ -30,6 +30,7 @@
 #include "sensors.h"
 #include "sound.h"
 #include "stats.h"
+#include "storage.h"
 #include "trip.h"
 #include "websync.h"
 
@@ -290,6 +291,36 @@ void setup() {
 #endif
     logg::event("start: %s, kort %s, %s", fwVersionFull(), kort, orsak);
     if (!sensors::sdMounted()) logg::event("minneskort saknas");
+  }
+
+  // Datafilernas tillstand i klartext: finns filen, hur stor ar den, bar den
+  // ratt signatur, och blev den faktiskt inlast? Det ar exakt raderna man
+  // behover nar en manuellt ditlagd fil "inte syns" - skillnaden mellan fel
+  // namn, fel mapp, trasig fil och fel version star har.
+  if (sensors::sdMounted()) {
+    const struct {
+      const char *path;
+      const char *namn;
+      uint32_t magic;
+      bool loaded;
+    } fils[] = {
+        {LIMITS_FILE, "hastighetsfilen", 0x31484C44, cams::limitsLoaded()},
+        {CAMS_FILE, "kamerafilen", 0x31434C44, cams::loaded()},
+    };
+    for (const auto &fi : fils) {
+      File f = SDCARD.open(fi.path, FILE_READ);
+      if (!f) {
+        logg::event("%s: finns inte pa kortet (%s)", fi.namn, fi.path);
+        continue;
+      }
+      uint32_t m = 0;
+      f.read((uint8_t *)&m, 4);
+      const unsigned long sz = (unsigned long)f.size();
+      f.close();
+      logg::event("%s: %lu byte, %s, %s", fi.namn, sz,
+                  m == fi.magic ? "ratt signatur" : "FEL SIGNATUR",
+                  fi.loaded ? "inlast" : "INTE inlast");
+    }
   }
 
   customers::reload();
