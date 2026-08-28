@@ -11,6 +11,7 @@
 #include "gnss.h"
 #include "gui_model.h"
 #include "gui_screens.h"
+#include "logg.h"
 #include "sensors.h"
 #include "sound.h"
 #include "stats.h"
@@ -46,16 +47,73 @@ const uint32_t kAskMs = 60000;
 char g_custNames[24][40];
 const char *g_custPtrs[24];
 
+// ------------------------------------------------------------- prestanda --
+// Var hamnar tiden nar skarmen kanns seg? Tre matt samlas per minut:
+// lvgl-varvet (rendering + inmatning), sjalva flushen till panelen (bussens
+// pris), och varvluckan - langsta uppehallet mellan tva gui-varv, dvs nar
+// NAGOT ANNAT i huvudloopen (sd-skrivning, kameraskanning) holl skarmen
+// vantande. Raden gar till serieporten varje minut och till enhetsloggen
+// var femte, sa att kanslan gar att felsoka fran webappen i efterhand.
+uint32_t g_pfLvUs = 0, g_pfLvMaxUs = 0, g_pfLvN = 0;
+uint32_t g_pfFlUs = 0, g_pfFlMaxUs = 0, g_pfFlN = 0;
+uint32_t g_pfGapMaxUs = 0;
+int64_t g_pfLastTickUs = 0;
+uint32_t g_pfLastReportMs = 0;
+uint8_t g_pfRounds = 0;
+
+void perfReport() {
+  if (millis() - g_pfLastReportMs < 60000UL) return;
+  g_pfLastReportMs = millis();
+  if (g_pfLvN == 0) return;
+
+  char line[176];
+  snprintf(line, sizeof(line),
+           "prestanda: lvgl %lu.%lu ms medel %lu.%lu varst (%lu varv), "
+           "flush %lu.%lu ms medel %lu.%lu varst (%lu st), "
+           "varvlucka %lu.%lu ms, internminne %lu",
+           (unsigned long)(g_pfLvUs / g_pfLvN / 1000),
+           (unsigned long)(g_pfLvUs / g_pfLvN % 1000 / 100),
+           (unsigned long)(g_pfLvMaxUs / 1000),
+           (unsigned long)(g_pfLvMaxUs % 1000 / 100),
+           (unsigned long)g_pfLvN,
+           (unsigned long)(g_pfFlN ? g_pfFlUs / g_pfFlN / 1000 : 0),
+           (unsigned long)(g_pfFlN ? g_pfFlUs / g_pfFlN % 1000 / 100 : 0),
+           (unsigned long)(g_pfFlMaxUs / 1000),
+           (unsigned long)(g_pfFlMaxUs % 1000 / 100),
+           (unsigned long)g_pfFlN,
+           (unsigned long)(g_pfGapMaxUs / 1000),
+           (unsigned long)(g_pfGapMaxUs % 1000 / 100),
+           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+
+  // Enhetsloggen far var femte rad och bara nar skarmen ar pa - det ar da
+  // kanslan finns och siffrorna sager nagot.
+  if (++g_pfRounds >= 5 && g_displayOn) {
+    g_pfRounds = 0;
+    logg::event("%s", line);
+  } else {
+    Serial.println(line);
+  }
+
+  g_pfLvUs = g_pfLvMaxUs = g_pfLvN = 0;
+  g_pfFlUs = g_pfFlMaxUs = g_pfFlN = 0;
+  g_pfGapMaxUs = 0;
+}
+
 // ---------------------------------------------------------------- display --
 
 void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px) {
   const int32_t w = area->x2 - area->x1 + 1;
   const int32_t h = area->y2 - area->y1 + 1;
+  const int64_t t0 = esp_timer_get_time();
 #if defined(BOARD_LCD35)
   panel35::blit(area->x1, area->y1, w, h, (uint16_t *)px);
 #else
   g_panel->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px, w, h);
 #endif
+  const uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
+  g_pfFlUs += us;
+  g_pfFlN++;
+  if (us > g_pfFlMaxUs) g_pfFlMaxUs = us;
   lv_display_flush_ready(disp);
 }
 
@@ -399,7 +457,24 @@ void tick() {
     setDisplayOn(false);
   }
 
+  // Varvluckan: tiden sedan forra gui-varvet, minus det egna arbetet. Ar
+  // den stor har nagot annat i huvudloopen hallit skarmen vantande.
+  const int64_t entry = esp_timer_get_time();
+  if (g_pfLastTickUs != 0) {
+    const uint32_t gap = (uint32_t)(entry - g_pfLastTickUs);
+    if (gap > g_pfGapMaxUs) g_pfGapMaxUs = gap;
+  }
+
   lv_timer_handler();
+
+  const int64_t done = esp_timer_get_time();
+  const uint32_t us = (uint32_t)(done - entry);
+  g_pfLvUs += us;
+  g_pfLvN++;
+  if (us > g_pfLvMaxUs) g_pfLvMaxUs = us;
+  g_pfLastTickUs = done;
+
+  perfReport();
 }
 
 void setDisplayOn(bool on) {

@@ -303,7 +303,10 @@ long tmpBytes() {
 // den magi som molnet utlovar. Da ar nedladdningen redan gjord, bara inte av
 // enheten sjalv. (Tva olika versioner med exakt samma bytelangd skulle luras
 // har, men filerna byggs om fran hela NVDB och landar aldrig pa pricken lika.)
-bool adoptLocal(const char *target, const uint32_t magic, long expectBytes) {
+// En fil som finns men inte matchar loggas med bada siffrorna - det ar exakt
+// det man behover se nar ett manuellt kort "inte tas emot".
+bool adoptLocal(const char *target, const char *namn, const uint32_t magic,
+                long expectBytes) {
   if (expectBytes <= 0) return false;
   File f = SDCARD.open(target, FILE_READ);
   if (!f) return false;
@@ -311,7 +314,13 @@ bool adoptLocal(const char *target, const uint32_t magic, long expectBytes) {
   uint32_t m = 0;
   const bool okRead = f.read((uint8_t *)&m, 4) == 4;
   f.close();
-  return okRead && m == magic && sz == expectBytes;
+  const bool ok = okRead && m == magic && sz == expectBytes;
+  if (!ok) {
+    logg::event("%s pa kortet (%ld byte, %s) matchar inte molnets (%ld byte)",
+                namn, sz, okRead && m == magic ? "ratt signatur" : "fel signatur",
+                expectBytes);
+  }
+  return ok;
 }
 
 bool downloadFile(const char *urlName, int parts, const char *target,
@@ -577,6 +586,33 @@ bool runSync() {
   long size = 0;
   char have[24] = "";
 
+  // Manuellt ditlagda filer antas forst av allt: de har stegen ar sma och
+  // hinner fram aven pa en lank som dor efter nagra sekunder, och ett
+  // fardigt kort ska inte sta som "vill ladda ner" for att uppladdningarna
+  // rakade stryka med forst.
+  if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
+    g_prefs.getString("vKam", have, sizeof(have));
+    if (strcmp(ver, have) != 0 &&
+        adoptLocal(CAMS_FILE, "kamerafilen", 0x31434C44, size)) {
+      g_prefs.putString("vKam", ver);
+      logg::event("kamerafilen fanns redan pa kortet - version %s antagen",
+                  ver);
+      cams::beginUpdate();
+      cams::endUpdate();
+    }
+  }
+  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
+    g_prefs.getString("vHast", have, sizeof(have));
+    if (strcmp(ver, have) != 0 &&
+        adoptLocal(LIMITS_FILE, "hastighetsfilen", 0x31484C44, size)) {
+      g_prefs.putString("vHast", ver);
+      logg::event("hastighetsfilen fanns redan pa kortet - version %s antagen",
+                  ver);
+      cams::beginUpdate();
+      cams::endUpdate();
+    }
+  }
+
   // Kundlistan forst: hundra byte som gui:t behover ska aldrig fa vanta pa
   // en jattefil eller stoppas av en uppladdning som strular.
   if (fileVersion(cfg, "kunder", ver, sizeof(ver), &parts, &size)) {
@@ -617,15 +653,10 @@ bool runSync() {
 
   if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKam", have, sizeof(have));
+    // Adoptionen ar redan provad i borjan av rundan - hit nar bara
+    // versioner som faktiskt maste hamtas.
     if (strcmp(ver, have) != 0) {
-      if (adoptLocal(CAMS_FILE, 0x31434C44, size)) {
-        // Filen ligger redan pa kortet, ditlagd for hand fran webbappen.
-        g_prefs.putString("vKam", ver);
-        logg::event("kamerafilen fanns redan pa kortet - version %s antagen",
-                    ver);
-        cams::beginUpdate();
-        cams::endUpdate();
-      } else if (worthTrying(g_kamAttempt, ver)) {
+      if (worthTrying(g_kamAttempt, ver)) {
         setState(CLOUD_SYNCING, "hamtar kamerafilen");
         if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size, ver,
                          "kamerafilen")) {
@@ -642,11 +673,7 @@ bool runSync() {
   if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vHast", have, sizeof(have));
     if (strcmp(ver, have) != 0) {
-      if (adoptLocal(LIMITS_FILE, 0x31484C44, size)) {
-        g_prefs.putString("vHast", ver);
-        logg::event(
-            "hastighetsfilen fanns redan pa kortet - version %s antagen", ver);
-      } else if (worthTrying(g_hastAttempt, ver)) {
+      if (worthTrying(g_hastAttempt, ver)) {
         // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
         // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
         //
