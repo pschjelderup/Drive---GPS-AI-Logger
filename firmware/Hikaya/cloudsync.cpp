@@ -9,6 +9,7 @@
 #include "cams.h"
 #include "config.h"
 #include "customers.h"
+#include "logg.h"
 #include "sensors.h"
 #include "trip.h"
 
@@ -66,6 +67,11 @@ void setState(CloudState s, const char *detail) {
   g_status.detail[sizeof(g_status.detail) - 1] = '\0';
   unlock();
   Serial.printf("moln: %s\n", detail ? detail : "");
+  // Felen gar rakt in i enhetsloggen - det ar precis de raderna man vill
+  // kunna lasa i webbappen i efterhand.
+  if (s == CLOUD_ERROR && detail && detail[0]) {
+    logg::event("synkfel: %s", detail);
+  }
 }
 
 // Resan har alltid foretrade. Kontrolleras mellan varje steg och varje block,
@@ -209,7 +215,11 @@ bool uploadTrips(long lastSynced) {
   return true;
 }
 
-bool uploadGpx() {
+// Falskt bara nar rundan inte kan fortsatta alls (resa borjade, eller tls
+// far inte plats i minnet). En enskild fil som molnet vagrar hoppas over och
+// raknas - den far ett nytt forsok nasta runda, och de andra filerna ska
+// inte sta och vanta pa den.
+bool uploadGpx(uint8_t &failed) {
   File dir = SDCARD.open(GPX_DIR);
   if (!dir) return true;
 
@@ -245,7 +255,12 @@ bool uploadGpx() {
     http.end();
     f.close();
 
-    if (code != 200) return false;
+    if (code != 200) {
+      failed++;
+      logg::event("gpx %s vagrades (kod %d) - hoppar vidare", name.c_str(),
+                  code);
+      continue;
+    }
 
     // Uppladdad ar inte raderad: filen flyttas till UPPLADDAT och ligger kvar
     // pa kortet. Kortet ar en kopia av sanningen aven efter synken.
@@ -271,9 +286,38 @@ bool uploadGpx() {
 // nedladdning kan aterupptas dar den var, over bade omstarter och resor.
 // Hastighetsfilen ar 144 MB for att Sveriges vagnat ar stort; utan
 // ateruppupptagning hann den aldrig fram over en hotspot.
+const char *kTmpFile = "/DRIVE/NED.TMP";
+
+// Hur langt den pagaende nedladdningen kommit. Filen vaxer bara med hela,
+// kontrollerade delar, sa siffran ar ett arligt matt pa framsteg.
+long tmpBytes() {
+  File h = SDCARD.open(kTmpFile, FILE_READ);
+  if (!h) return 0;
+  const long s = (long)h.size();
+  h.close();
+  return s;
+}
+
+// En manuellt ditlagd fil - nedladdad fran webbappen till en dator och lagd
+// pa kortet for hand - kanns igen pa att den redan har exakt den storlek och
+// den magi som molnet utlovar. Da ar nedladdningen redan gjord, bara inte av
+// enheten sjalv. (Tva olika versioner med exakt samma bytelangd skulle luras
+// har, men filerna byggs om fran hela NVDB och landar aldrig pa pricken lika.)
+bool adoptLocal(const char *target, const uint32_t magic, long expectBytes) {
+  if (expectBytes <= 0) return false;
+  File f = SDCARD.open(target, FILE_READ);
+  if (!f) return false;
+  const long sz = (long)f.size();
+  uint32_t m = 0;
+  const bool okRead = f.read((uint8_t *)&m, 4) == 4;
+  f.close();
+  return okRead && m == magic && sz == expectBytes;
+}
+
 bool downloadFile(const char *urlName, int parts, const char *target,
-                  const uint32_t magic, long expectBytes, const char *ver) {
-  const char *tmp = "/DRIVE/NED.TMP";
+                  const uint32_t magic, long expectBytes, const char *ver,
+                  const char *human) {
+  const char *tmp = kTmpFile;
   const char *del = "/DRIVE/DEL.TMP";
 
   // Ateruppta dar det brots - om tmp-filen tillhor samma fil och version
@@ -309,6 +353,15 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     // Resan har foretrade - men tmp-filen lamnas kvar, sa att delarna som
     // redan ar hemma inte behover hamtas igen.
     if (mustAbort()) return false;
+
+    // Del for del pa skarmen. En halvtimmes nedladdning med samma text hela
+    // vagen ser ut som en hangning fran forarsatet.
+    if (parts > 1) {
+      char prog[48];
+      snprintf(prog, sizeof(prog), "hamtar %s (del %d/%d)", human, p + 1,
+               parts);
+      setState(CLOUD_SYNCING, prog);
+    }
 
     const long partExpect = (p < parts - 1 || expectBytes <= 0)
         ? (long)CLOUD_PART_BYTES
@@ -436,6 +489,47 @@ bool downloadKunder() {
   return true;
 }
 
+// Enhetsloggen upp till molnet. Nya rader sedan forra synken skickas i sma
+// klumpar; hur langt vi kommit star i prefs, sa inget skickas tva ganger.
+// Loggen ar ett hjalpmedel och far aldrig falla rundan - ett fel har lamnar
+// raderna kvar till nasta forsok, tyst.
+void uploadLog() {
+  File f = SDCARD.open(LOG_FILE, FILE_READ);
+  if (!f) return;
+  uint32_t sent = g_prefs.getUInt("logSent", 0);
+  const uint32_t size = (uint32_t)f.size();
+  if (sent > size) sent = 0;  // filen har roterats - borja om fran borjan
+
+  uint8_t rounds = 0;
+  static char chunk[4001];
+  while (sent < size && rounds++ < 8) {
+    if (mustAbort()) break;
+    f.seek(sent);
+    const size_t got = f.read((uint8_t *)chunk, sizeof(chunk) - 1);
+    if (!got) break;
+    // Klipp vid sista radslutet sa att en rad aldrig delas i tva poster.
+    size_t n = got;
+    if (sent + got < size) {
+      while (n && chunk[n - 1] != '\n') n--;
+      if (!n) n = got;
+    }
+
+    int code;
+    {
+      WiFiClientSecure tls;
+      HTTPClient http;
+      if (!httpBegin(http, tls, "/log")) break;
+      http.addHeader("Content-Type", "text/plain");
+      code = http.POST((uint8_t *)chunk, n);
+      http.end();
+    }
+    if (code != 200) break;
+    sent += n;
+    g_prefs.putUInt("logSent", sent);
+  }
+  f.close();
+}
+
 // Hela synkvarvet. Sant nar allt gick igenom.
 bool runSync() {
   setState(CLOUD_SYNCING, "hamtar molnlaget");
@@ -485,40 +579,101 @@ bool runSync() {
     }
   }
 
-  setState(CLOUD_SYNCING, "laddar upp resor");
-  if (!uploadTrips(lastSynced)) { g_prefs.end(); return false; }
+  // Fram till hit ar felen harda - utan config vet vi ingenting. Harifran
+  // ar de mjuka: varje steg gor sitt basta och rundan fortsatter, sa att en
+  // strulande fil aldrig staller de andra. Bara en resa som borjar avbryter.
+  bool allOk = true;
 
-  setState(CLOUD_SYNCING, "laddar upp gpx");
-  if (!uploadGpx()) { g_prefs.end(); return false; }
+  setState(CLOUD_SYNCING, "laddar upp resor");
+  const bool tripsOk = uploadTrips(lastSynced);
+  if (!tripsOk) {
+    if (mustAbort()) { g_prefs.end(); return false; }
+    allOk = false;
+  }
+
+  if (tripsOk) {
+    setState(CLOUD_SYNCING, "laddar upp gpx");
+    uint8_t gpxFailed = 0;
+    if (!uploadGpx(gpxFailed)) {
+      if (mustAbort()) { g_prefs.end(); return false; }
+      allOk = false;
+    }
+    if (gpxFailed) allOk = false;
+  }
+
+  uploadLog();
 
   if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKam", have, sizeof(have));
-    if (strcmp(ver, have) != 0 && worthTrying(g_kamAttempt, ver)) {
-      setState(CLOUD_SYNCING, "hamtar kamerafilen");
-      if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size, ver)) {
+    if (strcmp(ver, have) != 0) {
+      if (adoptLocal(CAMS_FILE, 0x31434C44, size)) {
+        // Filen ligger redan pa kortet, ditlagd for hand fran webbappen.
         g_prefs.putString("vKam", ver);
-      } else {
-        g_kamAttempt.fails++;
+        logg::event("kamerafilen fanns redan pa kortet - version %s antagen",
+                    ver);
+        cams::beginUpdate();
+        cams::endUpdate();
+      } else if (worthTrying(g_kamAttempt, ver)) {
+        setState(CLOUD_SYNCING, "hamtar kamerafilen");
+        if (downloadFile("kameror", 1, CAMS_FILE, 0x31434C44, size, ver,
+                         "kamerafilen")) {
+          g_prefs.putString("vKam", ver);
+          logg::event("kamerafilen uppdaterad till version %s", ver);
+        } else {
+          g_kamAttempt.fails++;
+          allOk = false;
+        }
       }
     }
   }
 
   if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vHast", have, sizeof(have));
-    if (strcmp(ver, have) != 0 && worthTrying(g_hastAttempt, ver)) {
-      // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
-      // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
-      setState(CLOUD_SYNCING, "hamtar hastighetsfilen");
-      if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size, ver)) {
+    if (strcmp(ver, have) != 0) {
+      if (adoptLocal(LIMITS_FILE, 0x31484C44, size)) {
         g_prefs.putString("vHast", ver);
-      } else {
-        g_hastAttempt.fails++;
+        logg::event(
+            "hastighetsfilen fanns redan pa kortet - version %s antagen", ver);
+      } else if (worthTrying(g_hastAttempt, ver)) {
+        // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
+        // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
+        //
+        // Och hon far en hel session pa sig: sa lange varje forsok tar hem
+        // minst en ny del gors ett nytt forsok direkt, i upp till en
+        // halvtimme, i stallet for att kasta bort en uppkopplad wifi och
+        // krava ett nytt knapptryck. Tva forsok i rad utan en enda ny del
+        // betyder att natet inte bar - da ar det lika bra att slappa det.
+        const uint32_t deadlineMs = millis() + 30UL * 60UL * 1000UL;
+        uint8_t barren = 0;
+        for (;;) {
+          const long before = tmpBytes();
+          setState(CLOUD_SYNCING, "hamtar hastighetsfilen");
+          if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size,
+                           ver, "hastighetsfilen")) {
+            g_prefs.putString("vHast", ver);
+            logg::event("hastighetsfilen uppdaterad till version %s", ver);
+            break;
+          }
+          if (mustAbort()) { g_prefs.end(); return false; }
+          const long after = tmpBytes();
+          barren = after > before ? 0 : (uint8_t)(barren + 1);
+          if (barren >= 2 || millis() > deadlineMs ||
+              WiFi.status() != WL_CONNECTED) {
+            g_hastAttempt.fails++;
+            allOk = false;
+            logg::event("hastighetsfilen brots vid %ld byte - ny runda far ta vid",
+                        after);
+            break;
+          }
+          logg::event("hastighetsfilen: nytt forsok fran %ld byte", after);
+          delay(2000);
+        }
       }
     }
   }
 
   g_prefs.end();
-  return true;
+  return allOk;
 }
 
 // ------------------------------------------------------------- traden ------
@@ -629,6 +784,7 @@ void syncTask(void *) {
       // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
       // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
       setState(CLOUD_IDLE, "inget av naten nas - 2,4 GHz? hotspot pa?");
+      logg::event("synk: inget av %u nat gick att na", (unsigned)nOrder);
       nextAttemptMs = millis() + backoffS * 1000UL;
       backoffS = min<uint32_t>(backoffS * 2, 900);
       continue;
@@ -636,8 +792,25 @@ void syncTask(void *) {
 
     strncpy(g_active, g_ssids[pick], sizeof(g_active) - 1);
     g_active[sizeof(g_active) - 1] = '\0';
+    logg::event("synk borjar via %s (rssi %d)", g_ssids[pick],
+                heard[pick] ? (int)rssi[pick] : 0);
+
+    lock();
+    const CloudStatus fore = g_status;
+    unlock();
 
     const bool ok = runSync();
+
+    lock();
+    const CloudStatus efter = g_status;
+    unlock();
+    logg::event("synk %s via %s: %lu resor, %lu gpx, %lu filer",
+                ok ? "klar" : "delvis", g_ssids[pick],
+                (unsigned long)(efter.tripsUploaded - fore.tripsUploaded),
+                (unsigned long)(efter.gpxUploaded - fore.gpxUploaded),
+                (unsigned long)(efter.filesDownloaded - fore.filesDownloaded));
+    // Slutraden hinner ofta inte med i den har rundans uppladdning - den
+    // ligger forst i kon nasta gang, och det racker.
     WiFi.disconnect(true);
 
     if (ok) {
