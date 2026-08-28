@@ -1,6 +1,7 @@
 #include "gnss.h"
 
 #include "config.h"
+#include "logg.h"
 
 #if !defined(GNSS_UART)
 #include <SparkFun_u-blox_GNSS_v3.h>
@@ -58,6 +59,8 @@ uint8_t g_quality = 0;   // gga falt 6: 0 = inget fix
 uint8_t g_gsaFix = 1;    // gsa falt 2: 1 = inget, 2 = 2d, 3 = 3d
 float g_hdop = 99.0f;
 bool g_rmcA = false;
+uint8_t g_inView = 0;    // gsv falt 3: satelliter i sikte
+bool g_hadFix = false;
 
 char g_line[110];
 uint8_t g_len = 0;
@@ -108,7 +111,12 @@ void composeFix(uint32_t now) {
 
 void handleLine(char *s, uint32_t now) {
   if (!checksumOk(s)) return;
-  if (!g_present) g_present = true;
+  if (!g_present) {
+    g_present = true;
+    // Forsta hela meningen ar kvittot pa att kablarna sitter ratt - fran
+    // och med har ar allt som aterstar antenn och himmel.
+    logg::event("gps: forsta meningen pa uarten - modulen hors");
+  }
 
   char *f[20];
   const uint8_t n = splitFields(s, f, 20);
@@ -146,10 +154,23 @@ void handleLine(char *s, uint32_t now) {
     g_fix.sats = (uint8_t)atol(f[7]);
     g_hdop = (float)atof(f[8]);
     g_fix.altM = (float)atof(f[9]);
+    if (g_quality > 0 && !g_hadFix) {
+      g_hadFix = true;
+      logg::event("gps: forsta fixet efter %lu s (%u satelliter)",
+                  (unsigned long)(now / 1000), (unsigned)g_fix.sats);
+    }
     composeFix(now);
   } else if (strncmp(typ, "GSA", 3) == 0 && n >= 3) {
     g_gsaFix = (uint8_t)atol(f[2]);
     composeFix(now);
+  } else if (strncmp(typ, "GSV", 3) == 0 && n >= 4) {
+    // Satelliter i sikte. GGA:s siffra ar de som ANVANDS i losningen och
+    // star pa noll anda tills fixet bildas - under sokningen ar det den har
+    // som visar att nagot hander. Den lanas ut till visningen sa lange
+    // inget fix finns; fortroendebedomningen ror den aldrig, eftersom den
+    // kraver fix och da ager GGA siffran igen.
+    g_inView = (uint8_t)atol(f[3]);
+    if (g_quality == 0) g_fix.sats = g_inView;
   }
 }
 
