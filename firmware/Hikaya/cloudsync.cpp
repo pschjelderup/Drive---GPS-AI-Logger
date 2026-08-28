@@ -385,6 +385,11 @@ bool downloadFile(const char *urlName, int parts, const char *target,
         if (sz > 0 && sz % CLOUD_PART_BYTES == 0 &&
             (int)(sz / CLOUD_PART_BYTES) < parts) {
           startPart = (int)(sz / CLOUD_PART_BYTES);
+        } else if (sz == expectBytes) {
+          // Hela filen ar redan hemma - bara kontrollen och filbytet
+          // aterstar. Sa har ser det ut nar sjalva inbytet misslyckades
+          // forra varvet; da ska inte 130 MB hamtas om for det.
+          startPart = parts;
         }
       }
     }
@@ -485,7 +490,10 @@ bool downloadFile(const char *urlName, int parts, const char *target,
       bool ok = main;
       while (ok && dh.available()) {
         const size_t gotc = dh.read(buf, sizeof(buf));
-        if (gotc == 0) break;
+        // En nollasning fran kortet mitt i en kopiering ar ett fel, inte
+        // ett slut: att tyst bryta har gjorde huvudfilen for kort, och
+        // felet syntes forst i slutkontrollen - av hela filen.
+        if (gotc == 0) { ok = false; break; }
         ok = main.write(buf, gotc) == gotc;
       }
       if (main) main.close();
@@ -515,27 +523,38 @@ bool downloadFile(const char *urlName, int parts, const char *target,
   check.close();
   if (!okRead || gotMagic != magic ||
       (expectBytes > 0 && gotBytes != expectBytes)) {
-    Serial.printf("moln: %s forkastad (%ld av %ld byte)\n", urlName, gotBytes,
-                  expectBytes);
+    // Orsaken i klartext till enhetsloggen - "forkastad" utan siffror var
+    // ofelsokbart fran webappen.
+    logg::event("%s forkastad (%ld av %ld byte, %s)", urlName, gotBytes,
+                expectBytes,
+                okRead && gotMagic == magic ? "ratt signatur" : "FEL signatur");
     SDCARD.remove(tmp);
     g_prefs.putString("tmpFil", "");
     return false;
   }
-  g_prefs.putString("tmpFil", "");
 
   // Kamerafilerna kan vara oppna i avlasningstraden - handslaget later den
   // slappa dem, och lasa om efterat.
   cams::beginUpdate();
-  if (SDCARD.exists(target)) SDCARD.remove(target);
-  const bool ok = SDCARD.rename(tmp, target);
+  bool removed = true;
+  if (SDCARD.exists(target)) removed = SDCARD.remove(target);
+  const bool ok = removed && SDCARD.rename(tmp, target);
   cams::endUpdate();
 
-  if (ok) {
-    lock();
-    g_status.filesDownloaded++;
-    unlock();
+  if (!ok) {
+    // Den hela, kontrollerade filen lamnas kvar som tmp och prefs pekar
+    // fortfarande pa den - nasta forsok hoppar direkt till inbytet i
+    // stallet for att hamta om alltihop.
+    logg::event("%s: kunde inte byta in filen pa plats (%s misslyckades)",
+                urlName, removed ? "namnbytet" : "borttagningen");
+    return false;
   }
-  return ok;
+  g_prefs.putString("tmpFil", "");
+
+  lock();
+  g_status.filesDownloaded++;
+  unlock();
+  return true;
 }
 
 bool downloadKunder() {
