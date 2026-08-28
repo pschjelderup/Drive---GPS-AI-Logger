@@ -25,6 +25,7 @@
 #include "gnss.h"
 #include "expander.h"
 #include "gui.h"
+#include "logg.h"
 #include "panel35.h"
 #include "sensors.h"
 #include "sound.h"
@@ -267,6 +268,29 @@ void setup() {
 
   const bool imuOk = sensors::begin();
   applySettings();
+
+  // Loggen kraver kortet, sa den borjar har - och forsta raden ar starten
+  // sjalv, med orsaken. En krasch eller ett spanningsfall som startar om
+  // enheten mitt i vardagen ar exakt det man vill kunna se i webappen.
+  logg::begin();
+  {
+    const esp_reset_reason_t rr = esp_reset_reason();
+    const char *orsak =
+        rr == ESP_RST_POWERON    ? "kallstart"
+        : rr == ESP_RST_SW       ? "omstart"
+        : rr == ESP_RST_PANIC    ? "KRASCH"
+        : rr == ESP_RST_BROWNOUT ? "SPANNINGSFALL"
+        : (rr == ESP_RST_WDT || rr == ESP_RST_TASK_WDT || rr == ESP_RST_INT_WDT)
+            ? "VAKTHUND"
+            : "annan orsak";
+#if defined(BOARD_LCD35)
+    const char *kort = "LCD 3.5";
+#else
+    const char *kort = "AMOLED 2.41";
+#endif
+    logg::event("start: %s, kort %s, %s", fwVersionFull(), kort, orsak);
+    if (!sensors::sdMounted()) logg::event("minneskort saknas");
+  }
 
   customers::reload();
   stats::begin();

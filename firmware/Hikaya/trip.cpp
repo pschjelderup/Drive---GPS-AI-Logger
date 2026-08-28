@@ -10,6 +10,7 @@
 #include "eco.h"
 #include "geo.h"
 #include "gnss.h"
+#include "logg.h"
 #include "sensors.h"
 #include "stats.h"
 
@@ -556,6 +557,8 @@ void startTrip(double lat, double lon, bool haveFix) {
   g_active = true;
   writeState();
   publishStatus();
+  logg::event("resa %lu borjar%s", (unsigned long)g_state.index,
+              haveFix ? "" : " (utan fix an)");
 }
 
 // Skriver resan fardigt. Malet ar sista punkten dar bilen rorde sig - inte dar
@@ -598,6 +601,9 @@ void closeTrip(TripEndReason reason) {
   }
 
   publishStatus();
+  logg::event("resa %lu slut: %lu m, %lu punkter",
+              (unsigned long)g_state.index, (unsigned long)g_state.distanceM,
+              (unsigned long)g_state.points);
 }
 
 // ------------------------------------------------------------ laga gpx ----

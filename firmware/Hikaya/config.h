@@ -395,6 +395,12 @@ static const uint8_t kEcoPenaltyCount = 5;
 // Kundlistan, synkad ner fran webben. Format: id;namn, en per rad.
 #define CUSTOMERS_FILE "/DRIVE/KUNDER.CSV"
 
+// Enhetsloggen: en rad per viktig handelse (start, synk, fel). Synken laddar
+// upp nya rader till molnet och kommer ihag hur langt den kommit; taket
+// haller filen liten aven om enheten aldrig far natkontakt.
+#define LOG_FILE "/DRIVE/LOGG.TXT"
+#define LOG_MAX_BYTES (128 * 1024)
+
 // ------------------------------------------------------------------ skarm --
 // Skarmen slacks efter sa har manga sekunders orordhet. 0 = slacks aldrig.
 // Skalan gar i hela minuter fran 1 till 45, tatt i borjan dar skillnaden
