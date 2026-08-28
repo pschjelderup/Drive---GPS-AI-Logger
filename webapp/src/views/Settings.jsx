@@ -348,14 +348,28 @@ function FleetCard() {
   );
 }
 
+// Ny slumptoken: 24 byte ur webbläsarens kryptokälla som 48 hextecken -
+// samma form som den första enhetens token, så firmwarefältet passar.
+function newToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function DeviceCard() {
   const [devices, setDevices] = useState([]);
   const [vehicles, setVehicles] = useState([]);
-  const [shown, setShown] = useState(false);
+  // Tokenvisningen är per enhet - två bilar ska inte behöva blotta varandras.
+  const [shown, setShown] = useState({});
+  const [newName, setNewName] = useState("");
+  const [status, setStatus] = useState("");
 
-  useEffect(() => {
+  const load = () => {
     supabase.from("drive_devices").select("*").order("id")
       .then(({ data }) => setDevices(data ?? []));
+  };
+  useEffect(() => {
+    load();
     supabase.from("drive_vehicles").select("*").eq("active", true).order("id")
       .then(({ data }) => setVehicles(data ?? []));
   }, []);
@@ -366,20 +380,66 @@ function DeviceCard() {
     await supabase.from("drive_devices").update({ vehicle_id }).eq("id", d.id);
   };
 
+  // En enhet per bil: nya rader får nästa lediga drivelogger-N och en egen
+  // token. Resorna hålls isär av enhets-id:t hela vägen - resenummer,
+  // gpx-mapp och logg är redan per enhet i molnet.
+  const addDevice = async () => {
+    const name = newName.trim();
+    if (!name) { setStatus("ge enheten ett namn först, t.ex. bilens"); return; }
+    const next = 1 + devices.reduce((a, d) => {
+      const m = /^drivelogger-(\d+)$/.exec(d.id);
+      return m ? Math.max(a, Number(m[1])) : a;
+    }, 0);
+    const { error } = await supabase.from("drive_devices").insert({
+      id: `drivelogger-${next}`, name, token: newToken(),
+    });
+    if (error) { setStatus(error.message); return; }
+    setNewName("");
+    setStatus(`${name} tillagd – visa dess token och skriv in den på enhetens wifi-sida`);
+    load();
+  };
+
+  const rename = async (d) => {
+    const name = window.prompt("Nytt namn på enheten:", d.name ?? "");
+    if (name === null || !name.trim()) return;
+    await supabase.from("drive_devices").update({ name: name.trim() }).eq("id", d.id);
+    load();
+  };
+
+  // Tokenbyte är spärren om en token läckt: den gamla slutar gälla i samma
+  // stund, och enheten står utanför tills den nya skrivits in i bilen.
+  const rotate = async (d) => {
+    if (!window.confirm(
+      `Byta token för ${d.name ?? d.id}? Enheten slutar kunna synka tills den nya skrivits in på dess wifi-sida.`,
+    )) return;
+    await supabase.from("drive_devices").update({ token: newToken() }).eq("id", d.id);
+    setShown((s) => ({ ...s, [d.id]: true }));
+    load();
+  };
+
+  const remove = async (d) => {
+    if (!window.confirm(
+      `Ta bort ${d.name ?? d.id}? Enheten kan inte längre synka. Redan synkade resor ligger kvar i journalen.`,
+    )) return;
+    await supabase.from("drive_devices").delete().eq("id", d.id);
+    load();
+  };
+
   return (
     <div className="card">
-      <h2>Enheten och molnsynken</h2>
+      <h2>Enheter och molnsynken</h2>
       <p style={{ color: "var(--dim)", marginTop: 0 }}>
-        Skriv in token nedan på enhetens wifi-sida under <b>Molnsynk</b>,
-        tillsammans med din iPhone-hotspots namn och lösenord. Sedan laddar
-        enheten upp resor och hämtar datafiler själv, varje gång den har wifi
-        och ingen resa pågår. Resorna bokförs på den bil enheten sitter i.
+        En enhet per bil, med en egen token var. Skriv in enhetens token på
+        dess wifi-sida under <b>Molnsynk</b>, tillsammans med hotspotens namn
+        och lösenord. Sedan laddar enheten upp resor och hämtar datafiler
+        själv, varje gång den har wifi och ingen resa pågår. Resorna bokförs
+        på den bil enheten sitter i.
       </p>
       {devices.map((d) => (
-        <div key={d.id} style={{ marginBottom: ".6rem" }}>
+        <div key={d.id} style={{ marginBottom: ".8rem" }}>
           <b>{d.name ?? d.id}</b>{" "}
           <span className="status">
-            senast sedd {d.last_seen ? fmtDateTime(d.last_seen) : "aldrig"} ·
+            ({d.id}) · senast sedd {d.last_seen ? fmtDateTime(d.last_seen) : "aldrig"} ·
             synkad t.o.m. resa {d.last_synced_trip}
           </span>
           <div style={{ display: "flex", gap: ".5rem", marginTop: ".3rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -394,14 +454,25 @@ function DeviceCard() {
               </select>
             </label>
             <code className="token">
-              {shown ? d.token : "••••••••••••••••"}
+              {shown[d.id] ? d.token : "••••••••••••••••"}
             </code>
-            <button className="ghost" onClick={() => setShown((v) => !v)}>
-              {shown ? "dölj" : "visa"}
+            <button className="ghost"
+              onClick={() => setShown((s) => ({ ...s, [d.id]: !s[d.id] }))}>
+              {shown[d.id] ? "dölj" : "visa"}
             </button>
+            <button className="ghost" onClick={() => rename(d)}>döp om</button>
+            <button className="ghost" onClick={() => rotate(d)}>byt token</button>
+            <button className="ghost" onClick={() => remove(d)}>ta bort</button>
           </div>
         </div>
       ))}
+      <div style={{ display: "flex", gap: ".5rem", flexWrap: "wrap", alignItems: "center", marginBottom: ".6rem" }}>
+        <input type="text" placeholder="namn, t.ex. Privatbilen" value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addDevice()} />
+        <button className="primary" onClick={addDevice}>Lägg till enhet</button>
+      </div>
+      {status && <p className="status">{status}</p>}
       <p style={{ marginBottom: 0 }}>
         <a href="https://pschjelderup.github.io/Drive---GPS-AI-Logger/"
           target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
@@ -421,27 +492,37 @@ function DeviceCard() {
 // till en lasbar rad: vad som gick upp, vad som gick ner, nar.
 function SyncLogCard() {
   const [rows, setRows] = useState([]);
+  const [deviceNames, setDeviceNames] = useState({});
 
   useEffect(() => {
     supabase.from("drive_sync_log").select("*")
       .order("at", { ascending: false }).limit(400)
       .then(({ data }) => setRows(data ?? []));
+    supabase.from("drive_devices").select("id, name")
+      .then(({ data }) => setDeviceNames(
+        Object.fromEntries((data ?? []).map((d) => [d.id, d.name ?? d.id])),
+      ));
   }, []);
 
   const occasions = useMemo(() => {
+    // Ett tillfälle är EN enhets sammanhängande prat med molnet: två bilar
+    // som råkar synka samtidigt ska inte blandas till en rad.
     const out = [];
-    let cur = null;
+    const cur = {};  // pagaende tillfalle per enhet
     for (const r of rows) {  // nyast forst
       const t = new Date(r.at).getTime();
-      if (!cur || cur.lastT - t > 5 * 60 * 1000) {
-        cur = { at: r.at, lastT: t, rows: [] };
-        out.push(cur);
+      const key = r.device_id ?? "?";
+      if (!cur[key] || cur[key].lastT - t > 5 * 60 * 1000) {
+        cur[key] = { at: r.at, lastT: t, device: key, rows: [] };
+        out.push(cur[key]);
       }
-      cur.lastT = t;
-      cur.rows.push(r);
+      cur[key].lastT = t;
+      cur[key].rows.push(r);
     }
     return out.slice(0, 15);
   }, [rows]);
+
+  const manyDevices = Object.keys(deviceNames).length > 1;
 
   const summarize = (rs) => {
     const parts = [];
@@ -475,9 +556,11 @@ function SyncLogCard() {
             const s = summarize(o.rows);
             const tom = s === "inget nytt att synka";
             return (
-              <tr key={o.at} style={tom ? { opacity: 0.55 } : undefined}>
+              <tr key={`${o.device}-${o.at}`} style={tom ? { opacity: 0.55 } : undefined}>
                 <td style={{ whiteSpace: "nowrap" }}>{fmtDateTime(o.at)}</td>
-                <td>{s}</td>
+                <td>{manyDevices && (
+                  <b>{deviceNames[o.device] ?? o.device}: </b>
+                )}{s}</td>
               </tr>
             );
           })}

@@ -36,10 +36,13 @@ export default function DataFiles() {
       .select("value").eq("key", "sd_manual").maybeSingle();
     setSdManual(s?.value ?? null);
   };
+  const [deviceNames, setDeviceNames] = useState({});
   const loadDeviceLog = async () => {
     const { data } = await supabase.from("drive_device_log")
       .select("*").order("at", { ascending: false }).limit(30);
     setDeviceLog(data ?? []);
+    const { data: devs } = await supabase.from("drive_devices").select("id, name");
+    setDeviceNames(Object.fromEntries((devs ?? []).map((d) => [d.id, d.name ?? d.id])));
   };
   useEffect(() => { loadMeta(); loadDeviceLog(); }, []);
 
@@ -322,7 +325,7 @@ export default function DataFiles() {
           overflowY: "auto", whiteSpace: "pre-wrap" }}>
           {deviceLog.length
             ? deviceLog.map((p) =>
-                `── mottaget ${fmtDateTime(p.at)} ──\n${p.content.trim()}`
+                `── ${deviceNames[p.device_id] ?? p.device_id} · mottaget ${fmtDateTime(p.at)} ──\n${p.content.trim()}`
               ).join("\n")
             : "ingen logg uppsynkad än – kräver firmware med enhetsloggen"}
         </div>
