@@ -288,6 +288,46 @@ bool uploadGpx(uint8_t &failed) {
 // ateruppupptagning hann den aldrig fram over en hotspot.
 const char *kTmpFile = "/DRIVE/NED.TMP";
 
+// Chunkad http-strom: svar utan Content-Length ramas in bit for bit som
+// "storlek-i-hex\r\n data \r\n", avslutat med en nollstor bit. Ramarna ar
+// inte innehall - det var de som gjorde varje nedladdad del nagra hundra
+// byte "for stor" sa att storlekskontrollen forkastade den, om och om igen.
+// Har skalas ramen av och bara nyttolasten skrivs till filen.
+bool readChunked(WiFiClient *stream, File &out, uint8_t *buf, size_t bufLen) {
+  char line[20];
+  for (;;) {
+    if (mustAbort()) return false;
+    const size_t n = stream->readBytesUntil('\n', line, sizeof(line) - 1);
+    if (n == 0) return false;
+    line[n] = '\0';
+    const long sz = strtol(line, nullptr, 16);
+    if (sz < 0) return false;
+    if (sz == 0) {
+      stream->readBytesUntil('\n', line, sizeof(line) - 1);  // avslutande tomrad
+      return true;
+    }
+    long left = sz;
+    uint32_t lastProgressMs = millis();
+    while (left > 0) {
+      if (mustAbort()) return false;
+      const size_t got =
+          stream->readBytes(buf, min((long)bufLen, left));
+      if (got == 0) {
+        // Samma talamod som den olanka lasningen: hotspots hackar, och
+        // forst en dod lank eller 20 s utan framsteg ar slutet.
+        const bool dead = !stream->connected() && stream->available() == 0;
+        if (dead || millis() - lastProgressMs > 20000UL) return false;
+        delay(50);
+        continue;
+      }
+      lastProgressMs = millis();
+      if (out.write(buf, got) != got) return false;
+      left -= got;
+    }
+    stream->readBytesUntil('\n', line, sizeof(line) - 1);  // bitens \r\n
+  }
+}
+
 // Hur langt den pagaende nedladdningen kommit. Filen vaxer bara med hela,
 // kontrollerade delar, sa siffran ar ett arligt matt pa framsteg.
 long tmpBytes() {
@@ -404,26 +444,32 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
-    // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
-    // stannar upp i sekunder mitt i en overforing, och att doma ut delen
-    // vid forsta hacket var darfor detsamma som att aldrig fa hem den.
-    // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
-    uint32_t lastProgressMs = millis();
-    while (remaining != 0) {
-      if (mustAbort()) { http.end(); out.close(); return false; }
-      const size_t got = stream->readBytes(
-          buf, min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
-      if (got == 0) {
-        const bool dead = !stream->connected() && stream->available() == 0;
-        if (dead || millis() - lastProgressMs > 20000UL) break;
-        delay(50);  // vanta ut hacket utan att snurra varm
-        continue;
+    if (remaining == -1) {
+      // Ingen Content-Length: svaret ar chunkat och ramarna maste skalas av.
+      readChunked(stream, out, buf, sizeof(buf));
+    } else {
+      // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
+      // stannar upp i sekunder mitt i en overforing, och att doma ut delen
+      // vid forsta hacket var darfor detsamma som att aldrig fa hem den.
+      // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
+      uint32_t lastProgressMs = millis();
+      while (remaining != 0) {
+        if (mustAbort()) { http.end(); out.close(); return false; }
+        const size_t got = stream->readBytes(
+            buf,
+            min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
+        if (got == 0) {
+          const bool dead = !stream->connected() && stream->available() == 0;
+          if (dead || millis() - lastProgressMs > 20000UL) break;
+          delay(50);  // vanta ut hacket utan att snurra varm
+          continue;
+        }
+        lastProgressMs = millis();
+        if (out.write(buf, got) != got) {
+          http.end(); out.close(); return false;
+        }
+        if (remaining > 0) remaining -= got;
       }
-      lastProgressMs = millis();
-      if (out.write(buf, got) != got) {
-        http.end(); out.close(); return false;
-      }
-      if (remaining > 0) remaining -= got;
     }
     http.end();
     out.close();
