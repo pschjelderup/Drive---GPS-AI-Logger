@@ -95,6 +95,11 @@ bool enabled();
 // Glom den inlarda adaptern och leta igen fran borjan.
 void forget();
 
+// Pausar tillvalet tillfalligt och slapper bluetooth-stacken. Molnsynken
+// gor det medan den kor: bluetooth och tls om samma internminne slutar med
+// att tls forlorar, och nagon resa pagar anda inte under en synk.
+void suspend(bool on);
+
 ObdData data();
 
 // Resans summering. noteTripStart nollstaller, summary() laser av.

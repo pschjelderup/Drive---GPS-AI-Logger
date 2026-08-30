@@ -10,8 +10,10 @@
 #include "config.h"
 #include "customers.h"
 #include "logg.h"
+#include "obd.h"
 #include "sensors.h"
 #include "trip.h"
+#include "websync.h"
 
 namespace {
 
@@ -619,8 +621,10 @@ void uploadLog() {
 // Hela synkvarvet. Sant nar allt gick igenom.
 bool runSync() {
   setState(CLOUD_SYNCING, "hamtar molnlaget");
-  Serial.printf("moln: fritt internminne %lu byte\n",
-                (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+  Serial.printf("moln: fritt internminne %lu byte, storsta block %lu\n",
+                (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned long)heap_caps_get_largest_free_block(
+                    MALLOC_CAP_INTERNAL));
 
   String cfg;
   {
@@ -634,6 +638,11 @@ bool runSync() {
       snprintf(msg, sizeof(msg),
                code == 401 ? "fel token" : "molnet svarar inte (kod %d)", code);
       setState(CLOUD_ERROR, msg);
+      logg::event("moln svarade inte (kod %d) - fritt %lu, storsta block %lu",
+                  code,
+                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned long)heap_caps_get_largest_free_block(
+                      MALLOC_CAP_INTERNAL));
       return false;
     }
     cfg = http.getString();
@@ -817,6 +826,13 @@ void syncTask(void *) {
     // faktiskt hor forst, starkast forst; darefter de ohorbara i tur och
     // ordning - dolda ssid syns aldrig i en skanning och en hotspot kan
     // annonsera glest, men bada svarar pa ett riktigt forsok.
+    // Innan radion tas i ansprak: lagg ner accesspunkten och bluetooth.
+    // Bada haller internminne som tls-handskakningen behover, och pa det
+    // mindre kortet ar det skillnaden mellan en synk och "kod -1".
+    websync::suspend(true);
+    obd::suspend(true);
+    for (uint8_t w = 0; w < 30 && websync::isUp(); w++) delay(100);
+
     setState(CLOUD_CONNECTING, "soker naten");
     WiFi.enableSTA(true);
     int16_t rssi[cloudsync::kNetMax];
@@ -884,6 +900,8 @@ void syncTask(void *) {
 
     if (!up) {
       WiFi.disconnect(true);
+      websync::suspend(false);
+      obd::suspend(false);
       // Vanligaste orsakerna i den har ordningen: naten sander bara pa
       // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
       // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
@@ -916,6 +934,8 @@ void syncTask(void *) {
     // Slutraden hinner ofta inte med i den har rundans uppladdning - den
     // ligger forst i kon nasta gang, och det racker.
     WiFi.disconnect(true);
+    websync::suspend(false);
+    obd::suspend(false);
 
     if (ok) {
       snprintf(msg, sizeof(msg), "synkad via %s", g_ssids[pick]);

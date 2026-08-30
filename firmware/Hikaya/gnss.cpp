@@ -151,7 +151,12 @@ void handleLine(char *s, uint32_t now) {
     composeFix(now);
   } else if (strncmp(typ, "GGA", 3) == 0 && n >= 10) {
     g_quality = (uint8_t)atol(f[6]);
-    g_fix.sats = (uint8_t)atol(f[7]);
+    // Utan fix ar gga:s siffra noll per definition - da behaller vi
+    // satelliterna i sikte fran gsv i stallet for att blinka mellan sju
+    // och noll medan mottagaren soker.
+    const uint8_t used = (uint8_t)atol(f[7]);
+    if (g_quality > 0 || used > 0) g_fix.sats = used;
+    else if (g_inView > 0) g_fix.sats = g_inView;
     g_hdop = (float)atof(f[8]);
     g_fix.altM = (float)atof(f[9]);
     if (g_quality > 0 && !g_hadFix) {
