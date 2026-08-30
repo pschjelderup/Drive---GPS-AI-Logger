@@ -11,6 +11,7 @@
 #include "geo.h"
 #include "gnss.h"
 #include "logg.h"
+#include "obd.h"
 #include "sensors.h"
 #include "stats.h"
 
@@ -37,7 +38,7 @@ namespace {
 // stromen mitt i den, och da ar sista kanda position resans mal.
 
 const uint32_t kStateMagic = 0x31565244;  // "DRV1"
-const uint16_t kStateVersion = 2;  // 2: gransstatistiken tillkom
+const uint16_t kStateVersion = 3;  // 3: obd-summeringen tillkom
 const size_t kSlotSize = 512;
 
 #pragma pack(push, 1)
@@ -75,6 +76,18 @@ struct StateRecord {
   // vagtypsstatistiken i webbappen.
   uint32_t limitS[14];
   float limitM[14];
+
+  // Bilens egna varden ur obd-uttaget, summerade over resan. Noll och
+  // obdAny = 0 nar ingen adapter var med - da skrivs de som null i molnet
+  // i stallet for att pasta att bilen stod pa tomgang i noll sekunder.
+  uint8_t obdAny;
+  uint8_t obdMaxLoadPct;
+  uint8_t obdFuelStartPct, obdFuelEndPct;
+  uint16_t obdMaxRpm, obdAvgRpm;
+  int16_t obdMaxCoolantC;
+  uint16_t obdPad;
+  float obdFuelLiters;
+  uint32_t obdIdleS, obdEngineOnS;
 
   uint32_t crc;  // over alla byte fore detta falt
 };
@@ -360,6 +373,35 @@ void appendTripRow(const StateRecord &r) {
     granser[p] = '\0';
   }
 
+  // Bilens egna varden. Utan adapter blir hela blocket null - skillnaden
+  // mellan "kordes utan obd" och "stod pa tomgang noll sekunder" ska synas
+  // hela vagen upp i molnet.
+  char obdJson[190];
+  if (r.obdAny) {
+    int p = snprintf(obdJson, sizeof(obdJson),
+                     "{\"max_varv\":%u,\"medel_varv\":%u,\"max_last\":%u,"
+                     "\"tomgang_s\":%lu,\"motor_pa_s\":%lu",
+                     (unsigned)r.obdMaxRpm, (unsigned)r.obdAvgRpm,
+                     (unsigned)r.obdMaxLoadPct, (unsigned long)r.obdIdleS,
+                     (unsigned long)r.obdEngineOnS);
+    if (r.obdMaxCoolantC > -900) {
+      p += snprintf(obdJson + p, sizeof(obdJson) - p, ",\"max_kylvatten\":%d",
+                    (int)r.obdMaxCoolantC);
+    }
+    if (r.obdFuelLiters > 0.001f) {
+      p += snprintf(obdJson + p, sizeof(obdJson) - p, ",\"bransle_l\":%.3f",
+                    r.obdFuelLiters);
+    }
+    if (r.obdFuelStartPct != 0xFF) {
+      p += snprintf(obdJson + p, sizeof(obdJson) - p,
+                    ",\"tank_start\":%u,\"tank_slut\":%u",
+                    (unsigned)r.obdFuelStartPct, (unsigned)r.obdFuelEndPct);
+    }
+    snprintf(obdJson + p, sizeof(obdJson) - p, "}");
+  } else {
+    snprintf(obdJson, sizeof(obdJson), "null");
+  }
+
   File j = SDCARD.open(TRIPS_JSONL, FILE_APPEND);
   if (j) {
     j.printf(
@@ -367,13 +409,14 @@ void appendTripRow(const StateRecord &r) {
         "\"start_lon\":%.7f,\"mal_lat\":%.7f,\"mal_lon\":%.7f,\"meter\":%.1f,"
         "\"punkter\":%lu,\"syfte\":\"%s\",\"kund\":\"%s\",\"maxfart_kmh\":%.1f,"
         "\"fortkorning_s\":%lu,\"rullande_s\":%lu,\"ecopoang\":%s,"
-        "\"harda_moment\":%lu,\"avslut\":\"%s\",\"granser\":%s,"
+        "\"harda_moment\":%lu,\"avslut\":\"%s\",\"granser\":%s,\"obd\":%s,"
         "\"gpx\":\"R%04lu.GPX\"}\n",
         (unsigned long)r.index, startIso, endIso, r.startLat, r.startLon,
         r.lastLat, r.lastLon, r.distanceM, (unsigned long)r.points,
         trip::purposeSlug((TripPurpose)r.purpose), r.customer, r.maxSpeedKmh,
         (unsigned long)r.speedingS, (unsigned long)r.movingS, ecoJson,
-        (unsigned long)r.hardEvents, slut, granser, (unsigned long)r.index);
+        (unsigned long)r.hardEvents, slut, granser, obdJson,
+        (unsigned long)r.index);
     j.flush();
     j.close();
   }
@@ -553,6 +596,8 @@ void startTrip(double lat, double lon, bool haveFix) {
   // Ecodrive borjar om vid varje resa, sa att poangen sager nagot om den har
   // korningen och inte om alla korningar sedan kortet flashades.
   eco::reset();
+  // Detsamma for bilens egna varden: summeringen galler den har resan.
+  obd::noteTripStart();
 
   g_active = true;
   writeState();
@@ -578,6 +623,23 @@ void closeTrip(TripEndReason reason) {
   }
 
   refreshLiveStats();
+
+  // Bilens egna varden lases av har - efter det borjar nasta resas
+  // summering, och siffrorna ska tillhora den resa som just tog slut.
+  {
+    const ObdTripSummary o = obd::summary();
+    g_state.obdAny = o.any ? 1 : 0;
+    g_state.obdMaxRpm = o.maxRpm;
+    g_state.obdAvgRpm = o.avgRpm;
+    g_state.obdMaxCoolantC = o.maxCoolantC;
+    g_state.obdMaxLoadPct = o.maxLoadPct;
+    g_state.obdFuelStartPct = o.fuelStartPct;
+    g_state.obdFuelEndPct = o.fuelEndPct;
+    g_state.obdFuelLiters = o.fuelLiters;
+    g_state.obdIdleS = o.idleS;
+    g_state.obdEngineOnS = o.engineOnS;
+  }
+
   g_state.endReason = reason;
   g_state.open = 0;
   g_active = false;

@@ -12,6 +12,7 @@
 #include "gui_model.h"
 #include "gui_screens.h"
 #include "logg.h"
+#include "obd.h"
 #include "sensors.h"
 #include "sound.h"
 #include "stats.h"
@@ -237,6 +238,18 @@ void actToggleAutoSync(bool on) {
   sound::play(CUE_TAP);
 }
 
+void actToggleObd(bool on) {
+  g_cfg->obdOn = on ? 1 : 0;
+  g_apply();
+  g_save();
+  sound::play(CUE_TAP);
+}
+
+void actForgetObd() {
+  obd::forget();
+  sound::play(CUE_TAP);
+}
+
 }  // namespace
 
 namespace {
@@ -246,7 +259,7 @@ void actOpenCustomers() { ::openCustomersFromGui(); }
 const GuiActions kActions = {
     actSetPurpose, actStartTrip, actEndTrip, actSplit, actPickCustomer,
     actOpenCustomers, actToggleSound, actScreenIdx, actTare, actEcoReset,
-    actCloudSync, actToggleAutoSync,
+    actCloudSync, actToggleAutoSync, actToggleObd, actForgetObd,
 };
 
 // ---------------------------------------------------------------- modellen -
@@ -263,6 +276,28 @@ void fillModel(GuiModel &m) {
   m.gpsFix = d.fixType >= 2;
   m.sats = d.sats;
   m.sdOk = sensors::sdMounted();
+
+  const ObdData od = obd::data();
+  m.obdState = (uint8_t)od.state;
+  m.obdHas = od.has;
+  m.obdRpm = od.rpm;
+  m.obdSpeedKmh = od.speedKmh;
+  m.obdCoolantC = od.coolantC;
+  m.obdIntakeC = od.intakeC;
+  m.obdAmbientC = od.ambientC;
+  m.obdOilC = od.oilC;
+  m.obdLoadPct = od.loadPct;
+  m.obdThrottlePct = od.throttlePct;
+  m.obdFuelPct = od.fuelPct;
+  m.obdHybridPct = od.hybridPct;
+  m.obdFlowLh = od.flowLh;
+  m.obdVoltage = od.voltage;
+  m.obdRuntimeS = od.runtimeS;
+  strncpy(m.obdAdapter, od.adapter, sizeof(m.obdAdapter) - 1);
+  const ObdTripSummary os = obd::summary();
+  m.obdTripLiters = os.fuelLiters;
+  m.obdTripMaxRpm = os.maxRpm;
+  m.obdTripIdleS = os.idleS;
 
   const CloudStatus cs = cloudsync::status();
   m.cloudConfigured = cloudsync::configured();
@@ -344,6 +379,7 @@ void fillModel(GuiModel &m) {
   m.camCount = cams::count();
 
   m.soundOn = g_cfg->soundOn != 0;
+  m.obdOn = g_cfg->obdOn != 0;
   m.autoSyncOn = g_cfg->autoSync != 0;
   m.screenIdx = g_cfg->screenIdx;
   m.screenCount = kScreenTimeoutCount;

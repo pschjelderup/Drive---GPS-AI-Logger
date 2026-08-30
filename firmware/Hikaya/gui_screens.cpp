@@ -53,11 +53,11 @@
 
 static const GuiActions *g_act = nullptr;
 static GuiModel g_m = {};  // senaste modellen, for uppdateringarna
-static GuiScreen g_current = GUI_SCR_HOME;
+static GuiScreen g_current = GUI_SCR_DRIVE;
 
 // ---------------------------------------------------------------- hjalpare -
 
-static lv_obj_t *g_screens[6];
+static lv_obj_t *g_screens[GUI_SCR_COUNT];
 
 // Glaspanel: vit med lag opacitet och en svagt ljusare kant. Det ar
 // genomskinligheten som gor att panelerna lever mot den morka botten.
@@ -125,35 +125,49 @@ static lv_obj_t *ghost_button(lv_obj_t *parent, lv_color_t tint,
   return b;
 }
 
-// Hem-gesten: svep uppat var som helst pa en appskarm leder hem, precis som
-// pa en telefon. Strecket i underkanten ar samma loft som tryckyta.
-static void go_home_cb(lv_event_t *e) {
-  (void)e;
-  gui_screens_show(GUI_SCR_HOME, true);
+// Gesterna: svep NEDAT fran skarmens ovankant ger menyn, och svep i sidled
+// bladdrar mellan skarmarna i en oandlig slinga.
+//
+// Underkanten ar med flit fri fran gester. Dar bor knapparna som markerar
+// resan - privat, foretag, diffust - och ett svep uppat darifran tog trycken
+// ur dem lika ofta som det ledde hem. En gest ska inte konkurrera med en
+// knapp om samma fingerrorelse.
+static const GuiScreen kOrder[] = {
+    GUI_SCR_DRIVE, GUI_SCR_ECO, GUI_SCR_OBD,  GUI_SCR_STATS,
+    GUI_SCR_CLOUD, GUI_SCR_HOME, GUI_SCR_SETTINGS,
+};
+static const uint8_t kOrderCount = sizeof(kOrder) / sizeof(kOrder[0]);
+
+static void step_screen(int dir) {
+  uint8_t at = 0;
+  for (uint8_t i = 0; i < kOrderCount; i++) {
+    if (kOrder[i] == g_current) { at = i; break; }
+  }
+  const uint8_t next = (uint8_t)((at + kOrderCount + dir) % kOrderCount);
+  gui_screens_show(kOrder[next], true);
 }
 
 static void gesture_cb(lv_event_t *e) {
+  (void)e;
   lv_indev_t *indev = lv_indev_active();
   if (!indev) return;
-  if (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) {
-    gui_screens_show(GUI_SCR_HOME, true);
+  switch (lv_indev_get_gesture_dir(indev)) {
+    case LV_DIR_BOTTOM: gui_screens_show(GUI_SCR_HOME, true); break;
+    case LV_DIR_LEFT: step_screen(1); break;
+    case LV_DIR_RIGHT: step_screen(-1); break;
+    default: break;
   }
 }
 
-static void add_home_bar(lv_obj_t *scr) {
-  lv_obj_t *hit = lv_button_create(scr);
-  lv_obj_remove_style_all(hit);
-  lv_obj_set_size(hit, SX(220), SY(26));
-  lv_obj_align(hit, LV_ALIGN_BOTTOM_MID, SX(0), SY(0));
-  lv_obj_set_style_bg_opa(hit, 0, 0);
-  lv_obj_add_event_cb(hit, go_home_cb, LV_EVENT_CLICKED, nullptr);
-
-  lv_obj_t *bar = lv_obj_create(hit);
+static void add_gestures(lv_obj_t *scr) {
+  // Ett kort streck hogst upp: samma loft som telefonens greppstreck, fast
+  // i den ande gesten faktiskt borjar.
+  lv_obj_t *bar = lv_obj_create(scr);
   lv_obj_remove_style_all(bar);
   lv_obj_set_size(bar, SX(120), SY(5));
-  lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, SX(0), SY(-5));
+  lv_obj_align(bar, LV_ALIGN_TOP_MID, SX(0), SY(2));
   lv_obj_set_style_bg_color(bar, COL_PANEL_W, 0);
-  lv_obj_set_style_bg_opa(bar, 110, 0);
+  lv_obj_set_style_bg_opa(bar, 80, 0);
   lv_obj_set_style_radius(bar, 3, 0);
 
   lv_obj_add_event_cb(scr, gesture_cb, LV_EVENT_GESTURE, nullptr);
@@ -167,7 +181,7 @@ struct StatusRefs {
   lv_obj_t *sd;
   lv_obj_t *cloud;
 };
-static StatusRefs g_status[6];
+static StatusRefs g_status[GUI_SCR_COUNT];
 
 static void add_status(lv_obj_t *scr, GuiScreen idx) {
   StatusRefs &r = g_status[idx];
@@ -220,14 +234,16 @@ struct AppDef {
   GuiScreen target;
 };
 
-static const AppDef kApps[6] = {
+static const AppDef kApps[7] = {
     {"Körning", LV_SYMBOL_GPS, 0x2F7BFF, 0x123B8F, GUI_SCR_DRIVE},
     {"Ecodrive", LV_SYMBOL_CHARGE, 0x2FC47E, 0x0B5A3A, GUI_SCR_ECO},
+    {"Bilen", LV_SYMBOL_POWER, 0xFF6B6B, 0x8A2020, GUI_SCR_OBD},
     {"Statistik", LV_SYMBOL_BARS, 0x7C5CFF, 0x3B2A80, GUI_SCR_STATS},
     {"Moln", LV_SYMBOL_WIFI, 0x22D3EE, 0x0E5B6B, GUI_SCR_CLOUD},
     {"Kund", LV_SYMBOL_DIRECTORY, 0xF5A623, 0x8A5A0E, GUI_SCR_HOME},
     {"Inställn.", LV_SYMBOL_SETTINGS, 0x8C9AAC, 0x3A4250, GUI_SCR_SETTINGS},
 };
+static const uint8_t kAppCount = 7;
 
 static lv_obj_t *g_tripChip;       // "resa pagar" pa hemskarmen
 static lv_obj_t *g_tripChipLabel;
@@ -269,16 +285,16 @@ static void build_home() {
   lv_obj_t *brand = label(scr, F16, COL_DIM, "Hikaya");
   lv_obj_align(brand, LV_ALIGN_TOP_LEFT, SX(18), SY(42));
 
-  // Rutnatet: 2 x 3 ikoner. Matten ar valda sa att alla tre rader och
-  // resechipet far plats pa 600 pixlar utan att trangas.
-  const int16_t tile = SX(112), gapx = SX(58);
-  const int16_t x0 = (GUI_W - 2 * tile - gapx) / 2;
+  // Rutnatet: 3 x 3 ikoner (sju anvanda). Tre kolumner sedan bilen fick en
+  // egen app - med tva kolumner hade fjarde raden trangt undan resechipet.
+  const int16_t tile = SX(112), gapx = SX(38);
+  const int16_t x0 = (GUI_W - 3 * tile - 2 * gapx) / 2;
   const int16_t y0 = SY(84);
   const int16_t step = tile + SY(44);
 
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < kAppCount; i++) {
     const AppDef &a = kApps[i];
-    const int col = i % 2, row = i / 2;
+    const int col = i % 3, row = i / 3;
     const int16_t x = x0 + col * (tile + gapx);
     const int16_t y = y0 + row * step;
 
@@ -305,9 +321,9 @@ static void build_home() {
     lv_obj_center(sym);
 
     lv_obj_t *name = label(scr, F16, COL_TEXT, a.name);
-    lv_obj_set_width(name, tile + SX(40));
+    lv_obj_set_width(name, tile + SX(26));
     lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(name, x - SX(20), y + tile + SY(5));
+    lv_obj_set_pos(name, x - SX(13), y + tile + SY(5));
   }
 
   // Chip som visar att en resa pagar - trycket leder rakt in i korningen.
@@ -325,6 +341,10 @@ static void build_home() {
   g_tripChipLabel = label(g_tripChip, F20, COL_GREEN, "");
   lv_obj_center(g_tripChipLabel);
   lv_obj_add_flag(g_tripChip, LV_OBJ_FLAG_HIDDEN);
+
+  // Menyn ar med i slingan som alla andra - svep i sidled harifran bladdrar
+  // vidare, och svep nedat stannar kvar.
+  add_gestures(scr);
 }
 
 static void update_home(const GuiModel *m) {
@@ -550,7 +570,7 @@ static void build_drive() {
   // overst, och med baren under stjal den inte langre trycken ur
   // knapparnas nederkant - en av anledningarna till att de var svara
   // att traffa.
-  add_home_bar(scr);
+  add_gestures(scr);
 
   // Syftesknapparna: den valda fylls, de andra ar glas. Stora nog att
   // traffas med tummen i farthållarlage - 140 x 60 i designmatt.
@@ -807,7 +827,7 @@ static void build_eco() {
   lv_obj_align(tare, LV_ALIGN_BOTTOM_RIGHT, SX(-18), SY(-34));
   g_tareBtnLbl = lv_obj_get_child(tare, 0);
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_eco(const GuiModel *m) {
@@ -931,7 +951,7 @@ static void build_stats() {
     lv_obj_align(g_statBarLbl[i], LV_ALIGN_TOP_RIGHT, SX(-14), SY(30) + i * SY(30));
   }
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_stats(const GuiModel *m) {
@@ -1040,7 +1060,7 @@ static void build_cloud() {
   lv_obj_set_size(sync, SX(414), SY(52));
   lv_obj_align(sync, LV_ALIGN_TOP_MID, SX(0), SY(430));
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_cloud(const GuiModel *m) {
@@ -1073,11 +1093,206 @@ static void update_cloud(const GuiModel *m) {
   set_txt(g_cloudCams, buf);
 }
 
+// ------------------------------------------------------------------ bilen -
+// Obd-tillvalet: bilens egna varden ur uttaget. Skarmen finns aven utan
+// adapter - da berattar den vad som saknas i stallet for att visa nollor,
+// och tomma falt star som streck. Bilen lamnar olika mycket ifran sig
+// beroende pa marke och arsmodell, sa "-" har betyder "den har bilen sager
+// inte det", inte "noll".
+
+static lv_obj_t *g_obdState, *g_obdRpm, *g_obdRpmCap, *g_obdSpeed;
+static lv_obj_t *g_obdTiles[8], *g_obdTileCaps[8], *g_obdTrip;
+
+static void obd_forget_cb(lv_event_t *e) {
+  (void)e;
+  if (g_act && g_act->forgetObd) g_act->forgetObd();
+}
+
+static void obd_tile(lv_obj_t *parent, int16_t x, int16_t y, const char *cap,
+                     lv_obj_t **valOut, lv_obj_t **capOut) {
+  lv_obj_t *p = glass(parent);
+  lv_obj_set_size(p, SX(198), SY(62));
+  lv_obj_set_pos(p, x, y);
+  *valOut = label(p, F20, COL_TEXT, "–");
+  lv_obj_align(*valOut, LV_ALIGN_TOP_LEFT, SX(12), SY(6));
+  *capOut = label(p, F16, COL_DIM, cap);
+  lv_obj_align(*capOut, LV_ALIGN_BOTTOM_LEFT, SX(12), SY(-6));
+}
+
+static void build_obd() {
+  lv_obj_t *scr = make_screen();
+  g_screens[GUI_SCR_OBD] = scr;
+  add_status(scr, GUI_SCR_OBD);
+
+  lv_obj_t *title = label(scr, F26, COL_TEXT, "Bilen");
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, SX(18), SY(44));
+
+  // Statusraden: vad adaptern gor just nu, och en knapp for att glomma den
+  // och leta om - byter man bil ska inte den gamla adapterns adress sitta
+  // kvar och blockera.
+  lv_obj_t *top = glass(scr);
+  lv_obj_set_size(top, SX(414), SY(64));
+  lv_obj_align(top, LV_ALIGN_TOP_MID, SX(0), SY(80));
+  g_obdState = label(top, F16, COL_DIM, "");
+  lv_obj_align(g_obdState, LV_ALIGN_LEFT_MID, SX(14), SY(0));
+  lv_label_set_long_mode(g_obdState, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(g_obdState, SX(270));
+  lv_obj_set_style_text_line_space(g_obdState, 4, 0);
+  lv_obj_t *again = ghost_button(top, COL_ACCENT, "Sök om", F16,
+                                 obd_forget_cb, nullptr);
+  lv_obj_set_size(again, SX(110), SY(44));
+  lv_obj_align(again, LV_ALIGN_RIGHT_MID, SX(-10), SY(0));
+
+  // De tva som en forare tittar efter: varvtalet och bilens egen hastighet.
+  lv_obj_t *big = glass(scr);
+  lv_obj_set_size(big, SX(414), SY(96));
+  lv_obj_align(big, LV_ALIGN_TOP_MID, SX(0), SY(152));
+  g_obdRpm = label(big, F44, COL_TEXT, "–");
+  lv_obj_align(g_obdRpm, LV_ALIGN_LEFT_MID, SX(20), SY(-8));
+  g_obdRpmCap = label(big, F16, COL_DIM, "varv/min");
+  lv_obj_align(g_obdRpmCap, LV_ALIGN_LEFT_MID, SX(20), SY(26));
+  g_obdSpeed = label(big, F44, COL_ACCENT, "–");
+  lv_obj_align(g_obdSpeed, LV_ALIGN_RIGHT_MID, SX(-24), SY(-8));
+  lv_obj_t *sc = label(big, F16, COL_DIM, "km/h ur bilen");
+  lv_obj_align(sc, LV_ALIGN_RIGHT_MID, SX(-24), SY(26));
+
+  static const char *caps[8] = {"kylvatten", "motorlast", "gaspedal",
+                                "tank",      "förbrukning", "insugsluft",
+                                "utetemp",   "spänning"};
+  for (int i = 0; i < 8; i++) {
+    obd_tile(scr, i % 2 ? SX(234) : SX(18), SY(262) + (i / 2) * SY(70),
+             caps[i], &g_obdTiles[i], &g_obdTileCaps[i]);
+  }
+
+  g_obdTrip = label(scr, F16, COL_DIM, "");
+  lv_obj_align(g_obdTrip, LV_ALIGN_TOP_LEFT, SX(20), SY(538));
+  lv_label_set_long_mode(g_obdTrip, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(g_obdTrip, SX(410));
+
+  add_gestures(scr);
+}
+
+static void update_obd(const GuiModel *m) {
+  update_status(GUI_SCR_OBD, m);
+  char buf[160];
+
+  switch (m->obdState) {
+    case 0:  // OBD_OFF
+      snprintf(buf, sizeof(buf),
+               "Tillvalet är avslaget. Slå på det under Inställningar – "
+               "adaptern måste vara en BLE-modell.");
+      break;
+    case 1:  // OBD_SEARCHING
+      snprintf(buf, sizeof(buf), "Letar efter adaptern …");
+      break;
+    case 2:  // OBD_CONNECTING
+      snprintf(buf, sizeof(buf), "Kopplar upp mot %s …", m->obdAdapter);
+      break;
+    case 3:  // OBD_HANDSHAKE
+      snprintf(buf, sizeof(buf), "%s svarar – frågar bilen", m->obdAdapter);
+      break;
+    case 5:  // OBD_NO_CAR
+      snprintf(buf, sizeof(buf),
+               "%s är uppkopplad men bilen svarar inte – tändningen av?",
+               m->obdAdapter);
+      break;
+    default:  // OBD_LIVE
+      snprintf(buf, sizeof(buf), "%s · bilen svarar", m->obdAdapter);
+      break;
+  }
+  set_txt(g_obdState, buf);
+
+  const bool live = m->obdState == 4;  // OBD_LIVE
+
+  if (live && (m->obdHas & (1u << 0))) {
+    snprintf(buf, sizeof(buf), "%u", (unsigned)m->obdRpm);
+  } else {
+    snprintf(buf, sizeof(buf), "–");
+  }
+  set_txt(g_obdRpm, buf);
+  // En hybrid som rullar pa el star pa noll varv med bilen i full fart -
+  // det ar inte ett fel, sa raden under sager vad noll betyder.
+  set_txt(g_obdRpmCap,
+          live && (m->obdHas & (1u << 0)) && m->obdRpm == 0 ? "motorn vilar"
+                                                            : "varv/min");
+
+  if (live && (m->obdHas & (1u << 1))) {
+    snprintf(buf, sizeof(buf), "%u", (unsigned)m->obdSpeedKmh);
+  } else {
+    snprintf(buf, sizeof(buf), "–");
+  }
+  set_txt(g_obdSpeed, buf);
+
+  // Brickorna i samma ordning som de skapades.
+  struct Cell { uint32_t bit; const char *fmt; float val; };
+  char cells[8][24];
+  const bool hasHybrid = m->obdHas & (1u << 11);
+  snprintf(cells[0], sizeof(cells[0]),
+           (live && (m->obdHas & (1u << 2))) ? "%d °C" : "–", m->obdCoolantC);
+  snprintf(cells[1], sizeof(cells[1]),
+           (live && (m->obdHas & (1u << 3))) ? "%u %%" : "–",
+           (unsigned)m->obdLoadPct);
+  snprintf(cells[2], sizeof(cells[2]),
+           (live && (m->obdHas & (1u << 4))) ? "%u %%" : "–",
+           (unsigned)m->obdThrottlePct);
+  // Tanknivan byter plats med hybridbatteriet i bilar som har ett - det ar
+  // den siffran man tittar efter i en hybrid.
+  if (hasHybrid && live) {
+    snprintf(cells[3], sizeof(cells[3]), "%u %%", (unsigned)m->obdHybridPct);
+  } else {
+    snprintf(cells[3], sizeof(cells[3]),
+             (live && (m->obdHas & (1u << 5))) ? "%u %%" : "–",
+             (unsigned)m->obdFuelPct);
+  }
+  set_txt(g_obdTileCaps[3], hasHybrid ? "hybridbatteri" : "tank");
+  if (live && (m->obdHas & (1u << 10))) {
+    snprintf(cells[4], sizeof(cells[4]), "%.1f l/h", m->obdFlowLh);
+    for (char *p = cells[4]; *p; p++) if (*p == '.') *p = ',';
+  } else {
+    snprintf(cells[4], sizeof(cells[4]), "–");
+  }
+  snprintf(cells[5], sizeof(cells[5]),
+           (live && (m->obdHas & (1u << 6))) ? "%d °C" : "–", m->obdIntakeC);
+  snprintf(cells[6], sizeof(cells[6]),
+           (live && (m->obdHas & (1u << 7))) ? "%d °C" : "–", m->obdAmbientC);
+  if (live && (m->obdHas & (1u << 8))) {
+    snprintf(cells[7], sizeof(cells[7]), "%.1f V", m->obdVoltage);
+    for (char *p = cells[7]; *p; p++) if (*p == '.') *p = ',';
+  } else {
+    snprintf(cells[7], sizeof(cells[7]), "–");
+  }
+  for (int i = 0; i < 8; i++) set_txt(g_obdTiles[i], cells[i]);
+
+  // Resans egen rad: det som foljer med upp i molnet nar resan ar slut.
+  if (m->tripActive) {
+    char liters[16] = "–";
+    if (m->obdTripLiters > 0.001f) {
+      snprintf(liters, sizeof(liters), "%.2f l", m->obdTripLiters);
+      for (char *p = liters; *p; p++) if (*p == '.') *p = ',';
+    }
+    snprintf(buf, sizeof(buf), "Resan: %s bränsle · max %u varv · %lu min tomgång",
+             liters, (unsigned)m->obdTripMaxRpm,
+             (unsigned long)(m->obdTripIdleS / 60));
+  } else {
+    snprintf(buf, sizeof(buf),
+             "Värdena bokförs per resa och följer med upp i molnet.");
+  }
+  set_txt(g_obdTrip, buf);
+}
+
 // ---------------------------------------------------------- installningar -
 
 static lv_obj_t *g_setSound;
 static lv_obj_t *g_setScreenVal;
 static lv_obj_t *g_setVersion;
+static lv_obj_t *g_setObd;
+
+static void obd_switch_cb(lv_event_t *e) {
+  lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
+  if (g_act && g_act->toggleObd) {
+    g_act->toggleObd(lv_obj_has_state(sw, LV_STATE_CHECKED));
+  }
+}
 
 static void sound_cb(lv_event_t *e) {
   lv_obj_t *sw = (lv_obj_t *)lv_event_get_target(e);
@@ -1136,17 +1351,33 @@ static void build_settings() {
   g_setScreenVal = label(p2, F20, COL_TEXT, "5 min");
   lv_obj_align(g_setScreenVal, LV_ALIGN_RIGHT_MID, SX(-68), SY(0));
 
+  // Obd-tillvalet. Avslaget ror enheten inte bluetooth alls - och adaptern
+  // maste vara en BLE-modell, eftersom kretsen inte har bluetooth classic.
+  lv_obj_t *p4 = glass(scr);
+  lv_obj_set_size(p4, SX(414), SY(70));
+  lv_obj_align(p4, LV_ALIGN_TOP_MID, SX(0), SY(256));
+  lv_obj_t *l4 = label(p4, F20, COL_TEXT, "OBD-adapter");
+  lv_obj_align(l4, LV_ALIGN_LEFT_MID, SX(14), SY(-10));
+  lv_obj_t *h4 = label(p4, F16, COL_DIM, "bilens värden via bluetooth (BLE)");
+  lv_obj_align(h4, LV_ALIGN_LEFT_MID, SX(14), SY(14));
+  g_setObd = lv_switch_create(p4);
+  lv_obj_set_size(g_setObd, SX(64), SY(34));
+  lv_obj_align(g_setObd, LV_ALIGN_RIGHT_MID, SX(-10), SY(0));
+  lv_obj_set_style_bg_color(g_setObd, COL_ACCENT,
+                            LV_PART_INDICATOR | LV_STATE_CHECKED);
+  lv_obj_add_event_cb(g_setObd, obd_switch_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+
   // Vad enheten vet om sig sjalv.
   lv_obj_t *p3 = glass(scr);
-  lv_obj_set_size(p3, SX(414), SY(210));
-  lv_obj_align(p3, LV_ALIGN_TOP_MID, SX(0), SY(256));
+  lv_obj_set_size(p3, SX(414), SY(186));
+  lv_obj_align(p3, LV_ALIGN_TOP_MID, SX(0), SY(338));
   g_setVersion = label(p3, F16, COL_DIM, "");
   lv_obj_align(g_setVersion, LV_ALIGN_TOP_LEFT, SX(14), SY(10));
   lv_label_set_long_mode(g_setVersion, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(g_setVersion, SX(386));
   lv_obj_set_style_text_line_space(g_setVersion, 7, 0);
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_settings(const GuiModel *m) {
@@ -1154,6 +1385,9 @@ static void update_settings(const GuiModel *m) {
 
   if (m->soundOn) lv_obj_add_state(g_setSound, LV_STATE_CHECKED);
   else lv_obj_remove_state(g_setSound, LV_STATE_CHECKED);
+
+  if (m->obdOn) lv_obj_add_state(g_setObd, LV_STATE_CHECKED);
+  else lv_obj_remove_state(g_setObd, LV_STATE_CHECKED);
 
   char buf[220];
   if (m->screenTimeoutS == 0) {
@@ -1304,11 +1538,14 @@ void gui_screens_create(const GuiActions *actions) {
   build_drive();
   build_eco();
   build_stats();
+  build_obd();
   build_cloud();
   build_settings();
   build_ask();
-  lv_screen_load(g_screens[GUI_SCR_HOME]);
-  g_current = GUI_SCR_HOME;
+  // Korskarmen ar startlaget: det ar farten man vill se nar tandningen slas
+  // pa, inte en appmeny. Menyn ar ett svep nedat bort.
+  lv_screen_load(g_screens[GUI_SCR_DRIVE]);
+  g_current = GUI_SCR_DRIVE;
 }
 
 void gui_screens_show(GuiScreen s, bool animate) {
@@ -1331,6 +1568,7 @@ void gui_screens_update(const GuiModel *m) {
     case GUI_SCR_DRIVE: update_drive(m); break;
     case GUI_SCR_ECO: update_eco(m); break;
     case GUI_SCR_STATS: update_stats(m); break;
+    case GUI_SCR_OBD: update_obd(m); break;
     case GUI_SCR_CLOUD: update_cloud(m); break;
     case GUI_SCR_SETTINGS: update_settings(m); break;
   }

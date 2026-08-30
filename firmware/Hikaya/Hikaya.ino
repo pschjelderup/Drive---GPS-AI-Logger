@@ -26,6 +26,7 @@
 #include "expander.h"
 #include "gui.h"
 #include "logg.h"
+#include "obd.h"
 #include "panel35.h"
 #include "sensors.h"
 #include "sound.h"
@@ -69,7 +70,8 @@ Preferences prefs;
 AppSettings cfg = {DEFAULT_SCREEN_TIMEOUT_INDEX, DEFAULT_SOUND_ON,
                    DEFAULT_ECO_SOFT_INDEX,       DEFAULT_ECO_HARD_INDEX,
                    DEFAULT_ECO_BUBBLE_INDEX,     DEFAULT_ECO_PENALTY_INDEX,
-                   DEFAULT_ECO_WINDOW_INDEX,     DEFAULT_AUTO_SYNC};
+                   DEFAULT_ECO_WINDOW_INDEX,     DEFAULT_AUTO_SYNC,
+                   DEFAULT_OBD_ON};
 
 bool lastButtonState = HIGH;
 
@@ -87,6 +89,7 @@ void loadSettings() {
   cfg.ecoPenaltyIdx = prefs.getUChar("ecoPen", DEFAULT_ECO_PENALTY_INDEX);
   cfg.ecoWindowIdx = prefs.getUChar("ecoWin", DEFAULT_ECO_WINDOW_INDEX);
   cfg.autoSync = prefs.getUChar("autoSync", DEFAULT_AUTO_SYNC);
+  cfg.obdOn = prefs.getUChar("obd", DEFAULT_OBD_ON);
   prefs.end();
 
   // Ett trasigt eller gammalt sparat varde far inte gora enheten obrukbar.
@@ -95,6 +98,7 @@ void loadSettings() {
   }
   if (cfg.soundOn > 1) cfg.soundOn = DEFAULT_SOUND_ON;
   if (cfg.autoSync > 1) cfg.autoSync = DEFAULT_AUTO_SYNC;
+  if (cfg.obdOn > 1) cfg.obdOn = DEFAULT_OBD_ON;
   if (cfg.ecoSoftIdx >= kEcoSoftCount) cfg.ecoSoftIdx = DEFAULT_ECO_SOFT_INDEX;
   if (cfg.ecoHardIdx >= kEcoHardCount) cfg.ecoHardIdx = DEFAULT_ECO_HARD_INDEX;
   if (cfg.ecoBubbleIdx >= kEcoBubbleCount) {
@@ -118,6 +122,7 @@ void saveSettings() {
   prefs.putUChar("ecoPen", cfg.ecoPenaltyIdx);
   prefs.putUChar("ecoWin", cfg.ecoWindowIdx);
   prefs.putUChar("autoSync", cfg.autoSync);
+  prefs.putUChar("obd", cfg.obdOn);
   prefs.end();
 }
 
@@ -127,6 +132,7 @@ void applySettings() {
                  kEcoWindowS[cfg.ecoWindowIdx]);
   sound::setEnabled(cfg.soundOn != 0);
   cloudsync::setAutoSync(cfg.autoSync != 0);
+  obd::setEnabled(cfg.obdOn != 0);
 }
 
 // ------------------------------------------------------------ felsokning --
@@ -325,6 +331,9 @@ void setup() {
 
   customers::reload();
   stats::begin();
+  // Obd startas efter installningarna: ar tillvalet avslaget ror traden
+  // aldrig radion.
+  obd::begin(cfg.obdOn != 0);
   websync::begin();
   cloudsync::begin();
 

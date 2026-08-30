@@ -34,7 +34,9 @@ enum GuiScreen : uint8_t {
   GUI_SCR_ECO,
   GUI_SCR_STATS,
   GUI_SCR_CLOUD,
+  GUI_SCR_OBD,
   GUI_SCR_SETTINGS,
+  GUI_SCR_COUNT,
 };
 
 // Bygger alla skarmar en gang. Anropas efter lv_init + display + indev.

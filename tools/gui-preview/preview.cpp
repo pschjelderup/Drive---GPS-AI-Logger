@@ -79,6 +79,7 @@ int main() {
   static GuiActions act = {
       noopPurpose, noop, noop, noop, noopPick, noop,
       noopSound, noopIdx, noopTare, noop, noop, noopSound,
+      noopSound, noop,
   };
   gui_screens_create(&act);
 
@@ -110,6 +111,18 @@ int main() {
   snprintf(m.cloudDetail, sizeof(m.cloudDetail), "senaste synken gick igenom");
   m.cloudTrips = 6; m.cloudGpx = 6; m.cloudFiles = 3;
   m.camCount = 2771;
+  // Obd-tillvalet paslaget och en bil som svarar - forhandsvisningen ska
+  // visa skarmen som den ser ut nar allt ar uppkopplat.
+  m.obdOn = true;
+  m.obdState = 4;  // OBD_LIVE
+  m.obdHas = 0x7FF;  // allt utom hybridbatteriet - en diesel
+  m.obdRpm = 1850; m.obdSpeedKmh = 86;
+  m.obdCoolantC = 88; m.obdIntakeC = 31; m.obdAmbientC = 17; m.obdOilC = 96;
+  m.obdLoadPct = 42; m.obdThrottlePct = 24; m.obdFuelPct = 63;
+  m.obdHybridPct = 0; m.obdFlowLh = 5.4f; m.obdVoltage = 14.2f;
+  snprintf(m.obdAdapter, sizeof(m.obdAdapter), "Vgate iCar Pro");
+  m.obdTripLiters = 2.31f; m.obdTripMaxRpm = 3120; m.obdTripIdleS = 214;
+
   m.soundOn = true; m.screenIdx = 3; m.screenCount = 8;
   m.screenTimeoutS = 300;
   snprintf(m.version, sizeof(m.version), "fe6882a PR9");
@@ -119,6 +132,7 @@ int main() {
   render(GUI_SCR_ECO, &m, "eco.ppm");
   render(GUI_SCR_STATS, &m, "stats.ppm");
   render(GUI_SCR_CLOUD, &m, "cloud.ppm");
+  render(GUI_SCR_OBD, &m, "obd.ppm");
   render(GUI_SCR_SETTINGS, &m, "settings.ppm");
 
   // Fragan efter resan, over korskarmen.

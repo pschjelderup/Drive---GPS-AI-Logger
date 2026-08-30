@@ -417,6 +417,11 @@ static const uint8_t kScreenTimeoutCount = 8;
 // Avslagen synkar den bara pa knappen pa molnskarmen.
 #define DEFAULT_AUTO_SYNC 1
 
+// Obd-tillvalet ar avslaget tills nagon slar pa det. En enhet utan adapter
+// ska inte betala en bluetooth-stack i minne och strom for en funktion den
+// inte anvander.
+#define DEFAULT_OBD_ON 0
+
 // Matomraden for rorelsesensorn. De behover inte kunna andras i menyn har -
 // resan bryr sig inte om dem, och ecodrive rakna i andel av uppmatt tyngdkraft
 // och blir riktig oavsett.
