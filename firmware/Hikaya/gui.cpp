@@ -427,7 +427,16 @@ void begin(Arduino_GFX *panel, TouchDrvFT6X36 *touch, bool touchOk,
   // 60 rader, inte mer: varje kilobyte har konkurrerar med molnsynkens
   // tls-anslutningar om internminnet, och en synk som svalter ar dyrare an
   // nagra extra flush-omgangar pa en 80 MHz-buss.
+  // Hur manga rader som ritas at gangen ar en avvagning mot internminnet.
+  // Pa 3.5-kortet ar det knappt: accesspunkt, station och tls ska samsas i
+  // samma minne, och 60 rader hade lagt beslag pa 38 kilobyte av det. 24
+  // rader kostar nagra fler flushar - de tar en millisekund styck - och
+  // lamnar tjugotre kilobyte till handskakningen.
+#if defined(BOARD_LCD35)
+  const size_t bufBytes = SCREEN_W * 24 * 2;
+#else
   const size_t bufBytes = SCREEN_W * 60 * 2;
+#endif
   void *buf = heap_caps_malloc(bufBytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   if (!buf) buf = ps_malloc(bufBytes);
   lv_display_set_buffers(g_disp, buf, nullptr, bufBytes,

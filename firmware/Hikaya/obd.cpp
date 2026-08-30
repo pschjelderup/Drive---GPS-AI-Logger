@@ -64,6 +64,7 @@ Preferences g_prefs;
 SemaphoreHandle_t g_mutex = nullptr;
 
 volatile bool g_enabled = false;
+volatile bool g_suspended = false;
 volatile bool g_forget = false;
 volatile bool g_bleUp = false;
 
@@ -558,14 +559,15 @@ void obdTask(void *) {
   uint8_t fails = 0;
 
   for (;;) {
-    if (!g_enabled) {
+    if (!g_enabled || g_suspended) {
       if (g_bleUp) {
         dropLink();
         BLEDevice::deinit(true);
         g_client = nullptr;  // deinit slapper objektet at oss
         g_bleUp = false;
-        setState(OBD_OFF);
-        logg::event("obd: avslaget, bluetooth nedstangt");
+        setState(g_enabled ? OBD_SEARCHING : OBD_OFF);
+        logg::event("obd: %s, bluetooth nedstangt",
+                    g_enabled ? "pausat for molnsynk" : "avslaget");
       }
       lastAccMs = 0;
       delay(1000);
@@ -651,6 +653,8 @@ void setEnabled(bool on) {
 bool enabled() { return g_enabled; }
 
 void forget() { g_forget = true; }
+
+void suspend(bool on) { g_suspended = on; }
 
 ObdData data() {
   lock();

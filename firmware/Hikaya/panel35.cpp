@@ -55,7 +55,7 @@ bool begin() {
   bus.quadwp_io_num = -1;
   bus.quadhd_io_num = -1;
   // LVGL:s ritbuffert ar 60 rader; fill() gar i 40-raderssteg.
-  bus.max_transfer_sz = SCREEN_W * 60 * 2 + 16;
+  bus.max_transfer_sz = SCREEN_W * 24 * 2 + 16;
   if (spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO) != ESP_OK) {
     return false;
   }

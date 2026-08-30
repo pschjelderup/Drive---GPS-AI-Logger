@@ -550,6 +550,8 @@ void startAp() {
   g_up = true;
 }
 
+volatile bool g_suspend = false;
+
 void stopAp() {
   g_server.stop();
   g_dns.stop();
@@ -564,6 +566,8 @@ void stopAp() {
 
 namespace websync {
 
+void suspend(bool on) { g_suspend = on; }
+
 void begin() {
   // Natet startas fran tick() nar tillstandet ar kant. Har finns inget att
   // gora - men funktionen finns, sa att uppstartsordningen syns i .ino-filen.
@@ -571,6 +575,13 @@ void begin() {
 
 void tick() {
   const bool tripActive = trip::status().active;
+
+  // Molnsynken har foretrade framfor konfigsidan: tls behover det
+  // internminne som accesspunkten annars haller.
+  if (g_suspend) {
+    if (g_up) stopAp();
+    return;
+  }
 
   if (tripActive) {
     g_sawTrip = true;

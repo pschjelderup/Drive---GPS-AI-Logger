@@ -25,6 +25,13 @@ void begin();
 // och driver webbservern.
 void tick();
 
+// Lagger ner accesspunkten tillfalligt. Molnsynken gor det medan den kor:
+// ap och station samtidigt, plus webbserver, dns och tls, ar mer an
+// internminnet racker till pa det mindre kortet - och det ar tls som
+// forlorar. Nagon som star pa konfigsidan mitt i en synk far den tillbaka
+// nar synken ar klar.
+void suspend(bool on);
+
 // Sant nar natet ar uppe. Skarmen visar da namn och adress, sa att ingen
 // behover minnas dem.
 bool isUp();
