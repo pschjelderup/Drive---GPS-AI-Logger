@@ -1,1 +1,7 @@
+# Byggprodukterna: objektfiler och den korbara forhandsvisningen. Bilderna
+# daremot ligger kvar i repot - de ar granskningsunderlaget som visar hur
+# skarmarna faktiskt ser ut for den kod som ar incheckad.
 out/
+out35/obj/
+out35/preview
+out35/cfiles.txt
