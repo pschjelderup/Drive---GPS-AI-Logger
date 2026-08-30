@@ -65,6 +65,14 @@ bool g_hadFix = false;
 char g_line[110];
 uint8_t g_len = 0;
 
+// Diagnos: en gps som "ser tva satelliter" kan lika garna vara en gps vars
+// meningar gar sonder pa vagen in. Raknarna skiljer de tva at.
+uint32_t g_lines = 0;      // hela rader som kommit fram
+uint32_t g_badSum = 0;     // rader med trasig checksumma - tappade tecken
+uint32_t g_tooLong = 0;    // rader utan radslut - allvarligare tapp
+
+uint8_t g_sats1 = 0, g_sats2 = 0;  // sikte per konstellation (gp/gl)
+
 bool checksumOk(const char *s) {
   if (s[0] != '$') return false;
   uint8_t x = 0;
@@ -110,7 +118,11 @@ void composeFix(uint32_t now) {
 }
 
 void handleLine(char *s, uint32_t now) {
-  if (!checksumOk(s)) return;
+  g_lines++;
+  if (!checksumOk(s)) {
+    g_badSum++;
+    return;
+  }
   if (!g_present) {
     g_present = true;
     // Forsta hela meningen ar kvittot pa att kablarna sitter ratt - fran
@@ -174,7 +186,12 @@ void handleLine(char *s, uint32_t now) {
     // som visar att nagot hander. Den lanas ut till visningen sa lange
     // inget fix finns; fortroendebedomningen ror den aldrig, eftersom den
     // kraver fix och da ager GGA siffran igen.
-    g_inView = (uint8_t)atol(f[3]);
+    // Varje konstellation har sin egen gsv-serie ($GPGSV, $GLGSV). Att bara
+    // ta den sista gav ett tal som hoppade mellan dem; nu raknas de var for
+    // sig och laggs ihop.
+    const uint8_t n2 = (uint8_t)atol(f[3]);
+    if (f[0][1] == 'L') g_sats2 = n2; else g_sats1 = n2;
+    g_inView = (uint8_t)(g_sats1 + g_sats2);
     if (g_quality == 0) g_fix.sats = g_inView;
   }
 }
@@ -182,6 +199,12 @@ void handleLine(char *s, uint32_t now) {
 bool begin() {
   // Uartens port oppnas alltid; "narvaro" ar nar forsta hela meningen med
   // riktig checksumma kommit - en modul kan inte knackas pa som pa i2c.
+  // Rejal mottagningsbuffert INNAN porten oppnas: 9600 baud fyller
+  // standardens 256 byte pa en kvarts sekund, och traden som tommer den
+  // skriver ocksa gpx till minneskortet. Ett enda sd-hack rackte darfor for
+  // att klippa meningar mitt itu - och en klippt mening ar en kastad
+  // mening, vilket ser ut som en gps som inte hittar nagra satelliter.
+  Serial1.setRxBufferSize(2048);
   Serial1.begin(GNSS_BAUD, SERIAL_8N1, PIN_GNSS_RX, PIN_GNSS_TX);
   g_present = false;
   return true;
@@ -210,6 +233,7 @@ void poll() {
       g_line[g_len++] = c;
     } else {
       g_len = 0;  // for lang rad ar skrap - borja om
+      g_tooLong++;
     }
   }
 }
@@ -304,7 +328,12 @@ void poll() {
 GnssFix fix() { return g_fix; }
 
 GnssDebug debug() {
-  GnssDebug d;
+  GnssDebug d = {};
+#if defined(GNSS_UART)
+  d.lines = g_lines;
+  d.badSum = g_badSum + g_tooLong;
+  d.inView = g_inView;
+#endif
   d.present = g_present;
   d.polls = g_polls;
   d.packets = g_packets;

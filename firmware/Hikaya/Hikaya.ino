@@ -175,10 +175,14 @@ void printStatusLine() {
     // Fartraden avslojar varfor autostarten eventuellt tvekar: betrodd fart
     // kraver 3d-fix och en rimlig osakerhetssiffra fran mottagaren.
     const GnssFix f = gnss::fix();
-    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u  "
+    // Meningar och checksummafel skiljer "ser inga satelliter" fran "far
+    // meningarna klippta pa vagen in" - tva helt olika fel med samma symtom.
+    Serial.printf("GPS: avlasningar %lu  paket %lu  fixtyp %u  satelliter %u "
+                  "(sikte %u)  meningar %lu  chkfel %lu  "
                   "fart %.1f±%.1f km/h %s\n",
                   (unsigned long)d.polls, (unsigned long)d.packets,
-                  (unsigned)d.fixType, (unsigned)d.sats, f.speedKmh,
+                  (unsigned)d.fixType, (unsigned)d.sats, (unsigned)d.inView,
+                  (unsigned long)d.lines, (unsigned long)d.badSum, f.speedKmh,
                   f.speedAccKmh, f.speedTrusted ? "betrodd" : "obetrodd");
   }
 
@@ -365,11 +369,46 @@ void setup() {
 
 uint32_t lastSerialMs = 0;
 
+// Loopens delmoment mats var for sig. "Nagot annat blockerar" ar ingen
+// diagnos - raden nedan pekar ut vilken av delarna det ar.
+uint32_t g_loopWebUs = 0, g_loopWebMaxUs = 0;
+uint32_t g_loopOtherUs = 0, g_loopOtherMaxUs = 0;
+uint32_t g_loopN = 0;
+uint32_t g_loopReportMs = 0;
+
 void loop() {
+  const int64_t t0 = esp_timer_get_time();
   handleButton();
   sound::tick();
+  const int64_t t1 = esp_timer_get_time();
   websync::tick();
+  const int64_t t2 = esp_timer_get_time();
   gui::tick();
+
+  {
+    const uint32_t other = (uint32_t)(t1 - t0);
+    const uint32_t web = (uint32_t)(t2 - t1);
+    g_loopOtherUs += other;
+    g_loopWebUs += web;
+    if (other > g_loopOtherMaxUs) g_loopOtherMaxUs = other;
+    if (web > g_loopWebMaxUs) g_loopWebMaxUs = web;
+    g_loopN++;
+    if (millis() - g_loopReportMs > 60000 && g_loopN) {
+      g_loopReportMs = millis();
+      Serial.printf("loop: webserver %lu.%lu ms medel %lu.%lu varst, "
+                    "knapp+ljud %lu.%lu varst (%lu varv)\n",
+                    (unsigned long)(g_loopWebUs / g_loopN / 1000),
+                    (unsigned long)(g_loopWebUs / g_loopN % 1000 / 100),
+                    (unsigned long)(g_loopWebMaxUs / 1000),
+                    (unsigned long)(g_loopWebMaxUs % 1000 / 100),
+                    (unsigned long)(g_loopOtherMaxUs / 1000),
+                    (unsigned long)(g_loopOtherMaxUs % 1000 / 100),
+                    (unsigned long)g_loopN);
+      g_loopWebUs = g_loopWebMaxUs = 0;
+      g_loopOtherUs = g_loopOtherMaxUs = 0;
+      g_loopN = 0;
+    }
+  }
 
   // En rad var femte sekund racker for att folja en uppstart utan att dranka
   // konsolen. Den fortsatter aven med slackt skarm, vilket ar precis nar man

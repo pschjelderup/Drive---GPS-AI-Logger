@@ -21,6 +21,7 @@ namespace {
 // enhetens legitimation ar token i huvudet - inte adressen.
 const char *kBase =
     "https://jdjkeloiwjkcycelmexq.supabase.co/functions/v1/drive-sync";
+const char *kHost = "jdjkeloiwjkcycelmexq.supabase.co";
 
 // TLS utan certifikatkontroll, med oppna ogon: kedjan bakom molnet byter
 // rotcertifikat pa sina egna villkor, och en enhet i en bil kan inte fa nya
@@ -914,6 +915,30 @@ void syncTask(void *) {
 
     strncpy(g_active, g_ssids[pick], sizeof(g_active) - 1);
     g_active[sizeof(g_active) - 1] = '\0';
+
+    // Uppkopplad ar inte detsamma som anvandbar. "Kod -1" betyder bara att
+    // anslutningen inte gick att fa till - och den vanligaste orsaken pa en
+    // telefonhotspot ar att namnuppslaget inte svarar. Ett uppslag har
+    // skiljer det fallet fran ett riktigt natfel, och en reservserver later
+    // synken ga vidare i stallet for att fastna.
+    {
+      IPAddress ip;
+      bool dnsOk = WiFi.hostByName(kHost, ip);
+      if (!dnsOk) {
+        Serial.println("moln: namnuppslaget svarade inte - provar reserv-dns");
+        WiFi.config(WiFi.localIP(), WiFi.gatewayIP(), WiFi.subnetMask(),
+                    IPAddress(1, 1, 1, 1), IPAddress(8, 8, 8, 8));
+        delay(200);
+        dnsOk = WiFi.hostByName(kHost, ip);
+        logg::event("dns: hotspotens server svarade inte, reserv %s",
+                    dnsOk ? "loste namnet" : "hjalpte inte heller");
+      }
+      Serial.printf("moln: ip %s  gw %s  dns %s  namn %s\n",
+                    WiFi.localIP().toString().c_str(),
+                    WiFi.gatewayIP().toString().c_str(),
+                    WiFi.dnsIP().toString().c_str(),
+                    dnsOk ? ip.toString().c_str() : "OLOST");
+    }
     logg::event("synk borjar via %s (rssi %d)", g_ssids[pick],
                 heard[pick] ? (int)rssi[pick] : 0);
 
