@@ -617,6 +617,34 @@ function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
             "gps-täckning saknades (kallstart eller tunnel)")}
         </div>
 
+        {/* Bilens egna värden, när en OBD-adapter satt i under resan. Utan
+            adapter finns blocket inte alls – tomma rader vore en lögn om
+            att mätningen gjordes och blev noll. */}
+        {t.obd && (
+          <div className="kvgrid" style={{ marginTop: ".6rem" }}>
+            {t.obd.bransle_l != null && kv("Bränsle",
+              `${t.obd.bransle_l.toFixed(2).replace(".", ",")} l` +
+              (t.distance_m > 1000
+                ? ` · ${(t.obd.bransle_l / (t.distance_m / 100000))
+                    .toFixed(1).replace(".", ",")} l/100 km`
+                : ""))}
+            {t.obd.max_varv != null && kv("Varvtal",
+              `max ${t.obd.max_varv}` +
+              (t.obd.medel_varv ? ` · medel ${t.obd.medel_varv}` : ""))}
+            {t.obd.max_kylvatten != null &&
+              kv("Kylvatten", `max ${t.obd.max_kylvatten} °C`)}
+            {t.obd.max_last != null && kv("Motorlast", `max ${t.obd.max_last} %`)}
+            {t.obd.tomgang_s > 0 && kv("Tomgång", fmtDur(t.obd.tomgang_s))}
+            {t.obd.motor_pa_s != null && kv("Motorn igång",
+              fmtDur(t.obd.motor_pa_s) +
+              (t.moving_s > 0
+                ? ` av ${fmtDur(t.moving_s)} rullande`
+                : ""))}
+            {t.obd.tank_start != null && kv("Tank",
+              `${t.obd.tank_start} % → ${t.obd.tank_slut} %`)}
+          </div>
+        )}
+
         <div className="kvgrid" style={{ marginTop: ".6rem" }}>
           <div className="kv"><span>Syfte</span>
             <select value={t.purpose ?? "omarkt"}

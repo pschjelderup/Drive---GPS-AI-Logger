@@ -93,8 +93,24 @@ struct GuiModel {
   uint32_t cloudTrips, cloudGpx, cloudFiles;
   uint32_t camCount;
 
+  // ---- obd-tillvalet (bilens egna varden ur uttaget)
+  uint8_t obdState;       // speglar ObdState i obd.h
+  uint32_t obdHas;        // vilka falt nedan som ar sanna
+  uint16_t obdRpm;
+  uint8_t obdSpeedKmh;
+  int16_t obdCoolantC, obdIntakeC, obdAmbientC, obdOilC;
+  uint8_t obdLoadPct, obdThrottlePct, obdFuelPct, obdHybridPct;
+  float obdFlowLh, obdVoltage;
+  uint32_t obdRuntimeS;
+  char obdAdapter[24];
+  // Resans summering, for kortet langst ned pa obd-skarmen.
+  float obdTripLiters;
+  uint16_t obdTripMaxRpm;
+  uint32_t obdTripIdleS;
+
   // ---- installningarna
   bool soundOn;
+  bool obdOn;
   uint8_t screenIdx;
   uint8_t screenCount;
   uint16_t screenTimeoutS;  // varde for aktuellt index, 0 = aldrig
@@ -120,4 +136,6 @@ struct GuiActions {
   void (*ecoReset)();
   void (*requestCloudSync)();
   void (*toggleAutoSync)(bool on);
+  void (*toggleObd)(bool on);
+  void (*forgetObd)();  // glom adaptern och leta igen
 };

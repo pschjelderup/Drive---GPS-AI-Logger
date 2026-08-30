@@ -23,6 +23,10 @@ struct AppSettings {
 
   // Autosynk av/pa - avslagen synkar molnet bara pa knappen.
   uint8_t autoSync;
+
+  // Obd-tillvalet. Avslaget ror enheten inte bluetooth alls, och loggen
+  // fungerar precis som utan adapter - det ar hela poangen med ett tillval.
+  uint8_t obdOn;
 };
 
 namespace gui {
