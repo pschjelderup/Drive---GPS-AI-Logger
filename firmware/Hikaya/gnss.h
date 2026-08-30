@@ -30,6 +30,11 @@ struct GnssFix {
 // "modulen svarar inte" fran "modulen svarar men ser inga satelliter", och det
 // ar tva helt olika fel.
 struct GnssDebug {
+  // Uart-vagen: skiljer dalig mottagning fran trasig overforing.
+  uint32_t lines;    // hela nmea-rader
+  uint32_t badSum;   // rader med trasig checksumma = tappade tecken
+  uint32_t inView;   // satelliter i sikte (gsv), oavsett fix
+
   bool present;
   uint32_t polls;      // antal forsok att lasa av
   uint32_t packets;    // antal mottagna positionspaket
