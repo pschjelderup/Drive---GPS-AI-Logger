@@ -53,7 +53,7 @@
 
 static const GuiActions *g_act = nullptr;
 static GuiModel g_m = {};  // senaste modellen, for uppdateringarna
-static GuiScreen g_current = GUI_SCR_HOME;
+static GuiScreen g_current = GUI_SCR_DRIVE;
 
 // ---------------------------------------------------------------- hjalpare -
 
@@ -125,35 +125,49 @@ static lv_obj_t *ghost_button(lv_obj_t *parent, lv_color_t tint,
   return b;
 }
 
-// Hem-gesten: svep uppat var som helst pa en appskarm leder hem, precis som
-// pa en telefon. Strecket i underkanten ar samma loft som tryckyta.
-static void go_home_cb(lv_event_t *e) {
-  (void)e;
-  gui_screens_show(GUI_SCR_HOME, true);
+// Gesterna: svep NEDAT fran skarmens ovankant ger menyn, och svep i sidled
+// bladdrar mellan skarmarna i en oandlig slinga.
+//
+// Underkanten ar med flit fri fran gester. Dar bor knapparna som markerar
+// resan - privat, foretag, diffust - och ett svep uppat darifran tog trycken
+// ur dem lika ofta som det ledde hem. En gest ska inte konkurrera med en
+// knapp om samma fingerrorelse.
+static const GuiScreen kOrder[] = {
+    GUI_SCR_DRIVE, GUI_SCR_ECO, GUI_SCR_OBD,  GUI_SCR_STATS,
+    GUI_SCR_CLOUD, GUI_SCR_HOME, GUI_SCR_SETTINGS,
+};
+static const uint8_t kOrderCount = sizeof(kOrder) / sizeof(kOrder[0]);
+
+static void step_screen(int dir) {
+  uint8_t at = 0;
+  for (uint8_t i = 0; i < kOrderCount; i++) {
+    if (kOrder[i] == g_current) { at = i; break; }
+  }
+  const uint8_t next = (uint8_t)((at + kOrderCount + dir) % kOrderCount);
+  gui_screens_show(kOrder[next], true);
 }
 
 static void gesture_cb(lv_event_t *e) {
+  (void)e;
   lv_indev_t *indev = lv_indev_active();
   if (!indev) return;
-  if (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) {
-    gui_screens_show(GUI_SCR_HOME, true);
+  switch (lv_indev_get_gesture_dir(indev)) {
+    case LV_DIR_BOTTOM: gui_screens_show(GUI_SCR_HOME, true); break;
+    case LV_DIR_LEFT: step_screen(1); break;
+    case LV_DIR_RIGHT: step_screen(-1); break;
+    default: break;
   }
 }
 
-static void add_home_bar(lv_obj_t *scr) {
-  lv_obj_t *hit = lv_button_create(scr);
-  lv_obj_remove_style_all(hit);
-  lv_obj_set_size(hit, SX(220), SY(26));
-  lv_obj_align(hit, LV_ALIGN_BOTTOM_MID, SX(0), SY(0));
-  lv_obj_set_style_bg_opa(hit, 0, 0);
-  lv_obj_add_event_cb(hit, go_home_cb, LV_EVENT_CLICKED, nullptr);
-
-  lv_obj_t *bar = lv_obj_create(hit);
+static void add_gestures(lv_obj_t *scr) {
+  // Ett kort streck hogst upp: samma loft som telefonens greppstreck, fast
+  // i den ande gesten faktiskt borjar.
+  lv_obj_t *bar = lv_obj_create(scr);
   lv_obj_remove_style_all(bar);
   lv_obj_set_size(bar, SX(120), SY(5));
-  lv_obj_align(bar, LV_ALIGN_BOTTOM_MID, SX(0), SY(-5));
+  lv_obj_align(bar, LV_ALIGN_TOP_MID, SX(0), SY(2));
   lv_obj_set_style_bg_color(bar, COL_PANEL_W, 0);
-  lv_obj_set_style_bg_opa(bar, 110, 0);
+  lv_obj_set_style_bg_opa(bar, 80, 0);
   lv_obj_set_style_radius(bar, 3, 0);
 
   lv_obj_add_event_cb(scr, gesture_cb, LV_EVENT_GESTURE, nullptr);
@@ -167,7 +181,7 @@ struct StatusRefs {
   lv_obj_t *sd;
   lv_obj_t *cloud;
 };
-static StatusRefs g_status[6];
+static StatusRefs g_status[GUI_SCR_COUNT];
 
 static void add_status(lv_obj_t *scr, GuiScreen idx) {
   StatusRefs &r = g_status[idx];
@@ -327,6 +341,10 @@ static void build_home() {
   g_tripChipLabel = label(g_tripChip, F20, COL_GREEN, "");
   lv_obj_center(g_tripChipLabel);
   lv_obj_add_flag(g_tripChip, LV_OBJ_FLAG_HIDDEN);
+
+  // Menyn ar med i slingan som alla andra - svep i sidled harifran bladdrar
+  // vidare, och svep nedat stannar kvar.
+  add_gestures(scr);
 }
 
 static void update_home(const GuiModel *m) {
@@ -552,7 +570,7 @@ static void build_drive() {
   // overst, och med baren under stjal den inte langre trycken ur
   // knapparnas nederkant - en av anledningarna till att de var svara
   // att traffa.
-  add_home_bar(scr);
+  add_gestures(scr);
 
   // Syftesknapparna: den valda fylls, de andra ar glas. Stora nog att
   // traffas med tummen i farthållarlage - 140 x 60 i designmatt.
@@ -809,7 +827,7 @@ static void build_eco() {
   lv_obj_align(tare, LV_ALIGN_BOTTOM_RIGHT, SX(-18), SY(-34));
   g_tareBtnLbl = lv_obj_get_child(tare, 0);
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_eco(const GuiModel *m) {
@@ -933,7 +951,7 @@ static void build_stats() {
     lv_obj_align(g_statBarLbl[i], LV_ALIGN_TOP_RIGHT, SX(-14), SY(30) + i * SY(30));
   }
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_stats(const GuiModel *m) {
@@ -1042,7 +1060,7 @@ static void build_cloud() {
   lv_obj_set_size(sync, SX(414), SY(52));
   lv_obj_align(sync, LV_ALIGN_TOP_MID, SX(0), SY(430));
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_cloud(const GuiModel *m) {
@@ -1151,7 +1169,7 @@ static void build_obd() {
   lv_label_set_long_mode(g_obdTrip, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(g_obdTrip, SX(410));
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_obd(const GuiModel *m) {
@@ -1359,7 +1377,7 @@ static void build_settings() {
   lv_obj_set_width(g_setVersion, SX(386));
   lv_obj_set_style_text_line_space(g_setVersion, 7, 0);
 
-  add_home_bar(scr);
+  add_gestures(scr);
 }
 
 static void update_settings(const GuiModel *m) {
@@ -1524,8 +1542,10 @@ void gui_screens_create(const GuiActions *actions) {
   build_cloud();
   build_settings();
   build_ask();
-  lv_screen_load(g_screens[GUI_SCR_HOME]);
-  g_current = GUI_SCR_HOME;
+  // Korskarmen ar startlaget: det ar farten man vill se nar tandningen slas
+  // pa, inte en appmeny. Menyn ar ett svep nedat bort.
+  lv_screen_load(g_screens[GUI_SCR_DRIVE]);
+  g_current = GUI_SCR_DRIVE;
 }
 
 void gui_screens_show(GuiScreen s, bool animate) {
