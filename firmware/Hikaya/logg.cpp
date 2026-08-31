@@ -13,6 +13,7 @@ namespace {
 // taget. Muteten skyddar filen, inte serieporten - den far tala i mun.
 SemaphoreHandle_t g_mutex = nullptr;
 bool g_up = false;
+unsigned long g_lost = 0;
 
 }  // namespace
 
@@ -54,10 +55,16 @@ void event(const char *fmt, ...) {
     f = SDCARD.open(LOG_FILE, FILE_WRITE);
   }
   if (f) {
-    f.printf("%s %s\n", stamp, text);
+    // Ett fullt kort tar emot noll tecken utan att saga ifran. Raden ar da
+    // borta for alltid - men att den fanns ar i sig diagnosen, sa den raknas.
+    if (f.printf("%s %s\n", stamp, text) == 0) g_lost++;
     f.close();
+  } else {
+    g_lost++;
   }
   xSemaphoreGive(g_mutex);
 }
+
+unsigned long lostLines() { return g_lost; }
 
 }  // namespace logg

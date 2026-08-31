@@ -308,6 +308,15 @@ void setup() {
   // behover nar en manuellt ditlagd fil "inte syns" - skillnaden mellan fel
   // namn, fel mapp, trasig fil och fel version star har.
   if (sensors::sdMounted()) {
+    // Kortets utrymme forst: en full SD kastar bade nedladdningar och
+    // loggrader utan ett ord, sa siffran hor hemma overst i uppstarten.
+    const uint64_t total = SDCARD.totalBytes();
+    if (total) {
+      const uint64_t anvant = SDCARD.usedBytes();
+      logg::event("kortet: %lu MB ledigt av %lu MB",
+                  (unsigned long)((total > anvant ? total - anvant : 0) >> 20),
+                  (unsigned long)(total >> 20));
+    }
     const struct {
       const char *path;
       const char *namn;

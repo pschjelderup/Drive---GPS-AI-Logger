@@ -291,6 +291,21 @@ bool uploadGpx(uint8_t &failed) {
 // ateruppupptagning hann den aldrig fram over en hotspot.
 const char *kTmpFile = "/DRIVE/NED.TMP";
 
+// Kortets utrymme. Ett fullt minneskort ar ett tyst fel rakt igenom: SD-
+// skrivningen returnerar noll byte utan att saga ifran, den halva delen
+// kastas, och nasta runda borjar om pa exakt samma stalle. Darfor mats
+// platsen innan varje stor nedladdning - och foljer med statusraden.
+bool sdSpace(uint64_t &total, uint64_t &ledigt) {
+  total = SDCARD.totalBytes();
+  if (!total) return false;
+  const uint64_t anvant = SDCARD.usedBytes();
+  ledigt = anvant > total ? 0 : total - anvant;
+  return true;
+}
+
+// Sant nar en skrivning misslyckades for att kortet inte hade plats kvar.
+bool g_diskFull = false;
+
 // Chunkad http-strom: svar utan Content-Length ramas in bit for bit som
 // "storlek-i-hex\r\n data \r\n", avslutat med en nollstor bit. Ramarna ar
 // inte innehall - det var de som gjorde varje nedladdad del nagra hundra
@@ -324,7 +339,10 @@ bool readChunked(WiFiClient *stream, File &out, uint8_t *buf, size_t bufLen) {
         continue;
       }
       lastProgressMs = millis();
-      if (out.write(buf, got) != got) return false;
+      if (out.write(buf, got) != got) {
+        g_diskFull = true;
+        return false;
+      }
       left -= got;
     }
     stream->readBytesUntil('\n', line, sizeof(line) - 1);  // bitens \r\n
@@ -405,6 +423,27 @@ bool downloadFile(const char *urlName, int parts, const char *target,
                   startPart + 1, parts);
   }
 
+  // Ryms resten pa kortet? Huvudfilen vaxer till hela storleken, en del i
+  // taget mellanlandar i DEL.TMP, och en manuellt ditlagd fil av fel version
+  // ligger kvar bredvid tills bytet sker. Utan den har kontrollen syns ett
+  // fullt kort bara som att samma del hamtas om, runda efter runda, i all
+  // evighet - vilket ar precis vad synkloggen visat.
+  if (expectBytes > 0 && startPart < parts) {
+    const long hemma = (long)startPart * (long)CLOUD_PART_BYTES;
+    const uint64_t behovs =
+        (uint64_t)(expectBytes - hemma) + (uint64_t)CLOUD_PART_BYTES;
+    uint64_t total = 0, ledigt = 0;
+    if (sdSpace(total, ledigt) && ledigt < behovs) {
+      g_diskFull = true;
+      logg::event(
+          "%s: kortet ar fullt - %lu MB ledigt, behover %lu MB (%lu MB totalt)",
+          urlName, (unsigned long)(ledigt >> 20),
+          (unsigned long)(behovs >> 20), (unsigned long)(total >> 20));
+      setState(CLOUD_SYNCING, "kortet ar fullt");
+      return false;
+    }
+  }
+
   uint8_t buf[4096];
   for (int p = startPart; p < parts; p++) {
     // Resan har foretrade - men tmp-filen lamnas kvar, sa att delarna som
@@ -474,6 +513,9 @@ bool downloadFile(const char *urlName, int parts, const char *target,
         }
         lastProgressMs = millis();
         if (out.write(buf, got) != got) {
+          // Kortet tog inte emot. Det ar ett tyst fel i SD-lagret, och utan
+          // den har raden ser det ut som en klippt nedladdning.
+          g_diskFull = true;
           http.end(); out.close(); return false;
         }
         if (remaining > 0) remaining -= got;
@@ -498,11 +540,20 @@ bool downloadFile(const char *urlName, int parts, const char *target,
         // felet syntes forst i slutkontrollen - av hela filen.
         if (gotc == 0) { ok = false; break; }
         ok = main.write(buf, gotc) == gotc;
+        if (!ok) g_diskFull = true;
       }
       if (main) main.close();
       dh.close();
       SDCARD.remove(del);
-      if (!ok) { SDCARD.remove(tmp); return false; }
+      if (!ok) {
+        // Halva delen hann pa huvudfilen och det gar inte att klippa av en
+        // fil pa kortet, sa allt maste om. Orsaken ar vard en rad: utan den
+        // ser tappade 100 MB ut som ett natverksfel.
+        logg::event("%s del %d/%d: kortet vagrade skriva%s - allt hamtas om",
+                    urlName, p + 1, parts, g_diskFull ? " (fullt?)" : "");
+        SDCARD.remove(tmp);
+        return false;
+      }
       Serial.printf("moln: %s del %d/%d klar\n", urlName, p + 1, parts);
     } else {
       if (dh) dh.close();
@@ -582,7 +633,60 @@ bool downloadKunder() {
 // klumpar; hur langt vi kommit star i prefs, sa inget skickas tva ganger.
 // Loggen ar ett hjalpmedel och far aldrig falla rundan - ett fel har lamnar
 // raderna kvar till nasta forsok, tyst.
+// En rad rakt upp i molnet, utan omvagen over kortet. Den behovs for att
+// det varsta felet - ett fullt kort - ocksa ar det som tystar loggfilen: da
+// star webbappen tom just den gang man behover se varfor.
+bool postLog(const char *data, size_t n) {
+  WiFiClientSecure tls;
+  HTTPClient http;
+  if (!httpBegin(http, tls, "/log")) {
+    Serial.println("moln: loggen - tls fick inte plats");
+    return false;
+  }
+  http.addHeader("Content-Type", "text/plain");
+  const int code = http.POST((uint8_t *)data, n);
+  http.end();
+  if (code != 200) {
+    Serial.printf("moln: loggen vagrades (kod %d)\n", code);
+    return false;
+  }
+  return true;
+}
+
+// Enhetens halsa i en enda rad: internminne, kortets utrymme och hur manga
+// loggrader som gatt forlorade. Skrivs aldrig till kortet - den ar till for
+// tillfallena da kortet inte tar emot nagot.
+void postStatus() {
+  char stamp[24];
+  const uint32_t t = sensors::unixUtc();
+  if (t) {
+    sensors::isoUtc(t, stamp, sizeof(stamp));
+  } else {
+    snprintf(stamp, sizeof(stamp), "+%lus", (unsigned long)(millis() / 1000));
+  }
+
+  uint64_t total = 0, ledigt = 0;
+  const bool sdOk = sdSpace(total, ledigt);
+
+  char rad[200];
+  const int n = snprintf(
+      rad, sizeof(rad),
+      "%s status: fritt %lu, storsta block %lu, kort %lu/%lu MB ledigt, "
+      "tappade loggrader %lu\n",
+      stamp,
+      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+      (unsigned long)(sdOk ? (ledigt >> 20) : 0),
+      (unsigned long)(sdOk ? (total >> 20) : 0), logg::lostLines());
+  Serial.printf("moln: %s", rad);
+  if (n > 0) postLog(rad, (size_t)n);
+}
+
 void uploadLog() {
+  // Statusraden forst av allt: den ar genererad i minnet och kommer fram
+  // aven nar bade kortet och resten av rundan sviker.
+  postStatus();
+
   File f = SDCARD.open(LOG_FILE, FILE_READ);
   if (!f) return;
   uint32_t sent = g_prefs.getUInt("logSent", 0);
@@ -603,16 +707,11 @@ void uploadLog() {
       if (!n) n = got;
     }
 
-    int code;
-    {
-      WiFiClientSecure tls;
-      HTTPClient http;
-      if (!httpBegin(http, tls, "/log")) break;
-      http.addHeader("Content-Type", "text/plain");
-      code = http.POST((uint8_t *)chunk, n);
-      http.end();
+    if (!postLog(chunk, n)) {
+      Serial.printf("moln: loggen stannade med %lu byte kvar\n",
+                    (unsigned long)(size - sent));
+      break;
     }
-    if (code != 200) break;
     sent += n;
     g_prefs.putUInt("logSent", sent);
   }
@@ -660,6 +759,13 @@ bool runSync() {
   int parts = 1;
   long size = 0;
   char have[24] = "";
+
+  // Enhetsloggen gar upp allra forst, direkt efter config. Den lag tidigare
+  // efter uppladdningarna, och nar en runda dog pa vagen dog felsokningen
+  // med den: raderna som beskrev felet fastnade bakom felet. Nagra kilobyte
+  // text ar dessutom det billigaste anropet i hela rundan.
+  g_diskFull = false;
+  uploadLog();
 
   // Manuellt ditlagda filer antas forst av allt: de har stegen ar sma och
   // hinner fram aven pa en lank som dor efter nagra sekunder, och ett
@@ -724,8 +830,6 @@ bool runSync() {
     if (gpxFailed) allOk = false;
   }
 
-  uploadLog();
-
   if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKam", have, sizeof(have));
     // Adoptionen ar redan provad i borjan av rundan - hit nar bara
@@ -771,7 +875,9 @@ bool runSync() {
           if (mustAbort()) { g_prefs.end(); return false; }
           const long after = tmpBytes();
           barren = after > before ? 0 : (uint8_t)(barren + 1);
-          if (barren >= 2 || millis() > deadlineMs ||
+          // Ett fullt kort blir inte mindre fullt av ett nytt forsok. Da ar
+          // en halvtimmes omtag bara bortkastad tid och stromm.
+          if (g_diskFull || barren >= 2 || millis() > deadlineMs ||
               WiFi.status() != WL_CONNECTED) {
             g_hastAttempt.fails++;
             allOk = false;
