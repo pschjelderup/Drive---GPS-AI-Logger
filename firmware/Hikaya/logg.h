@@ -14,4 +14,9 @@ void begin();
 // annars sekunder sedan start.
 void event(const char *fmt, ...);
 
+// Rader som inte gick att skriva till kortet. Ett fullt kort tar inte emot
+// ett tecken, och da tystnar loggen precis nar den behovs som mest - siffran
+// ar det enda spar som finns kvar, och foljer darfor med synkens statusrad.
+unsigned long lostLines();
+
 }  // namespace logg
