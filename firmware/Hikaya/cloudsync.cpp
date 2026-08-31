@@ -607,12 +607,19 @@ void uploadLog() {
     {
       WiFiClientSecure tls;
       HTTPClient http;
-      if (!httpBegin(http, tls, "/log")) break;
+      if (!httpBegin(http, tls, "/log")) {
+        Serial.println("moln: loggen - tls fick inte plats");
+        break;
+      }
       http.addHeader("Content-Type", "text/plain");
       code = http.POST((uint8_t *)chunk, n);
       http.end();
     }
-    if (code != 200) break;
+    if (code != 200) {
+      Serial.printf("moln: loggen vagrades (kod %d) - %lu byte kvar\n", code,
+                    (unsigned long)(size - sent));
+      break;
+    }
     sent += n;
     g_prefs.putUInt("logSent", sent);
   }
@@ -660,6 +667,16 @@ bool runSync() {
   int parts = 1;
   long size = 0;
   char have[24] = "";
+
+  // Enhetsloggen gar upp allra forst, direkt efter config. Den lag tidigare
+  // efter uppladdningarna, och nar en runda dog pa vagen dog felsokningen
+  // med den: raderna som beskrev felet fastnade bakom felet. Nagra kilobyte
+  // text ar dessutom det billigaste anropet i hela rundan.
+  logg::event("synk: fritt %lu, storsta block %lu",
+              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+              (unsigned long)heap_caps_get_largest_free_block(
+                  MALLOC_CAP_INTERNAL));
+  uploadLog();
 
   // Manuellt ditlagda filer antas forst av allt: de har stegen ar sma och
   // hinner fram aven pa en lank som dor efter nagra sekunder, och ett
@@ -723,8 +740,6 @@ bool runSync() {
     }
     if (gpxFailed) allOk = false;
   }
-
-  uploadLog();
 
   if (fileVersion(cfg, "kameror", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vKam", have, sizeof(have));
