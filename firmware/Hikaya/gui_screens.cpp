@@ -851,11 +851,20 @@ static void update_eco(const GuiModel *m) {
   lv_obj_set_size(g_ecoRingSoft, rs * 2, rs * 2);
   lv_obj_set_size(g_ecoRingHard, rh * 2, rh * 2);
 
-  lv_color_t zone = m->ecoMagG >= m->ecoHardG ? COL_RED
-                    : m->ecoMagG >= m->ecoSoftG ? COL_AMBER : COL_GREEN;
+  // Fargen foljer belastningen, inte den rada accelerationen: annars skulle
+  // bubblan lysa rott i en kurva som inte kostar en enda poang.
+  lv_color_t zone = m->ecoLoadG >= m->ecoHardG ? COL_RED
+                    : m->ecoLoadG >= m->ecoSoftG ? COL_AMBER : COL_GREEN;
   if (m->ecoLevelled) {
+    // Sidleden kramas ihop precis som i bedomningen. Ringarna forblir darmed
+    // cirklar som betyder samma sak i alla riktningar - bubblan nar den roda
+    // ringen exakt nar det borjar kosta - medan det i verkligheten kravs
+    // ecoLatTolerance ganger sa mycket kraft at sidan for att komma dit.
+    // g-talet i mitten ar och forblir den verkliga accelerationen.
+    const float tol =
+        m->ecoLatTolerance > 0.01f ? m->ecoLatTolerance : 1.0f;
     float px = m->ecoLonG * pxPerG;
-    float py = m->ecoLatG * pxPerG;
+    float py = (m->ecoLatG / tol) * pxPerG;
     float d2 = px * px + py * py;
     const float rmax = (float)(kEcoR - 18);
     if (d2 > rmax * rmax) {
@@ -881,7 +890,8 @@ static void update_eco(const GuiModel *m) {
 
   char dir[40];
   if (m->ecoForwardKnown && m->ecoForwardQuality >= 0.99f) {
-    snprintf(dir, sizeof(dir), "riktning inlärd");
+    snprintf(dir, sizeof(dir), "riktning inlärd · sidled ×%.1f",
+             m->ecoLatTolerance);
   } else if (m->ecoForwardKnown) {
     snprintf(dir, sizeof(dir), "riktning lär sig %d%%",
              (int)(m->ecoForwardQuality * 100 + 0.5f));

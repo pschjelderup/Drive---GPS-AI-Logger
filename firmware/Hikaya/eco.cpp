@@ -490,6 +490,23 @@ void tick(const Sample &s) {
     latG = hx * cx + hy * cy + hz * cz;
   }
 
+  // ---- riktningsberoende grans -------------------------------------------
+  // En kraftig kurva ar inte samma sak som en kraftig inbromsning. Kurvan
+  // kostar lite bransle och ar ofta bara van korning; gas och broms ar precis
+  // det ecodrive handlar om. Granserna ar darfor en ellips i stallet for en
+  // cirkel: sidled kramas ihop med ECO_LAT_TOLERANCE innan avstandet mats, sa
+  // att det kravs sa manga ganger mer kraft at sidan for att na samma grans.
+  //
+  // Ellipsen forutsatter att framatriktningen ar inlard. Innan dess ar lon och
+  // lat godtyckliga axlar pa kortet, och en riktningsberoende grans vore ren
+  // slump - da galler cirkeln, precis som forr.
+  const float latTol = oriented ? ECO_LAT_TOLERANCE : 1.0f;
+  float loadG = magG;
+  if (oriented) {
+    const float lat = latG / latTol;
+    loadG = sqrtf(lonG * lonG + lat * lat);
+  }
+
   // ---- poang --------------------------------------------------------------
   lock();
   const float softG = g_softG, hardG = g_hardG, clearG = g_clearG;
@@ -497,8 +514,8 @@ void tick(const Sample &s) {
   const float recovery = g_recovery;
   unlock();
 
-  if (magG > softG) {
-    g_score -= (magG - softG) * penalty * dt;
+  if (loadG > softG) {
+    g_score -= (loadG - softG) * penalty * dt;
   } else {
     g_score += recovery * dt;
   }
@@ -518,7 +535,7 @@ void tick(const Sample &s) {
   // Utan tidskravet raknar dagboken vagens skick i stallet for korningen -
   // en verklig resa fick 41 "harda moment" pa tio mil av just det skalet.
   uint32_t addAccel = 0, addBrake = 0, addTurn = 0, addTotal = 0;
-  if (magG >= hardG) {
+  if (loadG >= hardG) {
     g_overHardS += dt;
     if (!g_inEvent && g_overHardS >= ECO_EVENT_MIN_S) {
       g_inEvent = true;
@@ -537,7 +554,7 @@ void tick(const Sample &s) {
         addTotal = 1;
       }
     }
-  } else if (magG < clearG) {
+  } else if (loadG < clearG) {
     g_overHardS = 0;
     g_inEvent = false;
   }
@@ -551,6 +568,10 @@ void tick(const Sample &s) {
   g_status.lonG = lonG;
   g_status.latG = latG;
   g_status.magG = magG;
+  g_status.loadG = loadG;
+  g_status.latTolerance = latTol;
+  // Toppen ar en fysisk uppgift och forblir den verkliga accelerationen -
+  // "topp 0,42 g" ska betyda 0,42 g, inte 0,42 av nagon ellips.
   g_status.peakG = g_peak;
   g_status.levelled = true;
   g_status.gpsClassify = g_haveSpeed;

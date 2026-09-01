@@ -97,6 +97,8 @@ int main() {
   m.stopAfterS = 240;
   m.ecoScore = 92; m.ecoTripScore = 88; m.ecoMeasured = true;
   m.ecoMagG = 0.12f; m.ecoLonG = 0.08f; m.ecoLatG = -0.05f;
+  m.ecoLatTolerance = 1.6f;
+  m.ecoLoadG = 0.09f;
   m.ecoPeakG = 0.34f; m.ecoLevelled = true;
   m.ecoForwardKnown = true; m.ecoForwardQuality = 1.0f;
   m.ecoSoftG = 0.15f; m.ecoHardG = 0.30f; m.ecoBubbleG = 0.40f;

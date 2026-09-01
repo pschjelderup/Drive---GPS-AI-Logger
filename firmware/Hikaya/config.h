@@ -301,6 +301,14 @@ static inline const char *fwVersionFull() {
 // Poang som dras per g over den mjuka gransen och sekund.
 #define ECO_PENALTY_PER_G_S 40.0f
 
+// Hur mycket mer sidled tal an langsled. En kraftig kurva ar inte samma sak
+// som en kraftig inbromsning: kurvan kostar mycket mindre bransle, och en van
+// forare tar en avfart raskt utan att det ar dalig korning. Gas och broms ar
+// daremot precis det ecodrive handlar om. Granserna ar darfor en ellips i
+// stallet for en cirkel - sidled far sa har manga ganger sa stort utslag
+// innan det kostar poang.
+#define ECO_LAT_TOLERANCE 1.6f
+
 // Tiden poangen speglar. En sammanhangande mjuk stracka sa har lang tar
 // poangen fran noll tillbaka till hundra.
 static const uint16_t kEcoWindowS[] = {60, 120, 300, 600, 1800, 3600};
