@@ -33,6 +33,12 @@ struct EcoStatus {
   float lonG;       // vagrat, langs kortets ena axel
   float latG;       // vagrat, langs den andra
   float magG;       // total vagrat acceleration
+  // Belastningen granserna faktiskt mats mot. Sidled tal mer an langsled, sa
+  // granserna ar en ellips: loadG ar avstandet till mitten sedan sidleden
+  // kramats ihop med latTolerance. Utan inlard framatriktning ar den lika med
+  // magG och toleransen 1 - da finns inget "sidled" att tala om.
+  float loadG;
+  float latTolerance;
   float peakG;      // hogsta sedan nollstallningen
   bool levelled;    // sant nar tyngdkraften hittats och vardena ar palitliga
 

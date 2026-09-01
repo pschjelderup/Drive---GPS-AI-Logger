@@ -65,6 +65,10 @@ struct GuiModel {
   float ecoMagG;
   float ecoLonG;
   float ecoLatG;
+  // Belastningen granserna mats mot, och hur mycket mer sidled tal. Bubblan
+  // ritas i samma matt, sa att ringarna betyder samma sak runt hela varvet.
+  float ecoLoadG;
+  float ecoLatTolerance;
   float ecoPeakG;
   bool ecoLevelled;
   bool ecoForwardKnown;

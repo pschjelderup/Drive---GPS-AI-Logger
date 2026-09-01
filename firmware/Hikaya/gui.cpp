@@ -343,6 +343,8 @@ void fillModel(GuiModel &m) {
   m.ecoMagG = e.magG;
   m.ecoLonG = e.lonG;
   m.ecoLatG = e.latG;
+  m.ecoLoadG = e.loadG;
+  m.ecoLatTolerance = e.latTolerance > 0.01f ? e.latTolerance : 1.0f;
   m.ecoPeakG = e.peakG;
   m.ecoLevelled = e.levelled;
   m.ecoForwardKnown = e.forwardKnown;
