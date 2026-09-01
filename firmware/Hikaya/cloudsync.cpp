@@ -260,8 +260,11 @@ bool uploadGpx(uint8_t &failed) {
 
     if (code != 200) {
       failed++;
-      logg::event("gpx %s vagrades (kod %d) - hoppar vidare", name.c_str(),
-                  code);
+      logg::event("gpx %s vagrades (kod %d) - fritt %lu, storsta block %lu",
+                  name.c_str(), code,
+                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned long)heap_caps_get_largest_free_block(
+                      MALLOC_CAP_INTERNAL));
       continue;
     }
 
@@ -485,7 +488,15 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     if (code != 200) {
       http.end();
       out.close();
-      logg::event("%s del %d/%d: svar %d", urlName, p + 1, parts, code);
+      // Koden ensam har visat sig otillracklig: "svar -1" betyder att
+      // tls-uppkopplingen inte gick att fa till, och den vanligaste orsaken
+      // ar att minnet inte racker till ett handslag till efter en runda
+      // fylld av uppladdningar. Da ar det just de tva siffrorna man behover.
+      logg::event("%s del %d/%d: svar %d - fritt %lu, storsta block %lu",
+                  urlName, p + 1, parts, code,
+                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned long)heap_caps_get_largest_free_block(
+                      MALLOC_CAP_INTERNAL));
       return false;
     }
 
