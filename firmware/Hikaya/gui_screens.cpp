@@ -862,7 +862,12 @@ static void update_eco(const GuiModel *m) {
       float d = d2 > 0 ? rmax / __builtin_sqrtf(d2) : 0;
       px *= d; py *= d;
     }
-    lv_obj_align(g_ecoBubble, LV_ALIGN_CENTER, (int16_t)py, (int16_t)-px);
+    // Faltet ar vridet ett kvarts varv medurs mot givarens egna axlar:
+    // vanster blir upp, upp blir hoger, hoger blir ner, ner blir vanster.
+    // Skarmens x far darfor langsleden och y sidleden, bada med tecknet
+    // rakt av. (Vridningen ar en ren rotation, sa avstandet till mitten -
+    // och darmed ringarna och klippningen ovan - ror sig inte.)
+    lv_obj_align(g_ecoBubble, LV_ALIGN_CENTER, (int16_t)px, (int16_t)py);
     lv_obj_set_style_bg_color(g_ecoBubble, zone, 0);
     lv_obj_set_style_shadow_color(g_ecoBubble, zone, 0);
     snprintf(buf, sizeof(buf), "%.2f g", m->ecoMagG);
