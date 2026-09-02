@@ -802,17 +802,6 @@ bool runSync() {
       cams::endUpdate();
     }
   }
-  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
-    g_prefs.getString("vHast", have, sizeof(have));
-    if (strcmp(ver, have) != 0 &&
-        adoptLocal(LIMITS_FILE, "hastighetsfilen", 0x31484C44, size)) {
-      g_prefs.putString("vHast", ver);
-      logg::event("hastighetsfilen fanns redan pa kortet - version %s antagen",
-                  ver);
-      cams::beginUpdate();
-      cams::endUpdate();
-    }
-  }
 
   // Kundlistan forst: hundra byte som gui:t behover ska aldrig fa vanta pa
   // en jattefil eller stoppas av en uppladdning som strular.
@@ -869,28 +858,10 @@ bool runSync() {
     }
   }
 
-  // Hastighetsfilen synkas aldrig over wifi. Den ar 130 MB i 34 delar, och
-  // det var omtagen pa den - en halvtimme av misslyckade tls-uppkopplingar
-  // - som drog ner resten av synken med sig: varje runda efter ett filforsok
-  // blev samre, tills inte ens /config gick fram (kod -1). Filen byts sa
-  // sallan att den far komma in den sakra vagen: webbappens knapp "Ladda ner
-  // HASTIGHET.BIN", kortet i datorn, klart. Adoptionen overst i rundan
-  // kanner igen den. Har sags bara, en gang per version, om kortet ar
-  // inaktuellt - sa att webbappens enhetslogg visar det utan att tjata.
-  if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
-    g_prefs.getString("vHast", have, sizeof(have));
-    if (strcmp(ver, have) != 0) {
-      static char nagged[24] = "";
-      if (strcmp(nagged, ver) != 0) {
-        strncpy(nagged, ver, sizeof(nagged) - 1);
-        nagged[sizeof(nagged) - 1] = '\0';
-        logg::event("hastighetsfilen pa kortet ar inte molnets version %s - "
-                    "ladda ner HASTIGHET.BIN i webbappen och lagg pa kortet",
-                    ver);
-      }
-    }
-  }
-
+  // Hastighetsfilen ar kortets sak, inte molnets. Den laggs dit for hand,
+  // lases in vid start om den finns och bar ratt signatur, och det ar allt.
+  // Ingen version jamfors, ingenting hamtas, ingenting tjatas om - en fil
+  // som finns anvands. Molnets version ar bara webbappens bokforing.
   g_prefs.end();
   return allOk;
 }
