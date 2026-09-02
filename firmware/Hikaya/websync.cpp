@@ -357,7 +357,9 @@ bool uploadContentOk(const String &name) {
   f.close();
   if (!got) return false;
   if (name == "KAMEROR.BIN") return memcmp(magic, "DLC1", 4) == 0;
-  if (name == "HASTIGHET.BIN") return memcmp(magic, "DLH1", 4) == 0;
+  if (name == "HASTIGHET.BIN") {
+    return memcmp(magic, "DLH1", 4) == 0 || memcmp(magic, "DHL1", 4) == 0;
+  }
   return false;
 }
 

@@ -321,10 +321,12 @@ void setup() {
       const char *path;
       const char *namn;
       uint32_t magic;
+      uint32_t altMagic;  // hastighetsfilens gamla "DHL1" godtas ocksa
       bool loaded;
     } fils[] = {
-        {LIMITS_FILE, "hastighetsfilen", 0x31484C44, cams::limitsLoaded()},
-        {CAMS_FILE, "kamerafilen", 0x31434C44, cams::loaded()},
+        {LIMITS_FILE, "hastighetsfilen", 0x31484C44, 0x314C4844,
+         cams::limitsLoaded()},
+        {CAMS_FILE, "kamerafilen", 0x31434C44, 0, cams::loaded()},
     };
     for (const auto &fi : fils) {
       File f = SDCARD.open(fi.path, FILE_READ);
@@ -336,8 +338,9 @@ void setup() {
       f.read((uint8_t *)&m, 4);
       const unsigned long sz = (unsigned long)f.size();
       f.close();
+      const bool sigOk = m == fi.magic || (fi.altMagic && m == fi.altMagic);
       logg::event("%s: %lu byte, %s, %s", fi.namn, sz,
-                  m == fi.magic ? "ratt signatur" : "FEL SIGNATUR",
+                  sigOk ? "ratt signatur" : "FEL SIGNATUR",
                   fi.loaded ? "inlast" : "INTE inlast");
     }
   }
