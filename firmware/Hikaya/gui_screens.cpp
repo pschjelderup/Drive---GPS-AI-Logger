@@ -90,6 +90,55 @@ static void set_txt(lv_obj_t *l, const char *txt) {
   if (strcmp(lv_label_get_text(l), txt) != 0) lv_label_set_text(l, txt);
 }
 
+// Samma sak for stilarna. lv_obj_set_style_* gar via lv_obj_refresh_style,
+// som ogiltigforklarar objektet OVILLKORLIGT - aven nar vardet ar exakt det
+// som redan galler. Korskarmen satte varje 150 ms farg pa tva bagar om
+// 386 pixlar, fartsiffran, startknappen med skugga och tre syftesknappar
+// med fem stilar var: nastan hela skarmen ritades om sju ganger i sekunden
+// medan bilen stod parkerad och ingenting andrades. Det ar det som kandes
+// som seghet. Vakterna nedan gor att bara det som faktiskt andrats ritas.
+// (Flaggor, tillstand och bagvarden har redan egna early-outs i LVGL.)
+static void set_text_color(lv_obj_t *o, lv_color_t c) {
+  if (!lv_color_eq(lv_obj_get_style_text_color(o, LV_PART_MAIN), c)) {
+    lv_obj_set_style_text_color(o, c, 0);
+  }
+}
+static void set_bg_color(lv_obj_t *o, lv_color_t c) {
+  if (!lv_color_eq(lv_obj_get_style_bg_color(o, LV_PART_MAIN), c)) {
+    lv_obj_set_style_bg_color(o, c, 0);
+  }
+}
+static void set_bg_opa(lv_obj_t *o, lv_opa_t v) {
+  if (lv_obj_get_style_bg_opa(o, LV_PART_MAIN) != v) {
+    lv_obj_set_style_bg_opa(o, v, 0);
+  }
+}
+static void set_border_color(lv_obj_t *o, lv_color_t c) {
+  if (!lv_color_eq(lv_obj_get_style_border_color(o, LV_PART_MAIN), c)) {
+    lv_obj_set_style_border_color(o, c, 0);
+  }
+}
+static void set_border_opa(lv_obj_t *o, lv_opa_t v) {
+  if (lv_obj_get_style_border_opa(o, LV_PART_MAIN) != v) {
+    lv_obj_set_style_border_opa(o, v, 0);
+  }
+}
+static void set_border_width(lv_obj_t *o, int32_t v) {
+  if (lv_obj_get_style_border_width(o, LV_PART_MAIN) != v) {
+    lv_obj_set_style_border_width(o, v, 0);
+  }
+}
+static void set_shadow_color(lv_obj_t *o, lv_color_t c) {
+  if (!lv_color_eq(lv_obj_get_style_shadow_color(o, LV_PART_MAIN), c)) {
+    lv_obj_set_style_shadow_color(o, c, 0);
+  }
+}
+static void set_arc_color(lv_obj_t *o, lv_color_t c, lv_style_selector_t part) {
+  if (!lv_color_eq(lv_obj_get_style_arc_color(o, part), c)) {
+    lv_obj_set_style_arc_color(o, c, part);
+  }
+}
+
 // Fylld knapp med tryckkansla: morkare vid tryck, rundade horn.
 static lv_obj_t *button(lv_obj_t *parent, lv_color_t bg, const char *txt,
                         const lv_font_t *font, lv_color_t fg,
@@ -204,14 +253,12 @@ static void update_status(GuiScreen idx, const GuiModel *m) {
   char buf[16];
   snprintf(buf, sizeof(buf), LV_SYMBOL_GPS " %u", (unsigned)m->sats);
   set_txt(r.gps, buf);
-  lv_obj_set_style_text_color(
-      r.gps,
-      !m->gpsPresent ? COL_FAINT : (m->gpsFix ? COL_GREEN : COL_AMBER), 0);
-  lv_obj_set_style_text_color(r.sd, m->sdOk ? COL_GREEN : COL_RED, 0);
-  lv_obj_set_style_text_color(
-      r.cloud,
-      m->apClient || m->cloudBusy ? COL_CYAN
-      : m->cloudConfigured ? COL_DIM : COL_FAINT, 0);
+  set_text_color(r.gps,
+                 !m->gpsPresent ? COL_FAINT : (m->gpsFix ? COL_GREEN : COL_AMBER));
+  set_text_color(r.sd, m->sdOk ? COL_GREEN : COL_RED);
+  set_text_color(r.cloud,
+                 m->apClient || m->cloudBusy ? COL_CYAN
+                 : m->cloudConfigured ? COL_DIM : COL_FAINT);
 }
 
 static lv_obj_t *make_screen() {
@@ -592,17 +639,17 @@ static void build_drive() {
 static void style_purpose(int i, lv_color_t tint, bool active) {
   lv_obj_t *b = g_purBtn[i];
   if (active) {
-    lv_obj_set_style_bg_color(b, tint, 0);
-    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(b, 0, 0);
-    lv_obj_set_style_text_color(g_purLbl[i], lv_color_white(), 0);
+    set_bg_color(b, tint);
+    set_bg_opa(b, LV_OPA_COVER);
+    set_border_width(b, 0);
+    set_text_color(g_purLbl[i], lv_color_white());
   } else {
-    lv_obj_set_style_bg_color(b, tint, 0);
-    lv_obj_set_style_bg_opa(b, 30, 0);
-    lv_obj_set_style_border_color(b, tint, 0);
-    lv_obj_set_style_border_opa(b, 110, 0);
-    lv_obj_set_style_border_width(b, 1, 0);
-    lv_obj_set_style_text_color(g_purLbl[i], tint, 0);
+    set_bg_color(b, tint);
+    set_bg_opa(b, 30);
+    set_border_color(b, tint);
+    set_border_opa(b, 110);
+    set_border_width(b, 1);
+    set_text_color(g_purLbl[i], tint);
   }
 }
 
@@ -622,11 +669,11 @@ static void update_drive(const GuiModel *m) {
   char buf[64];
   snprintf(buf, sizeof(buf), "%d", kmh);
   set_txt(g_speedLbl, buf);
-  lv_obj_set_style_text_color(g_speedLbl, zone, 0);
+  set_text_color(g_speedLbl, zone);
   lv_arc_set_value(g_arcMain, kmh > kSpeedMax ? kSpeedMax : kmh);
   lv_arc_set_value(g_arcGlow, kmh > kSpeedMax ? kSpeedMax : kmh);
-  lv_obj_set_style_arc_color(g_arcMain, zone, LV_PART_INDICATOR);
-  lv_obj_set_style_arc_color(g_arcGlow, zone, LV_PART_INDICATOR);
+  set_arc_color(g_arcMain, zone, LV_PART_INDICATOR);
+  set_arc_color(g_arcGlow, zone, LV_PART_INDICATOR);
 
   if (m->limitKmh > 0) {
     lv_obj_clear_flag(g_signRing, LV_OBJ_FLAG_HIDDEN);
@@ -637,13 +684,13 @@ static void update_drive(const GuiModel *m) {
     const float delta = m->speedKmh - (float)m->limitKmh;
     if (delta > 3.0f) {
       snprintf(buf, sizeof(buf), "+%d över", (int)(delta + 0.5f));
-      lv_obj_set_style_text_color(g_deltaLbl, COL_RED, 0);
+      set_text_color(g_deltaLbl, COL_RED);
     } else if (delta < -1.0f) {
       snprintf(buf, sizeof(buf), "%d under", (int)(delta - 0.5f));
-      lv_obj_set_style_text_color(g_deltaLbl, COL_GREEN, 0);
+      set_text_color(g_deltaLbl, COL_GREEN);
     } else {
       snprintf(buf, sizeof(buf), "på gränsen");
-      lv_obj_set_style_text_color(g_deltaLbl, COL_AMBER, 0);
+      set_text_color(g_deltaLbl, COL_AMBER);
     }
     set_txt(g_deltaLbl, buf);
   } else {
@@ -659,8 +706,8 @@ static void update_drive(const GuiModel *m) {
     lv_obj_clear_flag(g_camPanel, LV_OBJ_FLAG_HIDDEN);
     const bool near = m->camDistanceM <= 250;
     lv_color_t t = near ? COL_RED : COL_AMBER;
-    lv_obj_set_style_bg_color(g_camPanel, t, 0);
-    lv_obj_set_style_border_color(g_camPanel, t, 0);
+    set_bg_color(g_camPanel, t);
+    set_border_color(g_camPanel, t);
     snprintf(buf, sizeof(buf), "FARTKAMERA  %lu m",
              (unsigned long)m->camDistanceM);
     set_txt(g_camTitle, buf);
@@ -699,8 +746,8 @@ static void update_drive(const GuiModel *m) {
       snprintf(buf, sizeof(buf), "max %d km/h", (int)(m->maxSpeedKmh + 0.5f));
       set_txt(g_tripSub, buf);
     }
-    lv_obj_set_style_bg_color(g_tripBtn, COL_RED, 0);
-    lv_obj_set_style_shadow_color(g_tripBtn, COL_RED, 0);
+    set_bg_color(g_tripBtn, COL_RED);
+    set_shadow_color(g_tripBtn, COL_RED);
     set_txt(g_tripBtnLbl, LV_SYMBOL_STOP);
     lv_obj_clear_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   } else {
@@ -709,8 +756,8 @@ static void update_drive(const GuiModel *m) {
     set_txt(g_tripSub,
                       m->sdOk ? "startar själv när bilen rullar"
                               : "resor kan inte sparas utan kort");
-    lv_obj_set_style_bg_color(g_tripBtn, COL_GREEN, 0);
-    lv_obj_set_style_shadow_color(g_tripBtn, COL_GREEN, 0);
+    set_bg_color(g_tripBtn, COL_GREEN);
+    set_shadow_color(g_tripBtn, COL_GREEN);
     set_txt(g_tripBtnLbl, LV_SYMBOL_PLAY);
     lv_obj_add_flag(g_splitBtn, LV_OBJ_FLAG_HIDDEN);
   }
@@ -839,7 +886,7 @@ static void update_eco(const GuiModel *m) {
   set_txt(g_ecoScoreLbl, buf);
   lv_arc_set_value(g_ecoArc, score);
   lv_color_t sc = score >= 75 ? COL_GREEN : score >= 40 ? COL_AMBER : COL_RED;
-  lv_obj_set_style_arc_color(g_ecoArc, sc, LV_PART_INDICATOR);
+  set_arc_color(g_ecoArc, sc, LV_PART_INDICATOR);
   set_txt(g_ecoAvgLbl,
                     m->ecoMeasured ? "resans medel" : "mäter …");
 
@@ -877,8 +924,8 @@ static void update_eco(const GuiModel *m) {
     // rakt av. (Vridningen ar en ren rotation, sa avstandet till mitten -
     // och darmed ringarna och klippningen ovan - ror sig inte.)
     lv_obj_align(g_ecoBubble, LV_ALIGN_CENTER, (int16_t)px, (int16_t)py);
-    lv_obj_set_style_bg_color(g_ecoBubble, zone, 0);
-    lv_obj_set_style_shadow_color(g_ecoBubble, zone, 0);
+    set_bg_color(g_ecoBubble, zone);
+    set_shadow_color(g_ecoBubble, zone);
     snprintf(buf, sizeof(buf), "%.2f g", m->ecoMagG);
     for (char *p = buf; *p; p++) if (*p == '.') *p = ',';
     set_txt(g_ecoMagLbl, buf);
@@ -987,8 +1034,7 @@ static void update_stats(const GuiModel *m) {
   set_txt(g_statTiles[2], buf);
   snprintf(buf, sizeof(buf), "%lu min", (unsigned long)(m->statSpeedingS / 60));
   set_txt(g_statTiles[3], buf);
-  lv_obj_set_style_text_color(g_statTiles[3],
-                              m->statSpeedingS >= 60 ? COL_RED : COL_TEXT, 0);
+  set_text_color(g_statTiles[3], m->statSpeedingS >= 60 ? COL_RED : COL_TEXT);
   snprintf(buf, sizeof(buf), "%lu MB", (unsigned long)m->statFreeMb);
   set_txt(g_statTiles[4], buf);
   if (m->statKmLeft >= 1000000.0) {
