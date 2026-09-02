@@ -794,6 +794,29 @@ function OdometerCard({ trips, vehicle }) {
   );
 }
 
+// Kolumnerna listan behover - inte hela raden. raw ar hela jsonl-raden fran
+// enheten och anvands ingenstans har; att ta med den fordubblade svaret for
+// femhundra resor, och pa mobil ar det svaret man vantar pa.
+const TRIP_COLS = [
+  "id", "device_id", "trip_no", "start_utc", "end_utc",
+  "start_lat", "start_lon", "end_lat", "end_lon", "distance_m", "points",
+  "purpose", "customer", "max_speed_kmh", "speeding_s", "moving_s",
+  "eco_score", "hard_events", "end_reason", "gpx_name", "gpx_path",
+  "odometer_km", "notes", "vehicle_id", "start_place", "end_place",
+  "group_id", "start_addr", "end_addr", "limit_stats", "gap_filled_m", "obd",
+].join(",");
+
+// Kor arbetet nar webblasaren har en lugn stund, inte i samma andetag som
+// forsta malningen. Fallback for webblasare utan requestIdleCallback.
+function whenIdle(fn) {
+  if (typeof requestIdleCallback === "function") {
+    const id = requestIdleCallback(fn, { timeout: 4000 });
+    return () => cancelIdleCallback(id);
+  }
+  const id = setTimeout(fn, 1500);
+  return () => clearTimeout(id);
+}
+
 export default function Journal() {
   const [trips, setTrips] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -813,7 +836,7 @@ export default function Journal() {
 
   const load = async () => {
     const [t, c, v, g, st, pl] = await Promise.all([
-      supabase.from("drive_trips").select("*")
+      supabase.from("drive_trips").select(TRIP_COLS)
         .order("start_utc", { ascending: false }).limit(500),
       supabase.from("drive_customers").select("*").eq("active", true)
         .order("name"),
@@ -840,9 +863,16 @@ export default function Journal() {
   // och har slas gatuadressen upp och sparas pa raden - en gang per resa,
   // sedan star den i databasen. Hogst ett par dussin uppslag per sidladdning;
   // resten tas nasta gang, sa en stor efterslapning aldrig blir en dyr sida.
+  // Hela passet - luckfyllnad, egna platser, adresser - vantar tills sidan
+  // ar malad och webblasaren har en lugn stund. Det laddar ner och upp
+  // gpx-filer och slar upp rutter, och gjort i samma andetag som forsta
+  // renderingen var det anledningen till att journalen "satte sig" forst
+  // efter en stund. Andras resorna innan stunden kom avbokas den och bokas
+  // om; nar den val kort ar det gjort for det har besoket.
   const geocodedRef = useRef(false);
   useEffect(() => {
     if (geocodedRef.current || !trips.length) return;
+    return whenIdle(() => {
     geocodedRef.current = true;
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -1081,6 +1111,7 @@ export default function Journal() {
         if (Object.keys(fields).length) await patch(t.id, fields);
       }
     })();
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trips]);
 

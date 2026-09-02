@@ -140,12 +140,34 @@ bool worthTrying(FileAttempt &a, const char *ver) {
   return a.fails < 12;
 }
 
-bool httpBegin(HTTPClient &http, WiFiClientSecure &tls, const String &path) {
-  tls.setInsecure();  // se blocket overst
-  if (!http.begin(tls, String(kBase) + path)) return false;
-  http.addHeader("x-drive-token", g_token);
-  http.setTimeout(30000);
+// EN tls-session per synkrunda, inte en per anrop. Varje anrop byggde forr
+// sin egen WiFiClientSecure: handskakning, fyrtio kilobyte allokerade och
+// frigjorda, tolv ganger per runda. Det var de omtagen som fragmenterade
+// heapen tills inte ens /config gick fram (kod -1). Nu oppnas forbindelsen
+// en gang, halls vid liv mellan anropen (servern talar keep-alive), och
+// slapps forst nar rundan ar slut - da far accesspunkten sitt minne tillbaka.
+WiFiClientSecure g_tls;
+HTTPClient g_http;
+bool g_httpInit = false;
+
+bool httpBegin(const String &path) {
+  if (!g_httpInit) {
+    g_tls.setInsecure();  // se blocket overst
+    g_http.setReuse(true);
+    g_http.setTimeout(30000);
+    g_httpInit = true;
+  }
+  if (!g_http.begin(g_tls, String(kBase) + path)) return false;
+  g_http.addHeader("x-drive-token", g_token);
   return true;
+}
+
+// Slapper forbindelsen helt. Efter ett fel mitt i en strom ar den anda inte
+// att lita pa - nasta anrop borjar da om med ny handskakning - och i slutet
+// av rundan ska tls-minnet lamnas tillbaka.
+void httpDrop() {
+  g_http.end();
+  g_tls.stop();
 }
 
 // ------------------------------------------------------------ synkstegen ---
@@ -165,19 +187,16 @@ bool uploadTrips(long lastSynced) {
 
   auto flush = [&]() -> bool {
     if (!batch.length()) return true;
-    int code;
-    {
-      WiFiClientSecure tls;
-      HTTPClient http;
-      if (!httpBegin(http, tls, "/trips")) {
-        setState(CLOUD_ERROR, "uppladdning: tls fick inte plats");
-        return false;
-      }
-      http.addHeader("Content-Type", "application/x-ndjson");
-      code = http.POST(batch);
-      http.end();
+    HTTPClient &http = g_http;
+    if (!httpBegin("/trips")) {
+      setState(CLOUD_ERROR, "uppladdning: tls fick inte plats");
+      return false;
     }
+    http.addHeader("Content-Type", "application/x-ndjson");
+    const int code = http.POST(batch);
+    http.end();
     if (code != 200) {
+      httpDrop();
       // Koden i klartext pa skarmen - ett tyst "laddar upp resor" som
       // aldrig blir nagot mer ar ofelsokbart fran forarsatet.
       char msg[48];
@@ -245,9 +264,8 @@ bool uploadGpx(uint8_t &failed) {
     File f = SDCARD.open(path, FILE_READ);
     if (!f) continue;
 
-    WiFiClientSecure tls;
-    HTTPClient http;
-    if (!httpBegin(http, tls, String("/gpx?name=") + name)) {
+    HTTPClient &http = g_http;
+    if (!httpBegin(String("/gpx?name=") + name)) {
       f.close();
       return false;
     }
@@ -259,6 +277,7 @@ bool uploadGpx(uint8_t &failed) {
 
     if (code != 200) {
       failed++;
+      httpDrop();
       logg::event("gpx %s vagrades (kod %d) - fritt %lu, storsta block %lu",
                   name.c_str(), code,
                   (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -459,15 +478,14 @@ bool downloadFile(const char *urlName, int parts, const char *target,
     File out = SDCARD.open(del, FILE_WRITE);
     if (!out) return false;
 
-    WiFiClientSecure tls;
-    HTTPClient http;
+    HTTPClient &http = g_http;
     char path[80];
     if (parts > 1) {
       snprintf(path, sizeof(path), "/file/%s?part=%d", urlName, p);
     } else {
       snprintf(path, sizeof(path), "/file/%s", urlName);
     }
-    if (!httpBegin(http, tls, path)) {
+    if (!httpBegin(path)) {
       out.close();
       logg::event("%s del %d/%d: tls fick inte plats", urlName, p + 1, parts);
       return false;
@@ -475,7 +493,7 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 
     const int code = http.GET();
     if (code != 200) {
-      http.end();
+      httpDrop();
       out.close();
       // Koden ensam har visat sig otillracklig: "svar -1" betyder att
       // tls-uppkopplingen inte gick att fa till, och den vanligaste orsaken
@@ -491,9 +509,12 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 
     WiFiClient *stream = http.getStreamPtr();
     int remaining = http.getSize();
+    // Bara ett helt last svar lamnar forbindelsen i ett skick dar nasta
+    // anrop kan aterbruka den. Allt annat slapps.
+    bool whole = false;
     if (remaining == -1) {
       // Ingen Content-Length: svaret ar chunkat och ramarna maste skalas av.
-      readChunked(stream, out, buf, sizeof(buf));
+      whole = readChunked(stream, out, buf, sizeof(buf));
     } else {
       // En lasning som ger noll byte ar inte slutet: hotspots och mobilnat
       // stannar upp i sekunder mitt i en overforing, och att doma ut delen
@@ -501,7 +522,7 @@ bool downloadFile(const char *urlName, int parts, const char *target,
       // Sa lange forbindelsen lever tals 20 sekunder utan framsteg.
       uint32_t lastProgressMs = millis();
       while (remaining != 0) {
-        if (mustAbort()) { http.end(); out.close(); return false; }
+        if (mustAbort()) { httpDrop(); out.close(); return false; }
         const size_t got = stream->readBytes(
             buf,
             min((int)sizeof(buf), remaining > 0 ? remaining : (int)sizeof(buf)));
@@ -516,12 +537,13 @@ bool downloadFile(const char *urlName, int parts, const char *target,
           // Kortet tog inte emot. Det ar ett tyst fel i SD-lagret, och utan
           // den har raden ser det ut som en klippt nedladdning.
           g_diskFull = true;
-          http.end(); out.close(); return false;
+          httpDrop(); out.close(); return false;
         }
         if (remaining > 0) remaining -= got;
       }
+      whole = remaining == 0;
     }
-    http.end();
+    if (whole) http.end(); else httpDrop();
     out.close();
 
     // Delen maste vara exakt sa stor som kontraktet sager (sista delen ar
@@ -612,11 +634,10 @@ bool downloadFile(const char *urlName, int parts, const char *target,
 }
 
 bool downloadKunder() {
-  WiFiClientSecure tls;
-  HTTPClient http;
-  if (!httpBegin(http, tls, "/file/kunder")) return false;
+  HTTPClient &http = g_http;
+  if (!httpBegin("/file/kunder")) return false;
   const int code = http.GET();
-  if (code != 200) { http.end(); return false; }
+  if (code != 200) { httpDrop(); return false; }
   const String csv = http.getString();
   http.end();
   if (!csv.length()) return false;
@@ -637,9 +658,8 @@ bool downloadKunder() {
 // det varsta felet - ett fullt kort - ocksa ar det som tystar loggfilen: da
 // star webbappen tom just den gang man behover se varfor.
 bool postLog(const char *data, size_t n) {
-  WiFiClientSecure tls;
-  HTTPClient http;
-  if (!httpBegin(http, tls, "/log")) {
+  HTTPClient &http = g_http;
+  if (!httpBegin("/log")) {
     Serial.println("moln: loggen - tls fick inte plats");
     return false;
   }
@@ -647,6 +667,7 @@ bool postLog(const char *data, size_t n) {
   const int code = http.POST((uint8_t *)data, n);
   http.end();
   if (code != 200) {
+    httpDrop();
     Serial.printf("moln: loggen vagrades (kod %d)\n", code);
     return false;
   }
@@ -728,12 +749,11 @@ bool runSync() {
 
   String cfg;
   {
-    WiFiClientSecure tls;
-    HTTPClient http;
-    if (!httpBegin(http, tls, "/config")) return false;
+    HTTPClient &http = g_http;
+    if (!httpBegin("/config")) return false;
     const int code = http.GET();
     if (code != 200) {
-      http.end();
+      httpDrop();
       char msg[48];
       snprintf(msg, sizeof(msg),
                code == 401 ? "fel token" : "molnet svarar inte (kod %d)", code);
@@ -917,7 +937,12 @@ void syncTask(void *) {
     // mindre kortet ar det skillnaden mellan en synk och "kod -1".
     websync::suspend(true);
     obd::suspend(true);
-    for (uint8_t w = 0; w < 30 && websync::isUp(); w++) delay(100);
+    // Och vanta in att de FAKTISKT lagt sig. Obd-traden kan sta mitt i en
+    // sex sekunders skanning nar pausen begars; att ga vidare innan
+    // bluetooth ar nere gav synken 7 kB storsta block och kod -1.
+    for (uint8_t w = 0; w < 100 && (websync::isUp() || obd::bleUp()); w++) {
+      delay(100);
+    }
 
     setState(CLOUD_CONNECTING, "soker naten");
     WiFi.enableSTA(true);
@@ -1032,6 +1057,9 @@ void syncTask(void *) {
     unlock();
 
     const bool ok = runSync();
+    // Rundan ar slut, oavsett hur: forbindelsen slapps och tls-minnet
+    // lamnas tillbaka innan accesspunkten far radion igen.
+    httpDrop();
 
     lock();
     const CloudStatus efter = g_status;

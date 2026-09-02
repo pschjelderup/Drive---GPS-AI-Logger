@@ -562,18 +562,8 @@ void stopAp() {
   g_up = false;
 }
 
-}  // namespace
-
-namespace websync {
-
-void suspend(bool on) { g_suspend = on; }
-
-void begin() {
-  // Natet startas fran tick() nar tillstandet ar kant. Har finns inget att
-  // gora - men funktionen finns, sa att uppstartsordningen syns i .ino-filen.
-}
-
-void tick() {
+// Ett varv: natet upp eller ner efter resans tillstand, och servern betjanad.
+void service() {
   const bool tripActive = trip::status().active;
 
   // Molnsynken har foretrade framfor konfigsidan: tls behover det
@@ -606,6 +596,28 @@ void tick() {
 
   g_dns.processNextRequest();
   g_server.handleClient();
+}
+
+// Egen trad, pa karna 0 - skarmen och molnsynken bor pa karna 1. Med natet
+// uppe pollas servern tatt; utan nat racker det att titta efter resans
+// tillstand tio ganger i sekunden.
+void webTask(void *) {
+  for (;;) {
+    service();
+    delay(g_up ? 5 : 100);
+  }
+}
+
+}  // namespace
+
+namespace websync {
+
+void suspend(bool on) { g_suspend = on; }
+
+void begin() {
+  // Stacken racker till sidans stranghantering och en filstromning; sjalva
+  // sidan ligger i flashminnet och kopieras aldrig till stacken.
+  xTaskCreatePinnedToCore(webTask, "websync", 8192, nullptr, 1, nullptr, 0);
 }
 
 bool isUp() { return g_up; }

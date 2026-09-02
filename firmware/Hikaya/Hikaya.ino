@@ -378,10 +378,10 @@ void setup() {
 
 uint32_t lastSerialMs = 0;
 
-// Loopens delmoment mats var for sig. "Nagot annat blockerar" ar ingen
-// diagnos - raden nedan pekar ut vilken av delarna det ar.
-uint32_t g_loopWebUs = 0, g_loopWebMaxUs = 0;
-uint32_t g_loopOtherUs = 0, g_loopOtherMaxUs = 0;
+// Huvudloopen ar skarmens: knappen, ljudet och gui:t. Webbservern kor i
+// sin egen trad sedan den visade sig frysa touchen under filhamtningar.
+// Det som ar kvar har mats anda - "nagot annat blockerar" ar ingen diagnos.
+uint32_t g_loopOtherMaxUs = 0;
 uint32_t g_loopN = 0;
 uint32_t g_loopReportMs = 0;
 
@@ -390,31 +390,19 @@ void loop() {
   handleButton();
   sound::tick();
   const int64_t t1 = esp_timer_get_time();
-  websync::tick();
-  const int64_t t2 = esp_timer_get_time();
   gui::tick();
 
   {
     const uint32_t other = (uint32_t)(t1 - t0);
-    const uint32_t web = (uint32_t)(t2 - t1);
-    g_loopOtherUs += other;
-    g_loopWebUs += web;
     if (other > g_loopOtherMaxUs) g_loopOtherMaxUs = other;
-    if (web > g_loopWebMaxUs) g_loopWebMaxUs = web;
     g_loopN++;
     if (millis() - g_loopReportMs > 60000 && g_loopN) {
       g_loopReportMs = millis();
-      Serial.printf("loop: webserver %lu.%lu ms medel %lu.%lu varst, "
-                    "knapp+ljud %lu.%lu varst (%lu varv)\n",
-                    (unsigned long)(g_loopWebUs / g_loopN / 1000),
-                    (unsigned long)(g_loopWebUs / g_loopN % 1000 / 100),
-                    (unsigned long)(g_loopWebMaxUs / 1000),
-                    (unsigned long)(g_loopWebMaxUs % 1000 / 100),
+      Serial.printf("loop: knapp+ljud %lu.%lu ms varst (%lu varv)\n",
                     (unsigned long)(g_loopOtherMaxUs / 1000),
                     (unsigned long)(g_loopOtherMaxUs % 1000 / 100),
                     (unsigned long)g_loopN);
-      g_loopWebUs = g_loopWebMaxUs = 0;
-      g_loopOtherUs = g_loopOtherMaxUs = 0;
+      g_loopOtherMaxUs = 0;
       g_loopN = 0;
     }
   }

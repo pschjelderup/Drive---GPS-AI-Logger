@@ -559,18 +559,28 @@ void obdTask(void *) {
   uint8_t fails = 0;
 
   for (;;) {
-    if (!g_enabled || g_suspended) {
+    // Bluetooth ar uppe bara under resa. Bilens varden finns bara att lasa
+    // medan motorn gar, och parkerad ar det accesspunkten och molnsynkens
+    // tls som behover internminnet - stacken haller over hundra kilobyte,
+    // och med den uppe stod synken pa 14 kB fritt och 7 kB storsta block:
+    // kod -1 pa varenda anrop. Utan adapter skannade den dessutom dygnet
+    // runt for ingenting.
+    const bool wanted = g_enabled && !g_suspended && trip::status().active;
+    if (!wanted) {
       if (g_bleUp) {
         dropLink();
         BLEDevice::deinit(true);
         g_client = nullptr;  // deinit slapper objektet at oss
         g_bleUp = false;
         setState(g_enabled ? OBD_SEARCHING : OBD_OFF);
-        logg::event("obd: %s, bluetooth nedstangt",
-                    g_enabled ? "pausat for molnsynk" : "avslaget");
+        logg::event("obd: bluetooth nedstangt (%s)",
+                    !g_enabled ? "avslaget"
+                    : g_suspended ? "pausat for molnsynk" : "resan slut");
+        fails = 0;
+        nextTryMs = 0;
       }
       lastAccMs = 0;
-      delay(1000);
+      delay(500);
       continue;
     }
 
@@ -655,6 +665,8 @@ bool enabled() { return g_enabled; }
 void forget() { g_forget = true; }
 
 void suspend(bool on) { g_suspended = on; }
+
+bool bleUp() { return g_bleUp; }
 
 ObdData data() {
   lock();

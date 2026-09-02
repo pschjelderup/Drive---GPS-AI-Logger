@@ -92,6 +92,10 @@ TripStatus status();
 
 // Manuell override. Resan behover dem inte for att fungera, men den som vill
 // dela en resa i tva - kundbesok pa vagen hem - ska kunna gora det.
+// Bada lamnar bara en begaran: avlasningstraden utfor den inom ett varv
+// (50 ms), och skarmen ser resultatet i nasta modell. Att vanta har - som
+// forr, i upp till tva sekunder - fros touchen precis nar man tryckt.
+// startManual ar sant nar begaran togs emot, falskt nar en resa redan pagar.
 bool startManual();
 void endManual();
 

@@ -18,7 +18,7 @@ import {
 } from "../lib/palette.js";
 import { purposeLabel, fmtKm, fmtDate } from "../lib/fmt.js";
 
-export default function MapView() {
+export default function MapView({ visible = true }) {
   const hostRef = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null);
@@ -26,6 +26,8 @@ export default function MapView() {
   const camLayerRef = useRef(null);
   const roadLayerRef = useRef(null);
   const [mode, setMode] = useState("syfte");
+  const modeRef = useRef("syfte");
+  modeRef.current = mode;
   const [showGpx, setShowGpx] = useState(true);
   const [showCams, setShowCams] = useState(false);
   const [showRoads, setShowRoads] = useState(false);
@@ -51,23 +53,58 @@ export default function MapView() {
         return;
       }
 
+      // Sparen hamtas sex at gangen och ritas in efterhand som de kommer,
+      // i stallet for ett i taget och allt pa en gang i slutet. Tvahundra
+      // filer i foljd tog dryga halvminuten innan kartan visade nagot; nu
+      // syns de forsta sparen inom nagon sekund och resten fylls pa.
       const tracks = [];
-      for (const t of trips) {
-        const { data: blob } = await supabase.storage
-          .from(GPX_BUCKET).download(t.gpx_path);
-        if (!blob) continue;
-        const pts = parseGpxTimed(await blob.text());
-        if (pts?.length > 1) tracks.push({ trip: t, pts });
-        setStatus(`hämtar spår … ${tracks.length}/${trips.length}`);
-      }
       tracksRef.current = tracks;
+      let bounds = null;
+      let done = 0, next = 0, fitted = false;
+      const worker = async () => {
+        while (next < trips.length) {
+          const t = trips[next++];
+          try {
+            const { data: blob } = await supabase.storage
+              .from(GPX_BUCKET).download(t.gpx_path);
+            if (blob) {
+              const pts = parseGpxTimed(await blob.text());
+              if (pts?.length > 1) {
+                const entry = { trip: t, pts };
+                tracks.push(entry);
+                if (mapRef.current) {
+                  bounds = drawTrack(layerRef.current, entry, modeRef.current, bounds);
+                  // Zooma in pa det som finns sa fort nagot finns, och en
+                  // gang till nar allt ar pa plats.
+                  if (!fitted && tracks.length >= 8 && bounds) {
+                    fitted = true;
+                    mapRef.current.fitBounds(bounds, { padding: [24, 24] });
+                  }
+                }
+              }
+            }
+          } catch { /* ett spar som inte gar att hamta hoppas over */ }
+          done++;
+          setStatus(`hämtar spår … ${done}/${trips.length}`);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(6, trips.length) }, worker));
+      if (!mapRef.current) return;
       setStatus(tracks.length ? "" : "Spåren gick inte att läsa.");
-      draw(mode);
+      if (bounds) mapRef.current.fitBounds(bounds, { padding: [24, 24] });
     })();
 
-    return () => map.remove();
+    return () => { map.remove(); mapRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fliken goms i stallet for att avmonteras. Leaflet mater sin ruta bara
+  // nar den ritas, sa efter en dold period - och ett eventuellt fonsterbyte
+  // under den - maste den fa veta att matten kan ha andrats.
+  useEffect(() => {
+    if (visible && mapRef.current) mapRef.current.invalidateSize();
+  }, [visible]);
 
   const downloadData = async (key) => {
     const { data, error } = await supabase.storage.from("drive-data").download(key);
@@ -139,14 +176,10 @@ export default function MapView() {
     }
   };
 
-  const draw = (m) => {
-    const layer = layerRef.current;
-    const tracks = tracksRef.current;
-    if (!layer || !tracks?.length) return;
-    layer.clearLayers();
-
-    let bounds = null;
-    for (const { trip, pts } of tracks) {
+  // Ett spar in i lagret, i det lage som galler. Returnerar de utvidgade
+  // granserna sa att anroparen kan zooma nar den vill.
+  const drawTrack = (layer, { trip, pts }, m, bounds) => {
+    {
       const latlngs = pts.map((p) => [p.lat, p.lon]);
       const tip =
         `Resa ${trip.trip_no} · ${fmtKm(trip.distance_m)} km · ` +
@@ -208,6 +241,16 @@ export default function MapView() {
         bounds = bounds ? bounds.extend(line.getBounds()) : line.getBounds();
       }
     }
+    return bounds;
+  };
+
+  const draw = (m) => {
+    const layer = layerRef.current;
+    const tracks = tracksRef.current;
+    if (!layer || !tracks?.length) return;
+    layer.clearLayers();
+    let bounds = null;
+    for (const entry of tracks) bounds = drawTrack(layer, entry, m, bounds);
     if (bounds) mapRef.current.fitBounds(bounds, { padding: [24, 24] });
   };
 

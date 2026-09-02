@@ -1086,14 +1086,12 @@ TripStatus status() {
 bool startManual() {
   if (g_active) return false;
   g_cmdStart = true;
-  for (int i = 0; i < 200 && !g_active; i++) delay(10);
-  return g_active;
+  return true;
 }
 
 void endManual() {
   if (!g_active) return;
   g_cmdEnd = true;
-  for (int i = 0; i < 200 && g_active; i++) delay(10);
 }
 
 void splitHere() {
