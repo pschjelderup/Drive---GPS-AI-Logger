@@ -1247,7 +1247,11 @@ static void update_obd(const GuiModel *m) {
                "adaptern måste vara en BLE-modell.");
       break;
     case 1:  // OBD_SEARCHING
-      snprintf(buf, sizeof(buf), "Letar efter adaptern …");
+      // Radion ar uppe bara under resa - parkerad finns inget att lasa, och
+      // minnet behovs till wifi och molnet.
+      snprintf(buf, sizeof(buf), m->tripActive
+               ? "Letar efter adaptern …"
+               : "Bluetooth vilar tills resan börjar – adaptern söks under körning.");
       break;
     case 2:  // OBD_CONNECTING
       snprintf(buf, sizeof(buf), "Kopplar upp mot %s …", m->obdAdapter);

@@ -937,7 +937,12 @@ void syncTask(void *) {
     // mindre kortet ar det skillnaden mellan en synk och "kod -1".
     websync::suspend(true);
     obd::suspend(true);
-    for (uint8_t w = 0; w < 30 && websync::isUp(); w++) delay(100);
+    // Och vanta in att de FAKTISKT lagt sig. Obd-traden kan sta mitt i en
+    // sex sekunders skanning nar pausen begars; att ga vidare innan
+    // bluetooth ar nere gav synken 7 kB storsta block och kod -1.
+    for (uint8_t w = 0; w < 100 && (websync::isUp() || obd::bleUp()); w++) {
+      delay(100);
+    }
 
     setState(CLOUD_CONNECTING, "soker naten");
     WiFi.enableSTA(true);

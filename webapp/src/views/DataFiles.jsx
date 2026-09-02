@@ -6,8 +6,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import {
   fetchCameras, fetchLimits, buildHastighetBin, buildKamerorBin,
-  parseHastighetBin, sha8,
-} from "../lib/trv.js";
+  parseHastighetBin, sha8, LIMIT_MAGIC, LIMIT_MAGIC_OLD } from "../lib/trv.js";
 import { fmtDateTime, fmtBytes } from "../lib/fmt.js";
 
 // Delstorleken ar ett kontrakt med enheten (CLOUD_PART_BYTES i config.h):
@@ -134,6 +133,16 @@ export default function DataFiles() {
     setBusy(true);
     try {
       const { bytes, meta } = await fetchWhole(name);
+      // Molnfiler byggda fore rattningen bar signaturen "DHL1". Enheten kanner
+      // bara "DLH1", sa filen som gar till kortet far ratt signatur har -
+      // annars hade nedladdningen varit precis lika oanvandbar som forut.
+      if (name === "hastighet") {
+        const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        if (dv.getUint32(0, true) === LIMIT_MAGIC_OLD) {
+          dv.setUint32(0, LIMIT_MAGIC, true);
+          say("molnfilens signatur var fel (DHL1) - rättad till DLH1 i filen du får");
+        }
+      }
       const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
       const a = document.createElement("a");
       a.href = url;

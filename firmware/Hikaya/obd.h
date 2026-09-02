@@ -100,6 +100,10 @@ void forget();
 // att tls forlorar, och nagon resa pagar anda inte under en synk.
 void suspend(bool on);
 
+// Sant medan bluetooth-stacken ar uppe. Synken vantar in att den lagt sig
+// innan tls tar internminnet i ansprak.
+bool bleUp();
+
 ObdData data();
 
 // Resans summering. noteTripStart nollstaller, summary() laser av.

@@ -213,9 +213,20 @@ export async function fetchLimits(onProgress) {
 // att "bara kamerorna" kan baka in skyltsiffror ur molnets befintliga fil i
 // stallet for att baka blint - en kamerafil utan siffror har redan skrivit
 // over en bra fil en gang, och det raknas inte som snabbt.
+// Signaturen "DLH1" som little-endian uint32 - samma tal som firmwarens
+// kLimitMagic. Byggaren skrev lange 0x314c4844, vilket ar "DHL1": tva
+// bokstaver i fel ordning, och enheten vagrade varenda fil som byggts har -
+// "hastighetsfil saknas" fast filen lag pa kortet. Den gamla signaturen
+// godtas i tolken sa att kartlagret och kamerabygget lever tills molnfilen
+// byggts om; SD-nedladdningen rattar den pa vagen ut.
+export const LIMIT_MAGIC = 0x31484c44;      // "DLH1"
+export const LIMIT_MAGIC_OLD = 0x314c4844;  // "DHL1" - byggarens gamla fel
+
 export function parseHastighetBin(buf) {
   const dv = new DataView(buf);
-  if (buf.byteLength < 12 || dv.getUint32(0, true) !== 0x314c4844) return null;
+  if (buf.byteLength < 12) return null;
+  const magic = dv.getUint32(0, true);
+  if (magic !== LIMIT_MAGIC && magic !== LIMIT_MAGIC_OLD) return null;
   const recSize = dv.getUint16(6, true);
   const count = dv.getUint32(8, true);
   if (recSize !== 10 || 12 + count * recSize > buf.byteLength) return null;
@@ -285,7 +296,7 @@ export function buildHastighetBin(points, onProgress) {
 
   const buf = new ArrayBuffer(12 + keep.length * 10);
   const dv = new DataView(buf);
-  dv.setUint32(0, 0x314c4844, true); // "DLH1"
+  dv.setUint32(0, LIMIT_MAGIC, true); // "DLH1"
   dv.setUint16(4, 1, true);
   dv.setUint16(6, 10, true);
   dv.setUint32(8, keep.length, true);
