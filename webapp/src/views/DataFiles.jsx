@@ -157,9 +157,8 @@ export default function DataFiles() {
     }
   };
 
-  // Bocken sparar vilka versioner som lades på kortet. Då kan sidan säga om
-  // kortet fortfarande är aktuellt – och enheten känner själv igen filerna
-  // vid nästa synk (rätt storlek och signatur) och hoppar över nedladdningen.
+  // Bocken ar bara en anteckning om nar filerna lades pa kortet. Enheten
+  // laser det som ligger dar vid nasta start - ingen version jamfors.
   const setSdDone = async (checked) => {
     const value = checked
       ? {
@@ -279,11 +278,10 @@ export default function DataFiles() {
         <h2>Hastighetsfilen läggs på SD-kortet för hand</h2>
         <p className="status">
           Så här kommer hastighetsfilen in i enheten – den synkas aldrig över
-          wifi. 130 MB i 34 delar över en vinglig bilparkering drog ner resten
-          av synken med sig, så den får ta den säkra vägen: ladda ner här,
-          flytta till enhetens SD-kort med en dator, klart. Enheten känner
-          igen filen vid nästa synk (rätt storlek och signatur). Kamerafilen
-          går fint över wifi, men kan läggas dit på samma sätt.
+          wifi. Ladda ner här, flytta till enhetens SD-kort med en dator,
+          starta om enheten. Finns filen så används den – ingen version
+          jämförs, ingenting tjatar. Kamerafilen går fint över wifi, men kan
+          läggas dit på samma sätt.
         </p>
         <ol style={{ margin: ".4rem 0 .8rem 1.2rem", lineHeight: 1.7 }}>
           <li>Ladda ner båda filerna med knapparna nedan.</li>
@@ -292,7 +290,7 @@ export default function DataFiles() {
             (ersätt de gamla). Namnen måste vara exakt{" "}
             <code>HASTIGHET.BIN</code> och <code>KAMEROR.BIN</code>.</li>
           <li>Mata ut kortet säkert, sätt tillbaka det och starta enheten.</li>
-          <li>Bocka i rutan nedan så håller sidan koll på versionen.</li>
+          <li>Bocka gärna i rutan nedan som en anteckning om när det gjordes.</li>
         </ol>
         <div style={{ display: "flex", gap: ".6rem", flexWrap: "wrap" }}>
           <button className="primary" disabled={busy}
@@ -310,23 +308,12 @@ export default function DataFiles() {
             onChange={(e) => setSdDone(e.target.checked)} />
           Filerna är lagda på SD-kortet
         </label>
-        {sdManual && (() => {
-          const hastNu = files.find((f) => f.name === "hastighet")?.version;
-          const kamNu = files.find((f) => f.name === "kameror")?.version;
-          const aktuell = sdManual.hastighet === hastNu && sdManual.kameror === kamNu;
-          return aktuell ? (
-            <p className="status" style={{ color: "var(--ok, #2e7d32)" }}>
-              Kortet är aktuellt – versionerna på kortet ({fmtDateTime(sdManual.at)})
-              matchar molnet. Enheten behöver inte synka ner något.
-            </p>
-          ) : (
-            <p className="status error">
-              Kortet är inaktuellt – molnet har nyare versioner än de som lades
-              på kortet {fmtDateTime(sdManual.at)}. Ladda ner HASTIGHET.BIN
-              igen och lägg den på kortet.
-            </p>
-          );
-        })()}
+        {sdManual && (
+          <p className="status">
+            Lagda på kortet {fmtDateTime(sdManual.at)}. Enheten läser filen som
+            ligger där – finns den så används den, ingen versionskontroll.
+          </p>
+        )}
       </div>
 
       <div className="card">

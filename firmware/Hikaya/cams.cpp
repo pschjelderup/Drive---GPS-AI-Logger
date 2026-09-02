@@ -18,6 +18,10 @@ namespace {
 
 const uint32_t kCamMagic = 0x31434C44;    // "DLC1"
 const uint32_t kLimitMagic = 0x31484C44;  // "DLH1"
+// Webbappens byggare skrev lange "DHL1" - tva bokstaver i fel ordning - och
+// de filerna ligger pa kort darute. Innehallet ar identiskt, sa de godtas:
+// finns filen sa anvands den, oavsett vilken av de tva den bar.
+const uint32_t kLimitMagicOld = 0x314C4844;  // "DHL1"
 
 #pragma pack(push, 1)
 struct FileHeader {
@@ -96,10 +100,11 @@ void freeCams() {
   g_camCount = 0;
 }
 
-bool readHeader(File &f, uint32_t magic, uint16_t recordSize, uint32_t &count) {
+bool readHeader(File &f, uint32_t magic, uint16_t recordSize, uint32_t &count,
+                uint32_t altMagic = 0) {
   FileHeader h = {};
   if (f.read((uint8_t *)&h, sizeof(h)) != (int)sizeof(h)) return false;
-  if (h.magic != magic) return false;
+  if (h.magic != magic && (altMagic == 0 || h.magic != altMagic)) return false;
   if (h.version != 1) return false;
   if (h.recordSize != recordSize) return false;
   count = h.count;
@@ -150,7 +155,8 @@ void loadLimits() {
   if (!g_limitFile) return;
 
   uint32_t count = 0;
-  if (!readHeader(g_limitFile, kLimitMagic, sizeof(LimitRecord), count) ||
+  if (!readHeader(g_limitFile, kLimitMagic, sizeof(LimitRecord), count,
+                  kLimitMagicOld) ||
       count == 0) {
     g_limitFile.close();
     return;
