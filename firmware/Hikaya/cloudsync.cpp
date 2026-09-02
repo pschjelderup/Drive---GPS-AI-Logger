@@ -130,7 +130,6 @@ struct FileAttempt {
   uint8_t fails;
 };
 FileAttempt g_kamAttempt = {};
-FileAttempt g_hastAttempt = {};
 
 bool worthTrying(FileAttempt &a, const char *ver) {
   if (strcmp(a.ver, ver) != 0) {
@@ -350,16 +349,6 @@ bool readChunked(WiFiClient *stream, File &out, uint8_t *buf, size_t bufLen) {
     }
     stream->readBytesUntil('\n', line, sizeof(line) - 1);  // bitens \r\n
   }
-}
-
-// Hur langt den pagaende nedladdningen kommit. Filen vaxer bara med hela,
-// kontrollerade delar, sa siffran ar ett arligt matt pa framsteg.
-long tmpBytes() {
-  File h = SDCARD.open(kTmpFile, FILE_READ);
-  if (!h) return 0;
-  const long s = (long)h.size();
-  h.close();
-  return s;
 }
 
 // En manuellt ditlagd fil - nedladdad fran webbappen till en dator och lagd
@@ -860,45 +849,24 @@ bool runSync() {
     }
   }
 
+  // Hastighetsfilen synkas aldrig over wifi. Den ar 130 MB i 34 delar, och
+  // det var omtagen pa den - en halvtimme av misslyckade tls-uppkopplingar
+  // - som drog ner resten av synken med sig: varje runda efter ett filforsok
+  // blev samre, tills inte ens /config gick fram (kod -1). Filen byts sa
+  // sallan att den far komma in den sakra vagen: webbappens knapp "Ladda ner
+  // HASTIGHET.BIN", kortet i datorn, klart. Adoptionen overst i rundan
+  // kanner igen den. Har sags bara, en gang per version, om kortet ar
+  // inaktuellt - sa att webbappens enhetslogg visar det utan att tjata.
   if (fileVersion(cfg, "hastighet", ver, sizeof(ver), &parts, &size)) {
     g_prefs.getString("vHast", have, sizeof(have));
     if (strcmp(ver, have) != 0) {
-      if (worthTrying(g_hastAttempt, ver)) {
-        // Stora filen. Delarna hamtas i foljd till samma tillfalliga fil;
-        // ett avbrott kostar omtag, aldrig en halv fil pa riktig plats.
-        //
-        // Och hon far en hel session pa sig: sa lange varje forsok tar hem
-        // minst en ny del gors ett nytt forsok direkt, i upp till en
-        // halvtimme, i stallet for att kasta bort en uppkopplad wifi och
-        // krava ett nytt knapptryck. Tva forsok i rad utan en enda ny del
-        // betyder att natet inte bar - da ar det lika bra att slappa det.
-        const uint32_t deadlineMs = millis() + 30UL * 60UL * 1000UL;
-        uint8_t barren = 0;
-        for (;;) {
-          const long before = tmpBytes();
-          setState(CLOUD_SYNCING, "hamtar hastighetsfilen");
-          if (downloadFile("hastighet", parts, LIMITS_FILE, 0x31484C44, size,
-                           ver, "hastighetsfilen")) {
-            g_prefs.putString("vHast", ver);
-            logg::event("hastighetsfilen uppdaterad till version %s", ver);
-            break;
-          }
-          if (mustAbort()) { g_prefs.end(); return false; }
-          const long after = tmpBytes();
-          barren = after > before ? 0 : (uint8_t)(barren + 1);
-          // Ett fullt kort blir inte mindre fullt av ett nytt forsok. Da ar
-          // en halvtimmes omtag bara bortkastad tid och stromm.
-          if (g_diskFull || barren >= 2 || millis() > deadlineMs ||
-              WiFi.status() != WL_CONNECTED) {
-            g_hastAttempt.fails++;
-            allOk = false;
-            logg::event("hastighetsfilen brots vid %ld byte - ny runda far ta vid",
-                        after);
-            break;
-          }
-          logg::event("hastighetsfilen: nytt forsok fran %ld byte", after);
-          delay(2000);
-        }
+      static char nagged[24] = "";
+      if (strcmp(nagged, ver) != 0) {
+        strncpy(nagged, ver, sizeof(nagged) - 1);
+        nagged[sizeof(nagged) - 1] = '\0';
+        logg::event("hastighetsfilen pa kortet ar inte molnets version %s - "
+                    "ladda ner HASTIGHET.BIN i webbappen och lagg pa kortet",
+                    ver);
       }
     }
   }
