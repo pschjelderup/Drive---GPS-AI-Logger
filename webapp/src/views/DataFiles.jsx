@@ -70,7 +70,9 @@ export default function DataFiles() {
       updated_at: new Date().toISOString(),
     });
     if (error) throw new Error(error.message);
-    say(`${name}: version ${version} registrerad – enheten hämtar vid nästa synk`);
+    say(name === "hastighet"
+      ? `${name}: version ${version} registrerad – ladda ner HASTIGHET.BIN nedan och lägg på kortet`
+      : `${name}: version ${version} registrerad – enheten hämtar vid nästa synk`);
     loadMeta();
   };
 
@@ -258,18 +260,21 @@ export default function DataFiles() {
           Trafikverket-nyckeln ligger i Vercels miljövariabler
           (TRAFIKVERKET_API_KEY), inte i webbläsaren.
           Hastigheterna är hela NVDB – över två miljoner sträckor – och tar
-          några minuter att hämta. Kör helst på en dator. Enheten laddar sedan
-          ner filerna själv nästa gång den har wifi och ingen resa pågår.
+          några minuter att hämta. Kör helst på en dator. Kamerafilen laddar
+          enheten ner själv nästa gång den har wifi. Hastighetsfilen synkas
+          aldrig över wifi – den läggs på kortet för hand, se nedan.
         </p>
       </div>
 
       <div className="card">
-        <h2>Lägg filerna på SD-kortet för hand</h2>
+        <h2>Hastighetsfilen läggs på SD-kortet för hand</h2>
         <p className="status">
-          Alternativ till wifi-synken: ladda ner filerna här, flytta dem till
-          enhetens SD-kort med en dator, klart. Enheten känner igen dem vid
-          nästa synk (rätt storlek och signatur) och hoppar då över hela
-          nedladdningen själv.
+          Så här kommer hastighetsfilen in i enheten – den synkas aldrig över
+          wifi. 130 MB i 34 delar över en vinglig bilparkering drog ner resten
+          av synken med sig, så den får ta den säkra vägen: ladda ner här,
+          flytta till enhetens SD-kort med en dator, klart. Enheten känner
+          igen filen vid nästa synk (rätt storlek och signatur). Kamerafilen
+          går fint över wifi, men kan läggas dit på samma sätt.
         </p>
         <ol style={{ margin: ".4rem 0 .8rem 1.2rem", lineHeight: 1.7 }}>
           <li>Ladda ner båda filerna med knapparna nedan.</li>
@@ -308,8 +313,8 @@ export default function DataFiles() {
           ) : (
             <p className="status error">
               Kortet är inaktuellt – molnet har nyare versioner än de som lades
-              på kortet {fmtDateTime(sdManual.at)}. Ladda ner igen, eller låt
-              enheten synka via wifi.
+              på kortet {fmtDateTime(sdManual.at)}. Ladda ner HASTIGHET.BIN
+              igen och lägg den på kortet.
             </p>
           );
         })()}

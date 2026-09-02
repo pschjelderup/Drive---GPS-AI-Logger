@@ -41,8 +41,11 @@ export function fmtBytes(b) {
 
 export function fmtDur(s) {
   if (!s) return "0 min";
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  // Avrunda till hela minuter FORST, dela sedan i timmar: att avrunda
+  // resten for sig gav "1 tim 60 min" for allt mellan 1:59:30 och 2:00.
+  const mins = Math.round(s / 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
   return h > 0 ? `${h} tim ${m} min` : `${m} min`;
 }
 
