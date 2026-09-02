@@ -9,9 +9,10 @@
 // Under fard ar natet slackt. Det har inget arende da, det drar strom, och en
 // webbsida ar inget man ska titta pa nar man kor.
 //
-// Servern kors fran skarmtraden, sa en overforing kan frysa bilden nagon
-// sekund. Det ar ett medvetet byte: samma trad betyder att sidan aldrig
-// krockar med skarmens egna lasningar, och nar sidan anvands star bilen still.
+// Servern kor i en egen trad pa karna 0, inte i skarmens loop. Den lag i
+// huvudloopen forut, och da fros touchen sa lange telefonen hamtade en fil -
+// nar sidan anvands star visserligen bilen still, men skarmen ska anda svara.
+// Kortet skyddas av filsystemets eget las, sa tradarna kan lasa var for sig.
 
 #pragma once
 
@@ -19,11 +20,9 @@
 
 namespace websync {
 
+// Startar tradens: den reser och lagger ner natet efter resans tillstand och
+// driver webbservern. Huvudloopen behover inte gora nagot.
 void begin();
-
-// Anropas fran huvudloopen. Startar och stoppar natet efter resans tillstand
-// och driver webbservern.
-void tick();
 
 // Lagger ner accesspunkten tillfalligt. Molnsynken gor det medan den kor:
 // ap och station samtidigt, plus webbserver, dns och tls, ar mer an

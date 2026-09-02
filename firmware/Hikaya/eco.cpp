@@ -241,31 +241,32 @@ void reset() {
   unlock();
 }
 
-bool tare() {
+void tareRequest() {
   lock();
   g_tareDone = false;
   g_tareOk = false;
   g_tarePending = true;
   unlock();
+}
 
-  // Vid 1 Hz dröjer det som mest en dryg sekund innan avlasningstraden hinner
-  // svara, sa vantetiden ar tilltagen darefter.
-  const uint32_t start = millis();
-  while (millis() - start < 2500) {
-    lock();
-    const bool done = g_tareDone;
-    const bool ok = g_tareOk;
-    unlock();
-    if (done) return ok;
-    delay(10);
+uint8_t tareState() {
+  lock();
+  uint8_t st = 0;
+  if (g_tarePending) {
+    st = 1;
+  } else if (g_tareDone) {
+    st = g_tareOk ? 2 : 3;
+    g_tareDone = false;  // kvitterat
   }
+  unlock();
+  return st;
+}
 
-  // Uteblivet svar betyder att avlasningen inte gar - da ar "misslyckades"
-  // ratt besked, inte ett tyst ja.
+void tareCancel() {
   lock();
   g_tarePending = false;
+  g_tareDone = false;
   unlock();
-  return false;
 }
 
 void tick(const Sample &s) {

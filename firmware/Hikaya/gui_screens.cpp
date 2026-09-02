@@ -788,6 +788,9 @@ static void tare_done(bool ok) {
 }
 static void tare_cb(lv_event_t *e) {
   (void)e;
+  // Svaret kommer fran en annan trad ett ogonblick senare; under tiden
+  // sager knappen att den hort trycket.
+  if (g_tareBtnLbl) set_txt(g_tareBtnLbl, "…");
   if (g_act && g_act->tare) g_act->tare(tare_done);
 }
 

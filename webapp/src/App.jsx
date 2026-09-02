@@ -66,6 +66,18 @@ export default function App() {
   const [tab, setTab] = useState("journal");
   // Nyckel som byts efter en import, sa att journalen hamtar om sina rader.
   const [epoch, setEpoch] = useState(0);
+  // Flikarna lever kvar nar man lamnar dem. Forr avmonterades vyn vid varje
+  // byte, och Korjournal gjorde da om sina sex fragor och hela
+  // luckfyllnadspasset varje gang man kom tillbaka. Nu monteras en flik
+  // forsta gangen den oppnas och goms sedan bara - kartan, journalen och
+  // rapporten ar dar man lamnade dem, pa en gang.
+  const [visited, setVisited] = useState(() => new Set(["journal"]));
+  const open = (key) => {
+    setTab(key);
+    setVisited((v) => (v.has(key) ? v : new Set(v).add(key)));
+  };
+  const view = (key, node) =>
+    visited.has(key) ? <div hidden={tab !== key}>{node}</div> : null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -94,18 +106,18 @@ export default function App() {
       <nav className="tabs">
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? "active" : ""}
-            onClick={() => setTab(t.key)}>{t.label}</button>
+            onClick={() => open(t.key)}>{t.label}</button>
         ))}
       </nav>
-      {tab === "journal" && <Journal key={epoch} />}
-      {tab === "rapport" && <Report />}
-      {tab === "karta" && <MapView />}
-      {tab === "fart" && <Speeding />}
-      {tab === "eco" && <Eco />}
-      {tab === "ai" && <Ai />}
-      {tab === "import" && <Import onImported={() => setEpoch((e) => e + 1)} />}
-      {tab === "data" && <DataFiles />}
-      {tab === "install" && <Settings />}
+      {view("journal", <Journal key={epoch} />)}
+      {view("rapport", <Report />)}
+      {view("karta", <MapView visible={tab === "karta"} />)}
+      {view("fart", <Speeding />)}
+      {view("eco", <Eco />)}
+      {view("ai", <Ai />)}
+      {view("import", <Import onImported={() => setEpoch((e) => e + 1)} />)}
+      {view("data", <DataFiles />)}
+      {view("install", <Settings />)}
     </div>
   );
 }

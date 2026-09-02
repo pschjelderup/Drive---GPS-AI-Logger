@@ -221,10 +221,37 @@ void actScreenIdx(uint8_t idx) {
   g_save();
 }
 
+// Taran svarar fran avlasningstraden. Begaran laggs har, och svaret hamtas
+// i tick() - skarmen far aldrig sta och vanta pa en annan trad.
+void (*g_tareCb)(bool ok) = nullptr;
+uint32_t g_tareStartMs = 0;
+
 void actTare(void (*done)(bool ok)) {
-  const bool ok = eco::tare();
+  eco::tareRequest();
+  g_tareCb = done;
+  g_tareStartMs = millis();
+}
+
+void pollTare() {
+  if (!g_tareCb) return;
+  const uint8_t st = eco::tareState();
+  bool finish = false, ok = false;
+  if (st == 2) {
+    finish = true;
+    ok = true;
+  } else if (st == 3) {
+    finish = true;
+  } else if (millis() - g_tareStartMs > 3000) {
+    // Uteblivet svar betyder att avlasningen inte gar - da ar
+    // "misslyckades" ratt besked, inte ett tyst ja.
+    eco::tareCancel();
+    finish = true;
+  }
+  if (!finish) return;
   if (!ok) sound::play(CUE_ERROR);
-  done(ok);
+  void (*cb)(bool) = g_tareCb;
+  g_tareCb = nullptr;
+  cb(ok);
 }
 
 void actEcoReset() { eco::reset(); }
@@ -484,6 +511,8 @@ void tick() {
     g_askArmed = false;
     cloudsync::requestSync();
   }
+
+  pollTare();
 
   // ---- modellen in i skarmarna, nagra ganger i sekunden
   static uint32_t lastModelMs = 0;

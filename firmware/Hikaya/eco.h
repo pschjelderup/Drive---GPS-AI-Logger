@@ -93,12 +93,17 @@ void setLimits(float softG, float hardG, float bubbleG, float penaltyPerGs,
 // eftersom den inte har med korningen att gora.
 void reset();
 
-// Sparar monteringslaget och borjar om inlarningen av framatriktningen.
-// Sjalva arbetet utfors av avlasningstraden; anropet vantar pa svar i upp till
-// nagra sekunder och far darfor inte goras fran den traden.
-// Returnerar false om enheten inte star stilla - da ar det inte tyngdkraften
-// man skulle spara utan en rorelse.
-bool tare();
+// Taran: sparar monteringslaget och borjar om inlarningen av
+// framatriktningen. Sjalva arbetet utfors av avlasningstraden, sa anropet
+// lamnar bara en begaran och skarmen fragar efter svaret i sina egna varv -
+// att vanta har fros touchen i upp till tva sekunder.
+// tareState: 0 = inget pagar, 1 = vantar pa avlasningstraden, 2 = klar och
+// sparad, 3 = klar men enheten stod inte stilla (da ar det inte tyngdkraften
+// man skulle spara utan en rorelse). 2 och 3 kvitteras vid lasningen.
+void tareRequest();
+uint8_t tareState();
+// Tar tillbaka en begaran som inte fatt svar - avlasningstraden star.
+void tareCancel();
 
 EcoStatus status();
 
