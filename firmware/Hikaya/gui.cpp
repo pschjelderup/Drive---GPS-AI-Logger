@@ -266,6 +266,10 @@ void actToggleAutoSync(bool on) {
 }
 
 void actToggleObd(bool on) {
+#if OBD_LOCKED
+  (void)on;
+  return;
+#endif
   g_cfg->obdOn = on ? 1 : 0;
   g_apply();
   g_save();

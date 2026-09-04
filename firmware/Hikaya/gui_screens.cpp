@@ -1,4 +1,5 @@
 #include "gui_screens.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -1242,9 +1243,15 @@ static void update_obd(const GuiModel *m) {
 
   switch (m->obdState) {
     case 0:  // OBD_OFF
+#if OBD_LOCKED
+      snprintf(buf, sizeof(buf),
+               "Tillvalet är avstängt tills vidare – det fick enheten att "
+               "starta om. Kommer tillbaka när felet är utrett.");
+#else
       snprintf(buf, sizeof(buf),
                "Tillvalet är avslaget. Slå på det under Inställningar – "
                "adaptern måste vara en BLE-modell.");
+#endif
       break;
     case 1:  // OBD_SEARCHING
       // Radion ar uppe bara under resa - parkerad finns inget att lasa, och
@@ -1426,7 +1433,9 @@ static void build_settings() {
   lv_obj_align(p4, LV_ALIGN_TOP_MID, SX(0), SY(256));
   lv_obj_t *l4 = label(p4, F20, COL_TEXT, "OBD-adapter");
   lv_obj_align(l4, LV_ALIGN_LEFT_MID, SX(14), SY(-10));
-  lv_obj_t *h4 = label(p4, F16, COL_DIM, "bilens värden via bluetooth (BLE)");
+  lv_obj_t *h4 = label(p4, F16, COL_DIM, OBD_LOCKED
+                       ? "avstängt tills vidare – fick enheten att starta om"
+                       : "bilens värden via bluetooth (BLE)");
   lv_obj_align(h4, LV_ALIGN_LEFT_MID, SX(14), SY(14));
   g_setObd = lv_switch_create(p4);
   lv_obj_set_size(g_setObd, SX(64), SY(34));
@@ -1434,6 +1443,11 @@ static void build_settings() {
   lv_obj_set_style_bg_color(g_setObd, COL_ACCENT,
                             LV_PART_INDICATOR | LV_STATE_CHECKED);
   lv_obj_add_event_cb(g_setObd, obd_switch_cb, LV_EVENT_VALUE_CHANGED, nullptr);
+#if OBD_LOCKED
+  // Gratt reglage: gar inte att sla pa forran sparren i config.h ar borta.
+  lv_obj_add_state(g_setObd, LV_STATE_DISABLED);
+  lv_obj_set_style_opa(g_setObd, LV_OPA_40, 0);
+#endif
 
   // Vad enheten vet om sig sjalv.
   lv_obj_t *p3 = glass(scr);
