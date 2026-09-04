@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<title>Hikaya – enhetens logik</title>
+<style>
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+html { font-size: 10.5pt; }
+body { font-family: "DejaVu Sans", system-ui, sans-serif; color: #181c24; line-height: 1.45; margin: 0; }
+h1 { font-size: 24pt; margin: 0 0 4pt; letter-spacing: -.02em; }
+h2 { font-size: 15pt; margin: 22pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5px solid #1a58d2; page-break-after: avoid; }
+h3 { font-size: 11.5pt; margin: 14pt 0 4pt; page-break-after: avoid; }
+p { margin: 0 0 6pt; }
+.sub { color: #666d78; font-size: 10pt; margin-bottom: 14pt; }
+.box { background: #f0efe9; border-radius: 8px; padding: 8pt 10pt; margin: 8pt 0; page-break-inside: avoid; }
+.warn { background: #fff3d6; border-left: 4px solid #ac7400; }
+.stop { background: #fde4e4; border-left: 4px solid #cb2a2a; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.5pt; page-break-inside: auto; }
+th, td { border: 1px solid #d9d7d0; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+th { background: #eceae3; }
+tr { page-break-inside: avoid; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 9pt; background: #f0efe9; padding: 0 3px; border-radius: 3px; }
+ol, ul { margin: 0 0 8pt; padding-left: 18pt; }
+li { margin-bottom: 3pt; }
+.steps li { margin-bottom: 5pt; }
+.small { font-size: 9pt; color: #666d78; }
+.toc { columns: 2; column-gap: 20pt; font-size: 9.5pt; }
+.toc div { break-inside: avoid; margin-bottom: 2pt; }
+svg { display: block; margin: 8pt auto; }
+.pb { page-break-before: always; }
+.kv td:first-child { width: 32%; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Hikaya – så fungerar enheten</h1>
+<p class="sub">Logiken i firmwaren, steg för steg: vad som händer i vilken ordning, vad som kan stanna på grund av vad, och hur delarna hänger ihop med molnet och webbappen. Läge per 2026-09-04 (efter PR #45 och OBD-spärren i PR #46). Underlag för planeringen av nästa UX-version.</p>
+
+<div class="toc">
+<div>1. Enheten i en bild</div>
+<div>2. Uppstarten, steg för steg</div>
+<div>3. Avläsningstråden – enhetens puls</div>
+<div>4. Resan: start, färd, slut, fråga</div>
+<div>5. Strömavbrott och läkning</div>
+<div>6. Skärmen och gesterna</div>
+<div>7. Ecodrive</div>
+<div>8. Fartkameror och skyltad hastighet</div>
+<div>9. Radion: eget wifi, molnsynk, bluetooth</div>
+<div>10. Molnsynkens runda</div>
+<div>11. Enhetsloggen</div>
+<div>12. Vad kan stanna på grund av vad</div>
+<div>13. Molnet och webbappen</div>
+<div>14. Filerna på kortet</div>
+<div>15. Avstängt och känt just nu</div>
+<div>16. Underlag för nästa UX-version</div>
+</div>
+
+<h2>1. Enheten i en bild</h2>
+<p>Enheten är en körjournal som sköter sig själv. Resan startar när bilen rullar, slutar när den stått still, sparas på minneskortet och laddas upp till molnet nästa gång enheten når ett wifi. Föraren behöver bara svara på en fråga: <b>vad var resan till?</b> Allt annat är automatik.</p>
+
+<p>Inuti kör fem trådar parallellt. Det är viktigt att förstå dem, för nästan alla "varför stannade det?" handlar om vilken tråd som väntade på vad.</p>
+
+<table>
+<tr><th>Tråd</th><th>Kärna / takt</th><th>Gör</th><th>Rör kortet?</th></tr>
+<tr><td><b>Avläsningstråden</b> ("sampler")</td><td>kärna 0, 20 varv/s, högst prioritet</td><td>GPS, klocka, rörelsesensor, ecodrive, resan, kameravarning</td><td><b>Ja – den enda som skriver</b> resor, spår, dagbok, tillståndsfil</td></tr>
+<tr><td><b>Huvudloopen</b> (skärmen)</td><td>kärna 1, så fort det går (~5 ms)</td><td>Knappen, ljudet, LVGL, modellfyllning, frågan efter resan, skärmsläckning</td><td>Läser (kundlistan); beställer skrivningar av avläsningstråden</td></tr>
+<tr><td><b>Synktråden</b> (cloudsync)</td><td>kärna 0, vaknar 1 gång/s</td><td>Wifi som klient, TLS mot molnet, upp- och nedladdningar</td><td>Läser dagbok, gpx, logg; flyttar gpx till UPPLADDAT; skriver nedladdade filer</td></tr>
+<tr><td><b>Webbtråden</b> (websync)</td><td>kärna 0</td><td>Enhetens eget wifi + webbsida (fångstportal)</td><td>Läser gpx/csv; skriver uppladdad kamerafil/kundlista via tempfil</td></tr>
+<tr><td><b>OBD-tråden</b></td><td>kärna 0</td><td>Bluetooth mot ELM327-adapter</td><td>Nej</td></tr>
+</table>
+<div class="box stop"><b>OBD-tråden startas inte alls just nu.</b> Med tillvalet påslaget startade enheten om var tionde sekund (provat 2026-09-02). Spärren <code>OBD_LOCKED 1</code> i config.h gör att tråden aldrig skapas, reglaget i Inställningar är grått och ett sparat "på" ignoreras. Se avsnitt 15.</div>
+
+<p>Utanför trådarna finns hårdvaran: GPS (i2c på AMOLED-kortet, UART på 3.5-kortet), rörelsesensor (IMU), realtidsklocka, minneskort (SDMMC 1-bit), wifi-radio (2,4 GHz), bluetooth (BLE, delar radio och internminne med wifi), skärm med pekskärm, piezo och kortets knapp.</p>
+
+<h2>2. Uppstarten, steg för steg</h2>
+<p>Ordningen i <code>setup()</code> är vald så att varje steg har det det behöver. Så här ser den ut, med vad som händer om steget misslyckas.</p>
+<ol class="steps">
+<li><b>Serieport</b> och 1,5 s paus (så att en flashkonsol hinner koppla upp). Rubrik med version, PR-nummer och kortvariant.</li>
+<li><b>Skärmens ström och panel.</b> AMOLED: matning på, QSPI-bussen i 80 MHz, panelen tänds. LCD 3.5: i2c först, sedan PMIC:ens LDO-skenor (annars svart skärm), io-expandern som äger panelens reset, två blink på bakgrundsljuset som versionskvitto, sedan esp_lcd-init och en röd ruta som bring-up-kvitto. <i>Svart skärm = ström/reset/buss. Fastnar röd = LVGL-steget.</i></li>
+<li><b>Inställningarna</b> läses ur flashminnet (Preferences "drive"): skärmsläckning, ljud, ecodrive-gränser, autosynk, OBD. Trasiga värden faller tillbaka till standard. OBD tvingas till 0 medan spärren gäller.</li>
+<li><b>Ljudet</b> (piezo via LEDC).</li>
+<li><b>Sensorerna</b> (<code>sensors::begin</code>): i2c, rörelsesensorn, klockan, GPS:en, minneskortet, och <b>avläsningstråden startar här</b>. Returnerar falskt bara om rörelsesensorn inte svarar. Allt annat (kort, GPS) går att laga i efterhand och stoppar inte uppstarten.</li>
+<li><b>Inställningarna tillämpas</b> (ecodrive-gränser, ljud av/på, autosynk, OBD).</li>
+<li><b>Loggen börjar</b> (kräver kortet). Första raden är starten själv med orsak: <code>kallstart</code>, <code>omstart</code>, <code>KRASCH</code>, <code>SPANNINGSFALL</code>, <code>VAKTHUND</code>. Sedan kortets lediga utrymme.</li>
+<li><b>Datafilernas diagnos.</b> För hastighetsfilen och kamerafilen loggas: finns den, storlek, rätt signatur (hastighetsfilen godtar både <code>DLH1</code> och det gamla <code>DHL1</code>), och om den blev inläst.</li>
+<li><b>Kundlistan</b> och <b>statistiken</b> (byggs ur RESOR.JSONL).</li>
+<li><b>OBD</b> (spärrad: loggar "tillvalet ar sparrat", ingen tråd), <b>webbtråden</b>, <b>synktråden</b>.</li>
+<li><b>i2c-skanning</b> och statusrader till serieporten (GPS, IMU, kort, kameror, kunder).</li>
+<li><b>Pekskärmen</b> (FT6X36) och <b>LVGL</b>: alla skärmar byggs en gång, sedan visas hemskärmen.</li>
+<li><b>Läkt resa.</b> Om tillståndsfilen sa att en resa var öppen när strömmen försvann är den redan lagad i steg 5 (trip::begin). Saknar den syfte ställs frågan nu, på skärmen.</li>
+</ol>
+
+<div class="box warn"><b>Vad som kan stanna redan här</b><br>
+• <b>Inget minneskort:</b> loggen tystnar (bara serieporten), resor kan inte sparas, skärmen säger "Inget minneskort – resor kan inte sparas utan kort". Kortet kan monteras om i efterhand.<br>
+• <b>Rörelsesensorn svarar inte:</b> ecodrive blir "omätt", resten fungerar.<br>
+• <b>Ingen GPS eller ingen antenn:</b> skärmen säger "väntar på GPS-fix" i evighet. Ingen resa kan starta automatiskt. Modulen som hörs men inte ser satelliter är antennfallet; inga NMEA-rader alls är kabel/buss.<br>
+• <b>Hastighetsfilen saknas eller fel signatur:</b> allt annat går, men ingen skyltad hastighet och ingen överhastighet räknas. Kamerafilen saknas: ingen kameravarning.</div>
+
+<h2>3. Avläsningstråden – enhetens puls</h2>
+<p>Var 50:e millisekund, i den här ordningen:</p>
+<ol>
+<li><code>gnss::poll()</code> – läser mottagaren (i2c-trafik högst 1 gång/s; UART läses löpande).</li>
+<li>Klockan ställs efter satellittid när den finns.</li>
+<li>Rörelsesensorn läses (acceleration, gyro, temperatur).</li>
+<li><code>eco::tick()</code> – ecodrive räknar alltid, även med släckt skärm.</li>
+<li><code>trip::tick()</code> – resan: kommandon från skärmen, detektorn, spårpunkter, avslut. <b>All filskrivning för resan sker här.</b></li>
+<li><code>cams::tick()</code> – kameravarning och skyltad hastighet, högst 1 gång/s.</li>
+<li>Var 30:e sekund: ledigt utrymme på kortet räknas om (dyrt, därför sällan).</li>
+</ol>
+<p>Skärmen skriver aldrig själv till kortet. Trycker föraren "starta", "avsluta", väljer syfte eller kund, sätts en flagga som avläsningstråden utför inom ett varv. Därför fryser aldrig touchen på en filskrivning.</p>
+
+<h2>4. Resan: start, färd, slut, fråga</h2>
+
+<svg viewBox="0 0 700 250" width="640" height="228" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, sans-serif" font-size="11">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3a4250"/></marker></defs>
+<rect x="20" y="30" width="150" height="54" rx="10" fill="#eceae3" stroke="#8c9aac"/>
+<text x="95" y="52" text-anchor="middle" font-weight="bold">Ingen resa</text>
+<text x="95" y="70" text-anchor="middle" fill="#666d78">detektorn lyssnar</text>
+<rect x="275" y="30" width="150" height="54" rx="10" fill="#dce9ff" stroke="#1a58d2"/>
+<text x="350" y="52" text-anchor="middle" font-weight="bold">Resa pågår</text>
+<text x="350" y="70" text-anchor="middle" fill="#666d78">spårpunkter, statistik</text>
+<rect x="530" y="30" width="150" height="54" rx="10" fill="#fff3d6" stroke="#ac7400"/>
+<text x="605" y="52" text-anchor="middle" font-weight="bold">Frågan</text>
+<text x="605" y="70" text-anchor="middle" fill="#666d78">"Vad var resan till?"</text>
+<rect x="275" y="170" width="150" height="54" rx="10" fill="#e3f5ec" stroke="#088852"/>
+<text x="350" y="192" text-anchor="middle" font-weight="bold">Rad i dagboken</text>
+<text x="350" y="210" text-anchor="middle" fill="#666d78">CSV + JSONL, synk begärs</text>
+<line x1="170" y1="50" x2="275" y2="50" stroke="#3a4250" marker-end="url(#a)"/>
+<text x="222" y="40" text-anchor="middle" fill="#3a4250">≥ 8 km/h i 4 s</text>
+<text x="222" y="66" text-anchor="middle" fill="#3a4250">eller knappen</text>
+<line x1="425" y1="50" x2="530" y2="50" stroke="#3a4250" marker-end="url(#a)"/>
+<text x="477" y="40" text-anchor="middle" fill="#3a4250">stilla 240 s</text>
+<text x="477" y="66" text-anchor="middle" fill="#3a4250">eller knappen</text>
+<path d="M605,84 L605,197 L425,197" fill="none" stroke="#3a4250" marker-end="url(#a)"/>
+<text x="520" y="150" text-anchor="middle" fill="#3a4250">svar, eller 60 s → DIFFUST</text>
+<path d="M350,84 L350,170" fill="none" stroke="#3a4250" marker-end="url(#a)"/>
+<text x="340" y="150" fill="#3a4250" text-anchor="end">syfte redan satt under färd</text>
+<path d="M275,197 L95,197 L95,84" fill="none" stroke="#3a4250" marker-end="url(#a)"/>
+<text x="150" y="215" text-anchor="middle" fill="#3a4250">klar</text>
+<path d="M560,84 C540,120 460,125 420,84" fill="none" stroke="#cb2a2a" stroke-dasharray="4 3" marker-end="url(#a)"/>
+<text x="490" y="118" fill="#cb2a2a" text-anchor="middle">kör vidare utan svar: raden</text>
+<text x="490" y="131" fill="#cb2a2a" text-anchor="middle">skrivs som DIFFUST vid nästa start</text>
+</svg>
+
+<h3>4.1 Detektorn – när resan startar</h3>
+<p>Resan startar utan knapptryck. Två vägar, beroende på om farten går att lita på:</p>
+<table>
+<tr><th>Väg</th><th>Villkor</th><th>Varför</th></tr>
+<tr><td>Betrodd fart</td><td>Fart mellan 8 och 250 km/h under 4 sekunder i sträck</td><td>Mottagaren säger själv att farten är bra</td></tr>
+<tr><td>Obetrodd fart</td><td>Samma fart under 8 sekunder <b>och</b> minst 40 m förflyttning från platsen där farten först sågs</td><td>En parkerad bil med brusig mottagning står kvar på sin plats; en bil som kört iväg gör det inte</td></tr>
+</table>
+<p><b>Betrodd fart</b> kräver tredimensionellt fix och: på i2c-GPS:en en fartosäkerhet ≤ 10 km/h från mottagaren; på UART-GPS:en minst 5 satelliter och HDOP ≤ 2. Allt som räknar på fart (maxfart, överhastighet, rullande tid, detektorn, autoavslutet) frågar efter betrodd fart. En position kan duga till spåret medan farten ännu är skräp – det var så dagboken en gång fick 362 388 km/h som maxfart.</p>
+<p>Under 4-sekundersfönstret räknas tiden ner igen om farten dippar, i stället för att nollas. Efter ett strömavbrott används platsen där strömmen försvann som startpunkt, inte platsen där mottagaren råkade vakna.</p>
+
+<h3>4.2 Starten</h3>
+<ol>
+<li>Har föregående resa ännu ingen rad i dagboken (frågan obesvarad) skrivs den nu, som DIFFUST. Inget får gå förlorat för att man körde vidare för fort.</li>
+<li>Nytt löpnummer ur flashminnet, kontrollerat mot kortet (byter man kort kan numret vara upptaget).</li>
+<li>Gpx-filen öppnas. <b>Går det inte finns ingen resa</b> – hellre det än en resa som inte hamnar någonstans.</li>
+<li>Ecodrive och OBD-summeringen nollställs för den nya resan.</li>
+<li>Tillståndsfilen skrivs, logg "resa N borjar". Ljud: startkvitto.</li>
+</ol>
+
+<h3>4.3 Under färd</h3>
+<ul>
+<li><b>Spårpunkter</b> skrivs när det gått minst 2 s <i>och</i> bilen flyttat sig minst 10 m, eller senast var 60:e sekund. Gpx-avslutningen skrivs efter varje punkt och skrivs över av nästa, så filen är alltid komplett.</li>
+<li><b>Sträckan</b> summeras bara av steg ≥ 10 m (brus vid stillastående räknas inte).</li>
+<li><b>Maxfart, överhastighet, rullande tid, vägtypsstatistik</b> (tid och meter per skyltad gräns) kräver betrodd fart. Överhastighet = mer än 3 km/h över skyltat, och bara när gränsen är känd.</li>
+<li><b>Tillståndsfilen</b> skrivs om vid varje spårpunkt (se avsnitt 5).</li>
+<li><b>Kortet får inte bli fullt:</b> under 2 MB ledigt avslutas resan snyggt (END_NO_SPACE).</li>
+<li>Manuellt från skärmen: <b>avsluta</b>, <b>dela här</b> (avslutar och startar ny från samma punkt), syfte, kund. Kund vald = företagsresa.</li>
+</ul>
+
+<h3>4.4 Slutet</h3>
+<table>
+<tr><th>Avslut</th><th>När</th><th>Målet i dagboken</th></tr>
+<tr><td>END_AUTO</td><td>Under 3 km/h (betrodd fart) i 240 s i sträck. Skärmen visar nedräkningen: "står stilla 37 s – avslutas vid 240 s".</td><td>Sista punkten där bilen <i>rörde sig</i>, inte där den stod när tiden gick ut</td></tr>
+<tr><td>END_MANUAL</td><td>Knappen, eller "dela här"</td><td>samma</td></tr>
+<tr><td>END_POWERLOSS</td><td>Strömmen försvann. Med tändningsstyrd ström är detta det <b>normala</b> avslutet.</td><td>Sista kända position, lagas vid nästa start</td></tr>
+<tr><td>END_NO_SPACE</td><td>Kortet fullt</td><td>senaste punkten</td></tr>
+</table>
+<p>Vid avslut skrivs gpx-avslutningen en sista gång, OBD-summeringen läses av, och sedan avgör syftet: <b>är syftet satt skrivs raden direkt</b>. Är det inte satt skrivs <i>inte</i> raden – tillståndsfilen märks "rad saknas" och frågan ställs.</p>
+
+<h3>4.5 Frågan</h3>
+<p>Skärmen tänds, ljud spelas, ett ark täcker allt: "Resan är klar · Resa 42 · 12,3 km · Vad var resan till?" med tre knappar PRIVAT / FÖRETAG / DIFFUST och nedräkning "blir DIFFUST om 47 s". Efter 60 s utan svar sätts DIFFUST – att gissa privat eller företag ur tystnad vore att hitta på. Svaret (eller nedräkningen) skriver raden, och <b>först då begärs en molnsynk</b>, så att uppladdningen får med sig syfte och kund. Kör man vidare innan man svarat skrivs raden som DIFFUST när nästa resa startar (4.2 steg 1).</p>
+
+<h2>5. Strömavbrott och läkning</h2>
+<p>Det här är det som gör att ett strömavbrott aldrig kostar en resa.</p>
+<ul>
+<li><b>Tillståndsfilen</b> <code>/DRIVE/PAGAR.BIN</code> har två slots om 512 byte (olika sektorer, så en avbruten skrivning aldrig skadar båda), löpnummer och CRC. Vid varje spårpunkt skrivs den slot som inte skrevs sist. Innehållet räcker för att skriva resan färdigt utan att läsa gpx: var bilen senast var, sträcka, syfte, kund, eco-poäng, vägtypsstatistik, OBD-summering – och om resan någonsin avslutades.</li>
+<li><b>Vid start</b> läses båda slots; den med högst löpnummer och riktig CRC gäller. Säger den "öppen" försvann strömmen mitt i resan: gpx-filen lagas (klipp efter sista hela punkten, ny avslutning), resan får END_POWERLOSS med sista kända position som mål, och <b>nästa resa startar där strömmen försvann</b> (bilen har inte flyttat sig av sig själv medan den var strömlös).</li>
+<li>Saknade resan syfte ställs frågan vid start, när föraren ändå sitter framför skärmen. Var syftet satt under färd skrivs raden tyst – skärmen säger ingenting.</li>
+<li>Säger tillståndsfilen "avslutad men rad saknas" (strömmen gick under frågan) ställs frågan igen.</li>
+</ul>
+<div class="box"><b>Kallstartsluckan.</b> Med tändningsstyrd ström vaknar enheten när bilen redan rullar, och GPS:en behöver tid till fix. Sträckan från parkeringen till första fixet saknas i spåret men inte i journalen: webbappen fyller den med ett ruttförslag (Google Routes, reserv OSRM) mellan föregående resas mål och den nya resans första punkt, och bokför den som <code>gap_filled_m</code>.</div>
+
+<h2>6. Skärmen och gesterna</h2>
+<p>Huvudloopen gör fyra saker per varv: knappen på kortet (släcker/tänder skärmen), ljudkön, <code>gui::tick()</code> och en statusrad till serieporten var femte sekund. <code>gui::tick()</code> i sin tur:</p>
+<ol>
+<li>Frågan efter resan: tänder skärmen, spelar ljud, räknar ner 60 s, begär synk när den är besvarad.</li>
+<li>Tareringen (icke-blockerande, 3 s timeout).</li>
+<li>Modellen fylls var 150:e ms från alla moduler och skjuts in i skärmarna. Skärmkoden ändrar bara det som faktiskt ändrats (guarded setters) – det är det som tog LVGL-varvet från 258 ms till 0,4 ms.</li>
+<li>Skärmsläckning: standard 5 min (0–45 min i Inställningar). <b>Aldrig under resa, aldrig med frågan uppe.</b> Första trycket på en släckt skärm bara tänder den.</li>
+<li>LVGL:s timer-handler (rendering + touch, touch läses var 10:e ms).</li>
+</ol>
+
+<h3>Skärmarna</h3>
+<table>
+<tr><th>Skärm</th><th>Innehåll</th><th>Handlingar</th></tr>
+<tr><td><b>Hem</b> (appmeny)</td><td>Klocka, 3×3 rutnät med sju appar, chip "Resa 42 pågår · 3,1 km" när en resa pågår</td><td>Tryck på app; chipet leder till Körning</td></tr>
+<tr><td><b>Körning</b> (HUD)</td><td>Fartmätarring med glöd, farten stort, skylt med skyltad hastighet, "+7 över"/"3 under"/"på gränsen"/"gräns okänd", kameravarning som lager över mätaren, resepanel ("Ingen resa pågår · startar själv när bilen rullar", "väntar på GPS-fix", "Resa 42 · 3,1 km · 00:12", nedräkning vid stillastående), kund</td><td>Stor start/stopp-knapp (tumvänlig, flyter över panelkanten), "dela här", tre syftesknappar PRIVAT/FÖRETAG/DIFFUST längs underkanten (den valda fylld)</td></tr>
+<tr><td><b>Ecodrive</b></td><td>Poäng 0–100, resans medel, bubblan (kraftfältet, roterat: vänster = upp), "hittar lodlinjen …", "riktning lär sig 40 %", "riktning inlärd · sidled ×1,6", hårda händelser gas/broms/kurva, topp-g</td><td>Tarera</td></tr>
+<tr><td><b>Bilen</b> (OBD)</td><td>Just nu: "Tillvalet är avstängt tills vidare – det fick enheten att starta om"</td><td>–</td></tr>
+<tr><td><b>Statistik</b></td><td>Antal resor, km totalt, per syfte, rullande tid, maxfart, fortkörningsminuter, kortets utrymme och prognos i km</td><td>–</td></tr>
+<tr><td><b>Moln &amp; wifi</b></td><td>Enhetens eget wifi (namn, lösenord, adress / "telefon ansluten"), molnsynkens läge i klartext, autosynk av/på, "upp N resor · N gpx · ned N filer", antal kameror på kortet</td><td>SYNKA NU, autosynk-reglage</td></tr>
+<tr><td><b>Kund</b></td><td>Rullbar lista ur KUNDER.CSV (ark över skärmen)</td><td>Välj kund = företagsresa</td></tr>
+<tr><td><b>Inställningar</b></td><td>Ljud, släck skärm (– / +), OBD-adapter (grå), version + PR-nummer + kort + diagnos</td><td>Reglage</td></tr>
+</table>
+<p><b>Gester:</b> svep i sidled bläddrar i en slinga Körning → Ecodrive → Bilen → Statistik → Moln → Hem → Inställningar. Svep nedåt från överkanten ger hemmenyn. Underkanten är fri från gester, eftersom syftesknapparna bor där.</p>
+<p><b>Ljudkvitton:</b> kamera långt/mitten/nära, över gränsen, resa start/slut, tryck, fel.</p>
+
+<h2>7. Ecodrive</h2>
+<p>Sparsam och mjuk körning är samma sak: bränsle går åt när farten ändras. Därför räcker accelerometern.</p>
+<ul>
+<li><b>Lodlinjen</b> (tyngdkraften) plockas fram ur accelerationen med två filter (snabbt 2 s, långsamt 30 s). Filtret fryser under manöver (max 12 s) så att en lång kurva inte tolkas som "ned". Kortet får sitta hur som helst.</li>
+<li><b>Framåtriktningen</b> lärs in genom att jämföra accelerationens riktning med om GPS-farten ökar eller minskar. Sparas i flash. Innan den är inlärd finns inget "sidled".</li>
+<li><b>Belastningen</b> mäts som en ellips: sidled tål 1,6× mer än längsled (en kraftig kurva är okej, en inbromsning är det inte). Mjuk gräns 0,15 g, hård 0,30 g, händelse ≥ 0,3 s.</li>
+<li><b>Poängen</b> 0–100 lever medan man kör och äter sig tillbaka mot 100 på ett fönster (standard 2 min). <b>Resans poäng</b> är det tidsviktade medlet – det är den som står i dagboken. Under 60 s mätning = "omätt", inte noll.</li>
+<li><b>Tarering:</b> med bilen stilla nollställs lodlinjen; icke-blockerande sedan PR #44.</li>
+</ul>
+
+<h2>8. Fartkameror och skyltad hastighet</h2>
+<ul>
+<li><b>Kamerafilen</b> (<code>KAMEROR.BIN</code>, ~33 kB, signatur DLC1) ligger i minnet. Synkas från molnet, eller laddas upp via enhetens webbsida.</li>
+<li><b>Hastighetsfilen</b> (<code>HASTIGHET.BIN</code>, 139 MB, signatur DLH1 eller gamla DHL1) läses direkt från kortet med binärsökning. <b>Den läggs på kortet för hand</b> (Datafiler i webbappen → ladda ner → kortet → starta om). Finns den så används den; ingen version jämförs, molnsynken rör den inte. Skyltad hastighet matchas inom 60 m.</li>
+<li><b>Varningar</b> en gång per sekund under färd: kamera inom 800 m (långt), 500 m (mitten), 250 m (nära) i färdriktningen (±55° framåt, kamerans riktning ±60°). Varje ring ger ett ljud en gång; passerad kamera släpps 80 m efter. ATK-sträckor (snittfart) märks särskilt.</li>
+<li><b>Över gränsen:</b> ljud när farten går över skyltat + 3 km/h. Utan hastighetsfil: "hastighetsfilen saknas" på HUD:en, ingen över/under.</li>
+<li>Filbyte sker med handslag: uppladdningen ber avläsningstråden släppa filerna, väntar på kvitto, byter, låter läsa om.</li>
+</ul>
+
+<h2>9. Radion: eget wifi, molnsynk, bluetooth</h2>
+<p>Tre saker vill ha radion och samma knappa internminne. Reglerna som styr vem som får den:</p>
+
+<svg viewBox="0 0 700 170" width="640" height="155" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans, sans-serif" font-size="11">
+<text x="10" y="20" font-weight="bold">Tid →</text>
+<rect x="10" y="30" width="200" height="26" fill="#dce9ff" stroke="#1a58d2"/><text x="110" y="47" text-anchor="middle">Resa pågår</text>
+<rect x="210" y="30" width="40" height="26" fill="#eceae3" stroke="#8c9aac"/><text x="230" y="47" text-anchor="middle" font-size="9">5 s</text>
+<rect x="250" y="30" width="180" height="26" fill="#e3f5ec" stroke="#088852"/><text x="340" y="47" text-anchor="middle">Parkerad: eget wifi uppe</text>
+<rect x="430" y="30" width="160" height="26" fill="#fff3d6" stroke="#ac7400"/><text x="510" y="47" text-anchor="middle">Molnsynk</text>
+<rect x="590" y="30" width="100" height="26" fill="#e3f5ec" stroke="#088852"/><text x="640" y="47" text-anchor="middle">eget wifi</text>
+<text x="10" y="85">Eget wifi (AP)</text><rect x="120" y="75" width="130" height="12" fill="#ccc"/><rect x="250" y="75" width="180" height="12" fill="#088852"/><rect x="430" y="75" width="160" height="12" fill="#ccc"/><rect x="590" y="75" width="100" height="12" fill="#088852"/>
+<text x="10" y="110">Wifi-klient (moln)</text><rect x="120" y="100" width="310" height="12" fill="#ccc"/><rect x="430" y="100" width="160" height="12" fill="#ac7400"/><rect x="590" y="100" width="100" height="12" fill="#ccc"/>
+<text x="10" y="135">Bluetooth (OBD)</text><rect x="120" y="125" width="570" height="12" fill="#ccc"/><text x="405" y="135" text-anchor="middle" font-size="9" fill="#cb2a2a">spärrad tills vidare (var: bara under resa)</text>
+<text x="10" y="160" fill="#666d78" font-size="9">Grått = nere. Under resa är all radio nere: den drar ström och har inget ärende. Synken lägger ner AP och bluetooth och väntar tills de faktiskt lagt sig innan TLS tar internminnet.</text>
+</svg>
+
+<h3>9.1 Enhetens eget wifi (websync)</h3>
+<ul>
+<li>Uppe när ingen resa pågår. Efter en resa väntar det 5 s (så att en kort stopp-och-kör inte drar igång wifi). Vid start ingen fördröjning.</li>
+<li>Nät <b>Hikaya</b>, lösenord <b>kordagbok</b>. Fångstportal: telefonen öppnar sidan själv.</li>
+<li>Sidan: resorna med gpx att hämta, CSV, arkivering, uppladdning av kamerafil/kundlista/hastighetsfil (tempfil, byts först när den är hel och har rätt signatur), molnuppgifter (upp till fyra nät + token), "synka nu".</li>
+<li>Nere under synk (suspend) – någon som står på sidan får den tillbaka när synken är klar.</li>
+</ul>
+
+<h3>9.2 Molnsynken (cloudsync) – när</h3>
+<table class="kv">
+<tr><td>Krav</td><td>Minst ett nät sparat. Ingen resa pågår. Autosynk på, <i>eller</i> knappen (SYNKA NU / wifi-sidan / efter besvarad fråga).</td></tr>
+<tr><td>Efter lyckad synk</td><td>Nästa försök om 15 min.</td></tr>
+<tr><td>Efter misslyckad</td><td>Backoff 120 s, dubblas per gång upp till 15 min.</td></tr>
+<tr><td>Resa börjar mitt i</td><td>Synken bryts mjukt, utan felmarkering – det är det normala. Wifi kopplas ner.</td></tr>
+<tr><td>Nya nätuppgifter</td><td>Kopplar ner och börjar om direkt.</td></tr>
+</table>
+
+<h3>9.3 Anslutningen</h3>
+<ol>
+<li>Lägg ner AP och bluetooth, vänta upp till 10 s tills de <i>faktiskt</i> är nere (annars 7 kB största block och kod −1).</li>
+<li>Skanna. De nät som hörs provas först, starkast först; sedan de ohörbara i tur och ordning (dolda SSID syns aldrig i en skanning).</li>
+<li>Anslut: 30 s väntan på ett hört nät, 12 s på ett ohörbart. Alla nät i <i>en</i> runda.</li>
+<li>Namnuppslag; svarar hotspotens DNS inte används 1.1.1.1/8.8.8.8 som reserv.</li>
+<li>Logg "synk borjar via X (rssi −55)". Rundan (avsnitt 10). Sedan släpps TLS-minnet, wifi kopplas ner, AP och bluetooth får radion igen.</li>
+</ol>
+<p class="small">Vanligaste orsakerna till "inget av näten nås": nätet sänder bara på 5 GHz (radion hör bara 2,4), hotspoten är inte igång, eller telefonen med hotspoten är själv ansluten till enhetens wifi.</p>
+
+<h2>10. Molnsynkens runda</h2>
+<p>En TLS-anslutning återanvänds genom hela rundan (PR #44). Stegen i ordning, med vad ett fel betyder:</p>
+<table>
+<tr><th>#</th><th>Steg</th><th>Anrop</th><th>Vid fel</th></tr>
+<tr><td>1</td><td>Molnläget: senast synkade resa, filversioner</td><td><code>GET /config</code></td><td><b>Hårt.</b> 401 = fel token. Kod −1 = TLS-anslutningen gick inte att bygga (minne eller nät). Rundan avbryts; loggen får "moln svarade inte (kod −1) – fritt N, storsta block N".</td></tr>
+<tr><td>2</td><td>Statusrad (fritt minne, största block, kortets utrymme, tappade loggrader) och sedan LOGG.TXT från senast skickade byte, i bitar om 4 kB, högst 8 bitar per runda</td><td><code>POST /log</code></td><td>Mjukt. Loggen ligger först så att felsökningen kommer fram även om resten dör.</td></tr>
+<tr><td>3</td><td>Adoption av kamerafil som lagts dit för hand (rätt storlek + signatur ⇒ versionen räknas som hämtad)</td><td>–</td><td>–</td></tr>
+<tr><td>4</td><td>Kundlistan om versionen ändrats</td><td><code>GET /file/kunder</code></td><td>Mjukt; hundra byte som gui:t behöver ska aldrig vänta på en jättefil.</td></tr>
+<tr><td>5</td><td>Resor: rader ur RESOR.JSONL med nummer &gt; senast synkade, i klumpar om ~4 kB</td><td><code>POST /trips</code> (ndjson)</td><td>Mjukt, men gpx laddas då inte upp (molnet vill ha raden före spåret). "uppladdning misslyckades (kod N)".</td></tr>
+<tr><td>6</td><td>Gpx-filer i /DRIVE/GPX, strömmade en i taget; lyckad fil flyttas till /DRIVE/UPPLADDAT (kortet är en kopia av sanningen även efter synken)</td><td><code>POST /gpx?name=</code></td><td>Mjukt per fil; vägrad fil får nytt försök nästa runda.</td></tr>
+<tr><td>7</td><td>Kamerafilen om ny version (tempfil, storlek + signatur kontrolleras, sedan byte med handslag)</td><td><code>GET /file/kameror</code></td><td>Mjukt, med backoff per version. Fullt kort stoppar nedladdningen innan den börjar.</td></tr>
+<tr><td>–</td><td>Hastighetsfilen</td><td>rörs inte</td><td>Kortets sak, se avsnitt 8.</td></tr>
+</table>
+<p>Resultatet loggas: "synk klar/delvis via X: N resor, N gpx, N filer". Slutraden kommer oftast med i <i>nästa</i> rundas logguppladdning.</p>
+
+<h2>11. Enhetsloggen</h2>
+<p><code>/DRIVE/LOGG.TXT</code>, max 128 kB (roteras), tidsstämplad i UTC när klockan är ställd, annars "+Ns" sedan start. Laddas upp först i varje synkrunda och visas i webbappen under Inställningar → enhet. Raderna att leta efter:</p>
+<table>
+<tr><th>Rad</th><th>Betyder</th></tr>
+<tr><td><code>start: &lt;version&gt; PR&lt;n&gt;, kort X, &lt;orsak&gt;</code></td><td>Omstart. <b>KRASCH</b> = panik i mjukvaran, <b>SPANNINGSFALL</b> = strömförsörjningen, <b>VAKTHUND</b> = en tråd hängde.</td></tr>
+<tr><td><code>hastighetsfilen: N byte, ratt signatur, inlast</code></td><td>Skyltad hastighet fungerar.</td></tr>
+<tr><td><code>resa N borjar / resa N slut: M m, P punkter</code></td><td>Resans livscykel.</td></tr>
+<tr><td><code>gps: forsta fixet efter N s (S satelliter)</code></td><td>Hur lång kallstartsluckan var.</td></tr>
+<tr><td><code>status: fritt N, storsta block N, kort N/N MB ledigt, tappade loggrader N</code></td><td>Minnet före synken. Under ~40 kB största block klarar TLS sig inte.</td></tr>
+<tr><td><code>synk borjar via X (rssi N)</code></td><td>Under −75 dBm är stora överföringar osäkra.</td></tr>
+<tr><td><code>moln svarade inte (kod -1)</code></td><td>TLS gick inte att bygga: minne (se status-raden) eller nät.</td></tr>
+<tr><td><code>prestanda: lvgl N ms medel N varst, flush …, varvlucka …, internminne N</code></td><td>Skärmens känsla, var femte minut. Målet: lvgl under 1 ms medel.</td></tr>
+<tr><td><code>obd: …</code></td><td>Just nu bara "tillvalet ar sparrat i den har versionen".</td></tr>
+</table>
+
+<h2 class="pb">12. Vad kan stanna på grund av vad</h2>
+<table>
+<tr><th>Symtom</th><th>Orsak i logiken</th><th>Var det syns</th></tr>
+<tr><td>Resan startar inte fast bilen rullar</td><td>Ingen betrodd fart: inget 3D-fix, för få satelliter, hög HDOP (UART) eller fartosäkerhet &gt; 10 km/h (i2c). Reservvägen kräver 8 s + 40 m.</td><td>HUD: "väntar på GPS-fix". Serieport: fartraden "obetrodd". Knappen startar ändå.</td></tr>
+<tr><td>Resan slutar mitt i en kö</td><td>Under 3 km/h i 240 s. Nedräkningen syns på HUD:en.</td><td>Dagboken får två resor; "dela här"-logiken tvärtom.</td></tr>
+<tr><td>Resan slutar vid tunnel/parkeringshus</td><td>Utan fix står både rullande tid och stilleståndstid stilla – resan avslutas <i>inte</i>. Spåret får ett hopp.</td><td>Gpx med lucka.</td></tr>
+<tr><td>Raden i dagboken saknas</td><td>Kan inte hända: raden skrivs vid svar, efter 60 s, vid nästa start eller vid läkning. Sista utvägen är alltid DIFFUST.</td><td>–</td></tr>
+<tr><td>Frågan kommer vid start i stället för efter resan</td><td>Strömmen gick innan frågan besvarades (tändningsstyrd ström).</td><td>Normalt.</td></tr>
+<tr><td>Molnsynken händer aldrig</td><td>Inget nät sparat; resa pågår; autosynk av; eller backoff upp till 15 min efter fel.</td><td>Molnskärmen visar läget i klartext.</td></tr>
+<tr><td>"molnet svarar inte (kod −1)"</td><td>TLS fick inte plats i internminnet (bluetooth/AP uppe, fragmentering) eller nätet svarar inte.</td><td>Logg: status-raden före. Under ~40 kB största block = minne. Sedan PR #44 ligger enheten på ~104 kB fritt / 59 kB block.</td></tr>
+<tr><td>Gpx laddas inte upp</td><td>Resorna misslyckades först (molnet kräver raden före spåret), eller enskild fil vägrad (kod ≠ 200).</td><td>Logg: "gpx X vagrades (kod N)".</td></tr>
+<tr><td>Kamerafilen hämtas aldrig</td><td>Fullt kort (&lt; storleken ledigt), eller backoff per version efter fel.</td><td>Logg + molnskärmen.</td></tr>
+<tr><td>Skyltad hastighet visas inte</td><td>Hastighetsfilen saknas/fel signatur/fel mapp, eller ingen betrodd fart.</td><td>Start-loggen: "hastighetsfilen: …". HUD: "hastighetsfilen saknas" / "gräns okänd".</td></tr>
+<tr><td>Skärmen släcks under fråga/resa</td><td>Kan inte hända – släckningen är spärrad då.</td><td>–</td></tr>
+<tr><td>Touchen fryser</td><td>Skulle bero på något i huvudloopen. Webbservern, start/stopp och tareringen är flyttade ut ur den.</td><td>Serieport: "loop: knapp+ljud N ms varst"; logg: prestanda-raden.</td></tr>
+<tr><td>Loggen tystnar</td><td>Fullt kort (skrivning ger 0 byte) eller inget kort.</td><td>Status-raden: "tappade loggrader N".</td></tr>
+<tr><td>Enheten startar om var 10:e sekund</td><td>OBD-tillvalet påslaget (2026-09-02). Nu spärrat.</td><td>Logg: många "start: … KRASCH".</td></tr>
+<tr><td>Enhetens webbsida försvinner</td><td>Synk pågår (AP nere) eller resa pågår.</td><td>Kommer tillbaka efter.</td></tr>
+</table>
+
+<h2>13. Molnet och webbappen</h2>
+<h3>Molnet (Supabase, edge function <code>drive-sync</code>)</h3>
+<p>Enheten identifierar sig med <code>x-drive-token</code>. Vägarna: <code>/config</code>, <code>/log</code>, <code>/trips</code>, <code>/gpx</code>, <code>/file/kunder</code>, <code>/file/kameror</code>, <code>/file/hastighet?part=N</code>. Tabellerna (<code>drive_*</code>): resor (<code>drive_trips</code> med råspår, gränsstatistik, OBD, ifylld lucka), enhetslogg, synklogg, filer (namn, version, storlek, delar), enheter (id, token, namn, senast sedd, senast synkade resa, bil), platser, inställningar. Platsregistret <code>drive_places</code> är rätt och ska inte röras.</p>
+
+<h3>Webbappen (Vercel, hikaya.ceab.app)</h3>
+<table>
+<tr><th>Flik</th><th>Gör</th></tr>
+<tr><td>Körjournal</td><td>Resorna med adresser, syfte, kund, bil, ecopoäng; totaler; minikort; AI-analys per resa. Efterbearbetning i bakgrunden när nya resor synkats: adresser (Google Geocoding, reserv Nominatim), egna platser (företag, hem), kallstartslucka (Google Routes, reserv OSRM).</td></tr>
+<tr><td>Rapport</td><td>Milersättning per bil och period, export.</td></tr>
+<tr><td>Karta</td><td>Alla spår med kontrasterande färger, laddas i pool om sex.</td></tr>
+<tr><td>Fortkörning</td><td>Sekunder över skyltat, vägtypsstatistik med redigerbara grupper.</td></tr>
+<tr><td>Ecodrive</td><td>Poäng och hårda händelser över tid; gränserna ställs här, inte på enheten.</td></tr>
+<tr><td>AI-analys</td><td>Anthropic via serverproxy; historik som minikort.</td></tr>
+<tr><td>Importera</td><td>Gpx/CSV från kortet för hand.</td></tr>
+<tr><td>Datafiler</td><td>Bygger kamerafil och hastighetsfil från Trafikverket (NVDB via proxy), laddar upp kamerafilen till molnet, ger hastighetsfilen som nedladdning för kortet, kundlistan.</td></tr>
+<tr><td>Inställningar</td><td>Bilar, enheter (token, namn), egna platser, enhetslogg, synklogg.</td></tr>
+</table>
+<p>Alla API-nycklar (Trafikverket, Anthropic, Google Maps) ligger i Vercels miljövariabler bakom inloggade proxyer och når aldrig webbläsaren.</p>
+
+<h2>14. Filerna på kortet</h2>
+<table>
+<tr><th>Fil</th><th>Innehåll</th></tr>
+<tr><td><code>/DRIVE/GPX/00042.GPX</code></td><td>Spåret. Flyttas till <code>/DRIVE/UPPLADDAT/</code> när molnet tagit emot det.</td></tr>
+<tr><td><code>/DRIVE/RESOR.CSV</code></td><td>Dagboken för människor och Excel (semikolon).</td></tr>
+<tr><td><code>/DRIVE/RESOR.JSONL</code></td><td>Dagboken för synken, en rad per resa. Sanningen även för statistiken.</td></tr>
+<tr><td><code>/DRIVE/PAGAR.BIN</code></td><td>Tillståndsfilen, två slots.</td></tr>
+<tr><td><code>/DRIVE/KAMEROR.BIN</code></td><td>Fartkameror (DLC1).</td></tr>
+<tr><td><code>/DRIVE/HASTIGHET.BIN</code></td><td>Skyltade hastigheter (DLH1/DHL1), läggs dit för hand.</td></tr>
+<tr><td><code>/DRIVE/KUNDER.CSV</code></td><td>Kundlistan, ett namn per rad (valfritt id;namn).</td></tr>
+<tr><td><code>/DRIVE/LOGG.TXT</code></td><td>Enhetsloggen, 128 kB.</td></tr>
+<tr><td><code>/DRIVE/NED.TMP</code>, <code>UPP.TMP</code></td><td>Tempfiler för ned-/uppladdning; en halv fil hamnar aldrig på riktig plats.</td></tr>
+</table>
+<p>I flashminnet (överlever kortbyte): inställningar, resans löpnummer, molnuppgifter och filversioner, senast uppladdad loggposition, ecodrivens inlärda riktning.</p>
+
+<h2>15. Avstängt och känt just nu</h2>
+<ul>
+<li><b>OBD spärrat</b> (<code>OBD_LOCKED 1</code>). Orsaken – omstart var 10:e sekund med tillvalet på – är inte utredd. Trolig riktning: BLE-stackens init i kombination med wifi/AP och internminnet på AMOLED-kortet. Spärren lyfts genom att sätta 0 i config.h när det är löst; enhetsloggen efter ett nytt försök bör då visa orsaken på start-raden.</li>
+<li><b>Hastighetsfilen läggs på kortet för hand.</b> Molnet synkar den inte längre (139 MB över en hotspot vid −80 dBm var det som gav kod −1 i "del 26").</li>
+<li><b>Wifi-signalen vid parkeringen</b> (−73…−84 dBm på "Not your WiFi") räcker till resor, gpx och logg, men är en faktor för allt stort.</li>
+<li><b>En KRASCH-start 13:05 den 2 september på PR43</b>, en enda gång. Bevakas. Sedan PR44 har inget upprepats i loggen.</li>
+<li><b>Minnet</b> ligger nu på ~104 kB fritt / ~59 kB största block före synk (PR44), mot 14–28 kB / 7–18 kB på PR43 med bluetooth uppe.</li>
+</ul>
+
+<h2>16. Underlag för nästa UX-version</h2>
+<p>Du vill sikta på en ny version av UX-upplevelsen och planera noggrant innan vi bygger. Det här är vad dokumentet ovan ger som ram, och de frågor jag ser att vi bör besluta <i>innan</i> någon skärm ritas.</p>
+
+<h3>Ramar som logiken sätter</h3>
+<ul>
+<li><b>Skärmen ägs av huvudloopen; kortet av avläsningstråden.</b> Varje ny knapp som ska "göra något med resan" blir en flagga som utförs inom 50 ms. Det är en styrka: UX kan aldrig blockera loggningen, och loggningen kan aldrig frysa UX.</li>
+<li><b>Modellen fylls var 150:e ms</b> och skärmkoden ändrar bara det som ändrats. Nya skärmar bör följa samma mönster (build en gång, update mot modellen), annars kommer 258-ms-problemet tillbaka.</li>
+<li><b>Frågan efter resan är enhetens enda obligatoriska interaktion.</b> Allt annat är frivilligt. Det bör styra hierarkin: frågan först, körningen sedan, resten bakom.</li>
+<li><b>Radion är nere under resa.</b> Ingen skärm kan visa molnstatus "live" under färd, och det ska den inte behöva.</li>
+</ul>
+
+<h3>Frågor att besluta</h3>
+<ol>
+<li><b>Vad ser föraren under färd?</b> Idag: full HUD med fart, skylt, kamera, resepanel och tre syftesknappar. Alternativ: en lugnare "körvy" med bara fart/skylt/kamera, och syftet som ett svep eller en enda knapp. Vad är viktigast i ögonvrån i 110 km/h?</li>
+<li><b>Frågan efter resan.</b> 60 s och tre knappar fungerar. Vill vi ha kunden direkt i frågan (ett steg i stället för två)? Ska "samma som förra gången" vara ett förval? Ska frågan kunna besvaras i webbappen i efterhand utan att det känns som ett misslyckande på enheten?</li>
+<li><b>Hemskärmen.</b> Appmenyn i telefonstil har sju appar varav en (Bilen) är avstängd och en (Kund) är ett ark. Är en meny rätt metafor för en enhet i en bil, eller är det bättre med två–tre vyer som man sveper mellan och inget mer?</li>
+<li><b>Parkerad-läget.</b> Just nu släcks skärmen efter 5 min. Skulle en ambient-vy (klocka, senaste resan, molnstatus, "telefon ansluten") vara mer värd än svart skärm – med hänsyn till AMOLED-inbränning och ström?</li>
+<li><b>Fel och läge i klartext.</b> Logiken vet exakt varför något inte händer (ingen betrodd fart, backoff, resa pågår). Hur mycket av det ska föraren se, och var? En rad på HUD:en, en statusskärm, eller bara i webbappen?</li>
+<li><b>Ecodrive.</b> Behålla bubblan som egen skärm, eller ge den en liten plats på körvyn (en ring runt farten som färgas)? Poängen "0–100 som äter sig tillbaka" – förstås den, eller ska resans medel vara det enda som visas?</li>
+<li><b>Ljud.</b> Åtta kvitton idag. Vilka vill man höra, och ska kameravarningen skilja på "du ligger under gränsen" (tyst) och "du ligger över" (ljud)?</li>
+<li><b>Kortvarianterna.</b> AMOLED 2.41 (450×600, stående) och LCD 3.5 (320×480). Ska den nya designen göras för en av dem först, och vilken?</li>
+</ol>
+<p>Förslag på arbetsgång: (1) du svarar på frågorna ovan, eller vi går igenom dem en i taget; (2) jag ritar skärmflödet som en skiss i host-förhandsvisningen (<code>tools/gui-preview</code>) så att vi ser det innan någon firmware byggs; (3) först när flödet är låst börjar vi bygga, skärm för skärm, med samma build/update-mönster som nu.</p>
+
+</body>
+</html>

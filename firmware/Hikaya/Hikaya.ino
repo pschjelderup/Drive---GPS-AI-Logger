@@ -99,6 +99,9 @@ void loadSettings() {
   if (cfg.soundOn > 1) cfg.soundOn = DEFAULT_SOUND_ON;
   if (cfg.autoSync > 1) cfg.autoSync = DEFAULT_AUTO_SYNC;
   if (cfg.obdOn > 1) cfg.obdOn = DEFAULT_OBD_ON;
+#if OBD_LOCKED
+  cfg.obdOn = 0;  // sparrat tills vidare, se config.h
+#endif
   if (cfg.ecoSoftIdx >= kEcoSoftCount) cfg.ecoSoftIdx = DEFAULT_ECO_SOFT_INDEX;
   if (cfg.ecoHardIdx >= kEcoHardCount) cfg.ecoHardIdx = DEFAULT_ECO_HARD_INDEX;
   if (cfg.ecoBubbleIdx >= kEcoBubbleCount) {

@@ -430,6 +430,12 @@ static const uint8_t kScreenTimeoutCount = 8;
 // inte anvander.
 #define DEFAULT_OBD_ON 0
 
+// Sparr tills vidare: med tillvalet paslaget startade enheten om var tionde
+// sekund (provat 2026-09-02). Sa lange sparren ar 1 startas bluetooth aldrig,
+// reglaget i installningarna ar grAtt och ett sparat "pa" fran tidigare
+// ignoreras. Satt 0 nar kraschen ar utredd.
+#define OBD_LOCKED 1
+
 // Matomraden for rorelsesensorn. De behover inte kunna andras i menyn har -
 // resan bryr sig inte om dem, och ecodrive rakna i andel av uppmatt tyngdkraft
 // och blir riktig oavsett.
