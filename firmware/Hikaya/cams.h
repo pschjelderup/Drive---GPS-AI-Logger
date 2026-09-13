@@ -46,6 +46,11 @@ bool indexBuilding();
 // millisekunder. Nollstalls vid avlasning - prestandaraden tar den.
 uint32_t lookupMaxMs();
 
+// Fonstret i psram: sant nar uppslagen gar helt i minnet, och langsta
+// fonsterladdningen sedan forra avlasningen (nollstalls).
+bool windowReady();
+uint32_t windowLoadMaxMs();
+
 // Skyltad hastighet dar bilen ar, i km/h. Noll betyder att vi inte vet - och da
 // visar skarmen inte heller nagon over- eller underhastighet. En gissad
 // hastighetsgrans ar varre an ingen.

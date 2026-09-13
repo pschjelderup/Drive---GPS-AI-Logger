@@ -414,6 +414,16 @@ static const uint8_t kEcoPenaltyCount = 5;
 #define LIMITS_INDEX_FILE "/DRIVE/HASTIGHET.IDX"
 #define LIMIT_INDEX_STRIDE 256
 
+// Fonstret: den del av hastighetsfilen som ar aktuell dar bilen ar, last
+// in i psram. Uppslagen sker sedan helt i minnet - kortet rors inte alls
+// medan man kor. Fonstret ar +/- HALF grader latitud runt bilen (0,10 grad
+// ar 11 km), och nar bilen kommer inom MARGIN av en kant lases nasta
+// fonster i bakgrunden, med overlapp sa att skiftet aldrig marks. Taket
+// begransar minnet i tata omraden.
+#define LIMIT_WINDOW_HALF_DEG 0.10
+#define LIMIT_WINDOW_MARGIN_DEG 0.03
+#define LIMIT_WINDOW_MAX_BYTES (4UL * 1024UL * 1024UL)
+
 // Kundlistan, synkad ner fran webben. Format: id;namn, en per rad.
 #define CUSTOMERS_FILE "/DRIVE/KUNDER.CSV"
 
