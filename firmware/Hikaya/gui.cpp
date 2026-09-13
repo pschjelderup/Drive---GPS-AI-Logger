@@ -71,7 +71,8 @@ void perfReport() {
   snprintf(line, sizeof(line),
            "prestanda: lvgl %lu.%lu ms medel %lu.%lu varst (%lu varv), "
            "flush %lu.%lu ms medel %lu.%lu varst (%lu st), "
-           "varvlucka %lu.%lu ms, internminne %lu",
+           "varvlucka %lu.%lu ms, internminne %lu, uppslag %lu ms varst, "
+           "stack skarm %lu",
            (unsigned long)(g_pfLvUs / g_pfLvN / 1000),
            (unsigned long)(g_pfLvUs / g_pfLvN % 1000 / 100),
            (unsigned long)(g_pfLvMaxUs / 1000),
@@ -84,7 +85,9 @@ void perfReport() {
            (unsigned long)g_pfFlN,
            (unsigned long)(g_pfGapMaxUs / 1000),
            (unsigned long)(g_pfGapMaxUs % 1000 / 100),
-           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           (unsigned long)cams::lookupMaxMs(),
+           (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
 
   // Enhetsloggen far var femte rad och bara nar skarmen ar pa - det ar da
   // kanslan finns och siffrorna sager nagot.

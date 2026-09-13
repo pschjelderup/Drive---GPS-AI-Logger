@@ -1,11 +1,13 @@
 #include "cams.h"
 
 #include "storage.h"
+#include <esp_timer.h>
 #include <math.h>
 
 #include "config.h"
 #include "geo.h"
 #include "gnss.h"
+#include "logg.h"
 #include "sensors.h"
 #include "sound.h"
 
@@ -58,6 +60,59 @@ uint32_t g_camCount = 0;
 File g_limitFile;
 uint32_t g_limitCount = 0;
 uint32_t g_limitDataStart = 0;
+
+// ---- indexet -------------------------------------------------------------
+// En sokning i filen ar inte gratis: filsystemet har ingen snabbsokning, sa
+// varje hopp bakat i en fil pa 139 MB betyder att klusterkedjan vandras fran
+// filens borjan - tiotals sektorlasningar per hopp. Binarsokningen gjorde
+// tjugofem sadana hopp per uppslag, en gang i sekunden, i avlasningstraden
+// som har hogst prioritet och skriver resan. Kortet var upptaget mer an
+// halva tiden, och allt annat som ville at det - loggen, synken, skarmens
+// kundlista - fick vanta. Det ar det som kandes som en hangd enhet.
+//
+// Indexet ar forsta latituden i varje block om LIMIT_INDEX_STRIDE poster.
+// Det ligger i psram (ett par hundra kilobyte), sa halva sokningen sker i
+// minnet och filen behover bara EN sokning per uppslag, till ratt block.
+// Bygget laser filen en gang fran borjan till slut - sekventiellt, det ar
+// billigt - i en egen trad med lagsta prioritet, och sparas pa kortet sa
+// att nasta start slipper.
+const uint32_t kIdxMagic = 0x31584C44;  // "DLX1"
+
+#pragma pack(push, 1)
+struct IdxHeader {
+  uint32_t magic;
+  uint32_t fileSize;  // hastighetsfilens langd - andras den ar indexet fel
+  uint32_t count;
+  uint32_t stride;
+  uint32_t blocks;
+};
+#pragma pack(pop)
+
+int32_t *g_idx = nullptr;  // psram
+uint32_t g_idxBlocks = 0;
+volatile bool g_idxReady = false;
+volatile bool g_idxBuilding = false;
+
+// Blocket som lases vid ett uppslag. Internminne, DMA-dugligt, tilldelat en
+// gang - inte pa avlasningstradens stack, dar det inte far plats bredvid
+// resans egna buffertar.
+const size_t kBlockBytes = LIMIT_INDEX_STRIDE * sizeof(LimitRecord);
+uint8_t *g_blockBuf = nullptr;
+
+uint32_t g_lookupMaxUs = 0;
+
+uint32_t idxBlocksFor(uint32_t count) {
+  return (count + LIMIT_INDEX_STRIDE - 1) / LIMIT_INDEX_STRIDE;
+}
+
+void freeIndex() {
+  g_idxReady = false;
+  if (g_idx) {
+    free(g_idx);
+    g_idx = nullptr;
+  }
+  g_idxBlocks = 0;
+}
 
 uint8_t g_currentLimit = 0;
 CamWarning g_warning = {};
@@ -146,6 +201,152 @@ void loadCams() {
   g_camCount = count;
 }
 
+// Indexet fran kortet, om det hor till exakt den har filen.
+bool loadIndexFile(uint32_t fileSize, uint32_t count) {
+  File f = SDCARD.open(LIMITS_INDEX_FILE, FILE_READ);
+  if (!f) return false;
+  IdxHeader h = {};
+  const bool headOk = f.read((uint8_t *)&h, sizeof(h)) == (int)sizeof(h) &&
+                      h.magic == kIdxMagic && h.fileSize == fileSize &&
+                      h.count == count && h.stride == LIMIT_INDEX_STRIDE &&
+                      h.blocks == idxBlocksFor(count) && h.blocks > 0;
+  if (!headOk) {
+    f.close();
+    return false;
+  }
+  int32_t *idx =
+      (int32_t *)heap_caps_malloc((size_t)h.blocks * 4, MALLOC_CAP_SPIRAM);
+  if (!idx) {
+    f.close();
+    return false;
+  }
+  // Via en liten intern buffert: kortlasningar rakt in i psram ar inte
+  // sjalvklart DMA-dugliga, och det har ar nagra hundra kilobyte en gang.
+  bool ok = true;
+  uint32_t done = 0;
+  while (done < h.blocks && ok) {
+    const uint32_t n = min<uint32_t>(h.blocks - done, kBlockBytes / 4);
+    ok = f.read(g_blockBuf, n * 4) == (int)(n * 4);
+    if (ok) memcpy(idx + done, g_blockBuf, n * 4);
+    done += n;
+  }
+  f.close();
+  if (!ok) {
+    free(idx);
+    return false;
+  }
+  g_idx = idx;
+  g_idxBlocks = h.blocks;
+  g_idxReady = true;
+  return true;
+}
+
+// Bygget, i egen trad. Laser hela filen fran borjan i klumpar om tva block,
+// plockar forsta latituden ur varje block, sparar resultatet och lamnar
+// over. Under tiden svarar uppslagen "okand grans" - hellre det i en minut
+// an en seg enhet i evighet.
+void indexTask(void *) {
+  const uint32_t t0 = millis();
+  bool ok = false;
+  int32_t *idx = nullptr;
+  uint32_t blocks = 0;
+
+  // Egen lasbuffert: g_blockBuf tillhor avlasningstraden, och den kan sta
+  // mitt i ett uppslag medan det har pagar.
+  const size_t chunk = kBlockBytes * 2;
+  uint8_t *buf =
+      (uint8_t *)heap_caps_malloc(chunk, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+
+  File f = SDCARD.open(LIMITS_FILE, FILE_READ);
+  uint32_t count = 0;
+  if (f && buf &&
+      readHeader(f, kLimitMagic, sizeof(LimitRecord), count, kLimitMagicOld) &&
+      count > 0) {
+    blocks = idxBlocksFor(count);
+    idx = (int32_t *)heap_caps_malloc((size_t)blocks * 4, MALLOC_CAP_SPIRAM);
+    if (idx && f.seek(sizeof(FileHeader))) {
+      ok = true;
+      uint32_t rec = 0;
+      uint32_t chunks = 0;
+      while (rec < count) {
+        // Ett filbyte pa gang: slapp allt, bytet laser om efterat.
+        if (g_suspend) { ok = false; break; }
+        const size_t want =
+            min(chunk, (size_t)(count - rec) * sizeof(LimitRecord));
+        if (f.read(buf, want) != (int)want) { ok = false; break; }
+        for (size_t off = 0; off < want; off += sizeof(LimitRecord), rec++) {
+          if (rec % LIMIT_INDEX_STRIDE == 0) {
+            int32_t lat;
+            memcpy(&lat, buf + off, 4);
+            idx[rec / LIMIT_INDEX_STRIDE] = lat;
+          }
+        }
+        // Lagsta prioritet racker inte pa en karna dar wifi och synk bor:
+        // en paus da och da slapper fram dem pa riktigt.
+        if ((++chunks & 3) == 0) delay(1); else taskYIELD();
+      }
+    }
+  }
+  const uint32_t fileSize = f ? (uint32_t)f.size() : 0;
+  if (f) f.close();
+
+  if (ok) {
+    // Spara, genom den interna bufferten (se loadIndexFile). Misslyckas
+    // skrivningen anvands indexet anda - det byggs bara om nasta start.
+    IdxHeader h = {kIdxMagic, fileSize, count, LIMIT_INDEX_STRIDE, blocks};
+    if (SDCARD.exists(LIMITS_INDEX_FILE)) SDCARD.remove(LIMITS_INDEX_FILE);
+    File o = SDCARD.open(LIMITS_INDEX_FILE, FILE_WRITE);
+    bool saved = o && o.write((const uint8_t *)&h, sizeof(h)) == sizeof(h);
+    uint32_t done = 0;
+    while (saved && done < blocks) {
+      const uint32_t n = min<uint32_t>(blocks - done, chunk / 4);
+      memcpy(buf, idx + done, n * 4);
+      saved = o.write(buf, n * 4) == n * 4;
+      done += n;
+    }
+    if (o) o.close();
+    if (!saved) SDCARD.remove(LIMITS_INDEX_FILE);
+
+    // Overlamningen: pekaren och langden forst, flaggan sist, med en
+    // barriar emellan - avlasningstraden laser flaggan forst.
+    freeIndex();
+    g_idx = idx;
+    g_idxBlocks = blocks;
+    __sync_synchronize();
+    g_idxReady = true;
+    logg::event("hastighetsindex: %lu block byggt pa %lu s%s",
+                (unsigned long)blocks, (unsigned long)((millis() - t0) / 1000),
+                saved ? ", sparat pa kortet" : " - gick INTE att spara");
+  } else {
+    if (idx) free(idx);
+    logg::event("hastighetsindex: bygget avbrots");
+  }
+  if (buf) free(buf);
+  g_idxBuilding = false;
+  vTaskDelete(nullptr);
+}
+
+// Indexet for den oppna filen: fran kortet om det finns och stammer, annars
+// byggs det i bakgrunden.
+void loadIndex() {
+  freeIndex();
+  if (!g_limitFile || g_limitCount == 0 || !g_blockBuf) return;
+  if (loadIndexFile((uint32_t)g_limitFile.size(), g_limitCount)) {
+    logg::event("hastighetsindex: laddat fran kortet (%lu block)",
+                (unsigned long)g_idxBlocks);
+    return;
+  }
+  if (g_idxBuilding) return;
+  g_idxBuilding = true;
+  if (xTaskCreatePinnedToCore(indexTask, "gransidx", 6144, nullptr, 1, nullptr,
+                              0) != pdPASS) {
+    g_idxBuilding = false;
+    logg::event("hastighetsindex: fick ingen trad att bygga i");
+  } else {
+    logg::event("hastighetsindex: saknas - byggs i bakgrunden");
+  }
+}
+
 void loadLimits() {
   if (g_limitFile) g_limitFile.close();
   g_limitCount = 0;
@@ -163,6 +364,7 @@ void loadLimits() {
   }
   g_limitCount = count;
   g_limitDataStart = sizeof(FileHeader);
+  loadIndex();
 }
 
 // Forsta kameran med latitud minst sa hog. Binarsokning i en sorterad lista.
@@ -179,17 +381,12 @@ uint32_t firstCamAtLeast(int32_t lat) {
   return lo;
 }
 
-// Samma sak i filen med hastighetspunkter. Har kostar varje jamforelse en
-// sokning och en lasning, sa antalet steg ar det som avgor tiden - och de ar
-// logaritmiskt fa.
-uint32_t firstLimitAtLeast(int32_t lat) {
-  uint32_t lo = 0, hi = g_limitCount;
-  LimitRecord r;
+// Forsta blocket vars forsta latitud ar minst sa hog - i indexet, i minnet.
+uint32_t firstBlockAtLeast(int32_t lat) {
+  uint32_t lo = 0, hi = g_idxBlocks;
   while (lo < hi) {
     const uint32_t mid = lo + (hi - lo) / 2;
-    if (!g_limitFile.seek(g_limitDataStart + mid * sizeof(LimitRecord))) break;
-    if (g_limitFile.read((uint8_t *)&r, sizeof(r)) != (int)sizeof(r)) break;
-    if (r.lat < lat) {
+    if (g_idx[mid] < lat) {
       lo = mid + 1;
     } else {
       hi = mid;
@@ -201,44 +398,61 @@ uint32_t firstLimitAtLeast(int32_t lat) {
 // Skyltad hastighet dar bilen ar. Punkterna ligger tatt langs vagarna, sa den
 // narmaste inom nagra tiotal meter ar den som galler. Hittas ingen sadan kor vi
 // pa en vag som inte finns i filen, och da svarar vi noll - inte en gissning.
+//
+// Ett uppslag ar: binarsokning i indexet (minne), EN sokning i filen till
+// blocket fore traffen, och sedan blocken i foljd tills latituden passerat
+// fonstret. Nagra tiotal millisekunder, mot over en halv sekund forut.
 uint8_t lookupLimit(double lat, double lon) {
-  if (!g_limitFile || g_limitCount == 0) return 0;
+  if (!g_limitFile || g_limitCount == 0 || !g_idxReady || !g_blockBuf) return 0;
+  __sync_synchronize();
+  const int64_t t0 = esp_timer_get_time();
 
   // Sextio meter i latitud. Longituden kan vara vidare pa svenska breddgrader,
   // men avstandet raknas riktigt for varje kandidat, sa fonstret behover bara
   // vara garanterat tillrackligt stort.
   const int32_t delta = (int32_t)(((double)LIMIT_MATCH_RADIUS_M / 111320.0) * 1e7);
   const int32_t target = (int32_t)llround(lat * 1e7);
+  const int32_t lo = target - delta;
+  const int32_t hi = target + delta;
 
-  uint32_t i = firstLimitAtLeast(target - delta);
-  if (i >= g_limitCount) return 0;
-
-  if (!g_limitFile.seek(g_limitDataStart + i * sizeof(LimitRecord))) return 0;
-
-  // Laser i klump. Fonstret ar ett smalt band tvars over landet, sa det ar
-  // nagra hundra punkter - en enda lasning, inte en per punkt.
-  const uint32_t kBatch = 256;
-  LimitRecord batch[kBatch];
+  // Posten som forst nar lo kan ligga i blocket fore det vars forsta
+  // latitud ar >= lo, sa borja ett block tidigare.
+  uint32_t block = firstBlockAtLeast(lo);
+  if (block > 0) block--;
+  uint32_t rec = block * LIMIT_INDEX_STRIDE;
+  if (rec >= g_limitCount) return 0;
 
   double bestM = (double)LIMIT_MATCH_RADIUS_M;
   uint8_t best = 0;
 
-  while (i < g_limitCount) {
-    const uint32_t n = (g_limitCount - i < kBatch) ? (g_limitCount - i) : kBatch;
-    const size_t want = (size_t)n * sizeof(LimitRecord);
-    if (g_limitFile.read((uint8_t *)batch, want) != (int)want) break;
-
-    for (uint32_t k = 0; k < n; k++) {
-      if (batch[k].lat > target + delta) return best;
-      const double d =
-          geo::distanceM(lat, lon, toDeg(batch[k].lat), toDeg(batch[k].lon));
-      if (d < bestM) {
-        bestM = d;
-        best = batch[k].limitKmh;
+  if (g_limitFile.seek(g_limitDataStart + rec * sizeof(LimitRecord))) {
+    // Taket ar en sakerhetslina: ett smalt band tvars over landet ar nagra
+    // block, aldrig sextiofyra - men en fil som inte ar sorterad ska inte
+    // kunna lasa avlasningstraden i en lasning av hela kortet.
+    uint8_t blocksRead = 0;
+    while (rec < g_limitCount && blocksRead < 64) {
+      const uint32_t n = min<uint32_t>(g_limitCount - rec, LIMIT_INDEX_STRIDE);
+      const size_t want = (size_t)n * sizeof(LimitRecord);
+      if (g_limitFile.read(g_blockBuf, want) != (int)want) break;
+      const LimitRecord *r = (const LimitRecord *)g_blockBuf;
+      bool past = false;
+      for (uint32_t k = 0; k < n; k++) {
+        if (r[k].lat > hi) { past = true; break; }
+        if (r[k].lat < lo) continue;
+        const double d = geo::distanceM(lat, lon, toDeg(r[k].lat), toDeg(r[k].lon));
+        if (d < bestM) {
+          bestM = d;
+          best = r[k].limitKmh;
+        }
       }
+      rec += n;
+      blocksRead++;
+      if (past) break;
     }
-    i += n;
   }
+
+  const uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
+  if (us > g_lookupMaxUs) g_lookupMaxUs = us;
   return best;
 }
 
@@ -377,6 +591,10 @@ namespace cams {
 
 void begin() {
   if (g_mutex == nullptr) g_mutex = xSemaphoreCreateMutex();
+  if (!g_blockBuf) {
+    g_blockBuf = (uint8_t *)heap_caps_malloc(kBlockBytes,
+                                             MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
+  }
   // Har finns ingen avlasningstrad an, sa inlasningen far ske direkt.
   loadCams();
   loadLimits();
@@ -398,6 +616,7 @@ void tick() {
     if (!g_suspended) {
       if (g_limitFile) g_limitFile.close();
       g_limitCount = 0;
+      g_idxReady = false;  // indexet behalls, inlasningen avgor om det duger
       freeCams();
       g_suspended = true;
     }
@@ -420,6 +639,14 @@ void tick() {
 bool loaded() { return g_camCount > 0; }
 uint32_t count() { return g_camCount; }
 bool limitsLoaded() { return g_limitCount > 0; }
+bool indexReady() { return g_idxReady; }
+bool indexBuilding() { return g_idxBuilding; }
+
+uint32_t lookupMaxMs() {
+  const uint32_t us = g_lookupMaxUs;
+  g_lookupMaxUs = 0;
+  return us / 1000;
+}
 
 uint8_t currentLimitKmh() {
   lock();

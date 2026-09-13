@@ -210,6 +210,12 @@ void handleButton() {
 
 void setup() {
   Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+  // Usb-konsolen far aldrig bromsa skarmen. Utan mottagare slangs raderna
+  // direkt, men en dator som haller porten oppen utan att lasa fick varje
+  // utskrift att vanta i 100 ms - och skarmen skriver flera i sekunden.
+  Serial.setTxTimeoutMs(5);
+#endif
   // Webbflasharens konsol hinner inte koppla upp sig forran usb-porten raknats
   // upp pa nytt efter omstarten. Utan pausen forsvinner rubriken.
   delay(1500);

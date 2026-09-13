@@ -273,6 +273,11 @@ static inline const char *fwVersionFull() {
 // punkter: en bruten nedladdning kostar en del, inte hela filen.
 #define CLOUD_PART_BYTES (4UL * 1024UL * 1024UL)
 
+// En synkrunda far ta sa har lange. Sedan bryts den, forbindelsen slapps
+// och nasta runda borjar om - en runda som hangt pa ett svar som aldrig
+// kommer far inte halla radion och minnet i evighet.
+#define SYNC_ROUND_MAX_S 480
+
 // Overhastighet raknas forst har. Bilens hastighetsmatare visar med flit for
 // mycket, gps-farten ar den sanna, och ingen vill bli tillsagd for tre km/h.
 #define LIMIT_TOLERANCE_KMH 3.0f
@@ -399,6 +404,15 @@ static const uint8_t kEcoPenaltyCount = 5;
 // att den inte kan varna.
 #define CAMS_FILE "/DRIVE/KAMEROR.BIN"
 #define LIMITS_FILE "/DRIVE/HASTIGHET.BIN"
+
+// Hastighetsfilens index: forsta latituden i varje block om
+// LIMIT_INDEX_STRIDE poster. Byggs en gang ur filen (i bakgrunden, nagra
+// tiotal sekunder) och sparas har, sa att nasta start laser det pa en
+// halv sekund. Med index kostar ett uppslag EN sokning i filen i stallet
+// for tjugofem - och det var de tjugofem, gjorda varje sekund i
+// avlasningstraden, som tog kortet i beslag och gjorde enheten seg.
+#define LIMITS_INDEX_FILE "/DRIVE/HASTIGHET.IDX"
+#define LIMIT_INDEX_STRIDE 256
 
 // Kundlistan, synkad ner fran webben. Format: id;namn, en per rad.
 #define CUSTOMERS_FILE "/DRIVE/KUNDER.CSV"

@@ -37,6 +37,15 @@ bool loaded();
 uint32_t count();
 bool limitsLoaded();
 
+// Hastighetsfilens index: sant nar uppslag gar att gora, och sant medan
+// det byggs i bakgrunden (da svarar uppslagen "okand" sa lange).
+bool indexReady();
+bool indexBuilding();
+
+// Langsta uppslaget i hastighetsfilen sedan forra avlasningen, i
+// millisekunder. Nollstalls vid avlasning - prestandaraden tar den.
+uint32_t lookupMaxMs();
+
 // Skyltad hastighet dar bilen ar, i km/h. Noll betyder att vi inte vet - och da
 // visar skarmen inte heller nagon over- eller underhastighet. En gissad
 // hastighetsgrans ar varre an ingen.

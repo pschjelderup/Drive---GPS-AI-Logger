@@ -34,7 +34,7 @@ svg { display: block; margin: 8pt auto; }
 <body>
 
 <h1>Hikaya – så fungerar enheten</h1>
-<p class="sub">Logiken i firmwaren, steg för steg: vad som händer i vilken ordning, vad som kan stanna på grund av vad, och hur delarna hänger ihop med molnet och webbappen. Läge per 2026-09-04 (efter PR #45 och OBD-spärren i PR #46). Underlag för planeringen av nästa UX-version.</p>
+<p class="sub">Logiken i firmwaren, steg för steg: vad som händer i vilken ordning, vad som kan stanna på grund av vad, och hur delarna hänger ihop med molnet och webbappen. Läge per 2026-09-13 (efter PR #45, OBD-spärren och synk- och indexrättningarna i PR #46). Underlag för planeringen av nästa UX-version.</p>
 
 <div class="toc">
 <div>1. Enheten i en bild</div>
@@ -232,7 +232,8 @@ svg { display: block; margin: 8pt auto; }
 <h2>8. Fartkameror och skyltad hastighet</h2>
 <ul>
 <li><b>Kamerafilen</b> (<code>KAMEROR.BIN</code>, ~33 kB, signatur DLC1) ligger i minnet. Synkas från molnet, eller laddas upp via enhetens webbsida.</li>
-<li><b>Hastighetsfilen</b> (<code>HASTIGHET.BIN</code>, 139 MB, signatur DLH1 eller gamla DHL1) läses direkt från kortet med binärsökning. <b>Den läggs på kortet för hand</b> (Datafiler i webbappen → ladda ner → kortet → starta om). Finns den så används den; ingen version jämförs, molnsynken rör den inte. Skyltad hastighet matchas inom 60 m.</li>
+<li><b>Hastighetsfilen</b> (<code>HASTIGHET.BIN</code>, 139 MB, signatur DLH1 eller gamla DHL1) läses direkt från kortet. <b>Den läggs på kortet för hand</b> (Datafiler i webbappen → ladda ner → kortet → starta om). Finns den så används den; ingen version jämförs, molnsynken rör den inte. Skyltad hastighet matchas inom 60 m.</li>
+<li><b>Indexet</b> (<code>HASTIGHET.IDX</code>): första latituden i varje block om 256 poster, ett par hundra kilobyte i psram. Byggs en gång i bakgrunden (en tråd med lägsta prioritet läser filen från början till slut, en halv minut ungefär) och sparas på kortet, så att nästa start läser det direkt. Med index är ett uppslag <i>en</i> sökning i filen i stället för tjugofem. Utan index kostade varje uppslag över en halv sekund av kortets tid, varje sekund, i tråden med högst prioritet, och allt annat som ville åt kortet fick vänta. Medan indexet byggs svarar uppslagen "gräns okänd".</li>
 <li><b>Varningar</b> en gång per sekund under färd: kamera inom 800 m (långt), 500 m (mitten), 250 m (nära) i färdriktningen (±55° framåt, kamerans riktning ±60°). Varje ring ger ett ljud en gång; passerad kamera släpps 80 m efter. ATK-sträckor (snittfart) märks särskilt.</li>
 <li><b>Över gränsen:</b> ljud när farten går över skyltat + 3 km/h. Utan hastighetsfil: "hastighetsfilen saknas" på HUD:en, ingen över/under.</li>
 <li>Filbyte sker med handslag: uppladdningen ber avläsningstråden släppa filerna, väntar på kvitto, byter, låter läsa om.</li>
@@ -277,8 +278,9 @@ svg { display: block; margin: 8pt auto; }
 <li>Skanna. De nät som hörs provas först, starkast först; sedan de ohörbara i tur och ordning (dolda SSID syns aldrig i en skanning).</li>
 <li>Anslut: 30 s väntan på ett hört nät, 12 s på ett ohörbart. Alla nät i <i>en</i> runda.</li>
 <li>Namnuppslag; svarar hotspotens DNS inte används 1.1.1.1/8.8.8.8 som reserv.</li>
-<li>Logg "synk borjar via X (rssi −55)". Rundan (avsnitt 10). Sedan släpps TLS-minnet, wifi kopplas ner, AP och bluetooth får radion igen.</li>
+<li>Logg "synk borjar via X (rssi −55)". Rundan (avsnitt 10), med tidsgräns 8 minuter: sedan bryts den var den än står. Sedan släpps TLS-minnet, wifi kopplas ner, AP och bluetooth får radion igen.</li>
 </ol>
+<p>Skyddsnät: innan handskakningen mäts största lediga block i internminnet, och är det under 36 kB sägs det rakt ut ("för lite internminne") i stället för ett kod −1. Misslyckas anslutningen tre rundor i rad startas wifi-radion om från grunden. Handskakningen har 30 s på sig (inte bibliotekets 120), och första anropet får ett omtag efter en halv sekund, för det faller ibland på att namnuppslag och arp inte hunnit klart. Synktråden bor på kärna 0 hos wifi och nätstacken, inte på skärmens kärna, så en handskakning aldrig tar skärmens tid.</p>
 <p class="small">Vanligaste orsakerna till "inget av näten nås": nätet sänder bara på 5 GHz (radion hör bara 2,4), hotspoten är inte igång, eller telefonen med hotspoten är själv ansluten till enhetens wifi.</p>
 
 <h2>10. Molnsynkens runda</h2>
@@ -307,13 +309,17 @@ svg { display: block; margin: 8pt auto; }
 <tr><td><code>status: fritt N, storsta block N, kort N/N MB ledigt, tappade loggrader N</code></td><td>Minnet före synken. Under ~40 kB största block klarar TLS sig inte.</td></tr>
 <tr><td><code>synk borjar via X (rssi N)</code></td><td>Under −75 dBm är stora överföringar osäkra.</td></tr>
 <tr><td><code>moln svarade inte (kod -1)</code></td><td>TLS gick inte att bygga: minne (se status-raden) eller nät.</td></tr>
-<tr><td><code>prestanda: lvgl N ms medel N varst, flush …, varvlucka …, internminne N</code></td><td>Skärmens känsla, var femte minut. Målet: lvgl under 1 ms medel.</td></tr>
+<tr><td><code>prestanda: lvgl N ms medel N varst, flush …, varvlucka …, internminne N, uppslag N ms varst, stack skarm N</code></td><td>Skärmens känsla, var femte minut. Målet: lvgl under 1 ms medel, uppslag i hastighetsfilen under 50 ms.</td></tr>
+<tr><td><code>hastighetsindex: laddat fran kortet (N block)</code> / <code>… byggt pa N s, sparat</code></td><td>Uppslag i hastighetsfilen fungerar. "saknas - byggs i bakgrunden" betyder en halv minut utan skyltad hastighet.</td></tr>
+<tr><td><code>synk: bruten efter N s utan att bli klar</code></td><td>Tidsgränsen slog till. Nästa runda börjar om.</td></tr>
+<tr><td><code>synk: radion omstartad efter tre rundor utan kontakt</code></td><td>Wifi-stacken fick börja om. Kommer den raden ofta är det nätet, inte enheten.</td></tr>
 <tr><td><code>obd: …</code></td><td>Just nu bara "tillvalet ar sparrat i den har versionen".</td></tr>
 </table>
 
 <h2 class="pb">12. Vad kan stanna på grund av vad</h2>
 <table>
 <tr><th>Symtom</th><th>Orsak i logiken</th><th>Var det syns</th></tr>
+<tr><td>Enheten seg, synken når aldrig molnet (efter PR45)</td><td>Hastighetsfilen lästes in för första gången, och uppslaget i den gjorde tjugofem filsökningar per sekund i avläsningstråden. Kortet var upptaget mer än halva tiden. Löst med indexet (avsnitt 8).</td><td>Logg: "hastighetsindex: …", prestanda-radens "uppslag N ms varst".</td></tr>
 <tr><td>Resan startar inte fast bilen rullar</td><td>Ingen betrodd fart: inget 3D-fix, för få satelliter, hög HDOP (UART) eller fartosäkerhet &gt; 10 km/h (i2c). Reservvägen kräver 8 s + 40 m.</td><td>HUD: "väntar på GPS-fix". Serieport: fartraden "obetrodd". Knappen startar ändå.</td></tr>
 <tr><td>Resan slutar mitt i en kö</td><td>Under 3 km/h i 240 s. Nedräkningen syns på HUD:en.</td><td>Dagboken får två resor; "dela här"-logiken tvärtom.</td></tr>
 <tr><td>Resan slutar vid tunnel/parkeringshus</td><td>Utan fix står både rullande tid och stilleståndstid stilla – resan avslutas <i>inte</i>. Spåret får ett hopp.</td><td>Gpx med lucka.</td></tr>
@@ -379,7 +385,7 @@ svg { display: block; margin: 8pt auto; }
 
 <h3>Ramar som logiken sätter</h3>
 <ul>
-<li><b>Skärmen ägs av huvudloopen; kortet av avläsningstråden.</b> Varje ny knapp som ska "göra något med resan" blir en flagga som utförs inom 50 ms. Det är en styrka: UX kan aldrig blockera loggningen, och loggningen kan aldrig frysa UX.</li>
+<li><b>Skärmen ägs av huvudloopen; kortet av avläsningstråden.</b> Varje ny knapp som ska "göra något med resan" blir en flagga som utförs inom 50 ms. Det är en styrka: UX kan aldrig blockera loggningen, och loggningen kan aldrig frysa UX. Enhetsloggen går via en kö till en egen skrivtråd, så inte heller en loggrad rör kortet från skärmens tråd.</li>
 <li><b>Modellen fylls var 150:e ms</b> och skärmkoden ändrar bara det som ändrats. Nya skärmar bör följa samma mönster (build en gång, update mot modellen), annars kommer 258-ms-problemet tillbaka.</li>
 <li><b>Frågan efter resan är enhetens enda obligatoriska interaktion.</b> Allt annat är frivilligt. Det bör styra hierarkin: frågan först, körningen sedan, resten bakom.</li>
 <li><b>Radion är nere under resa.</b> Ingen skärm kan visa molnstatus "live" under färd, och det ska den inte behöva.</li>

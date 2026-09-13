@@ -33,6 +33,10 @@ bool begin();
 bool imuOk();
 bool sdMounted();
 
+// Avlasningstradens minsta kvarvarande stack, i byte. Gar till
+// statusraden: en trad som narmar sig botten kraschar utan forvarning.
+uint32_t samplerStackFree();
+
 // Forsoker montera minneskortet igen, t.ex. efter att anvandaren stoppat i ett.
 bool remount();
 
