@@ -21,6 +21,7 @@ SensorPCF85063 rtc;
 bool g_imuOk = false;
 bool g_rtcOk = false;
 bool g_sdOk = false;
+TaskHandle_t g_samplerTask = nullptr;
 
 // Skyddar det som delas mellan avlasningstraden och skarmen.
 SemaphoreHandle_t g_mutex = nullptr;
@@ -224,8 +225,15 @@ bool begin() {
 
   // Riklig stack: raderna formateras med flyttal, vilket kraver mer utrymme an
   // man forst tror.
-  xTaskCreatePinnedToCore(samplerTask, "sampler", 12288, nullptr, 5, nullptr, 0);
+  // 14 kB: resans radskrivning med flyttal och kortets filsystem ligger
+  // bada pa den har stacken, och marginalen mats - se samplerStackFree.
+  xTaskCreatePinnedToCore(samplerTask, "sampler", 14336, nullptr, 5,
+                          &g_samplerTask, 0);
   return g_imuOk;
+}
+
+uint32_t samplerStackFree() {
+  return g_samplerTask ? (uint32_t)uxTaskGetStackHighWaterMark(g_samplerTask) : 0;
 }
 
 bool imuOk() { return g_imuOk; }

@@ -99,6 +99,9 @@ void loadSettings() {
   if (cfg.soundOn > 1) cfg.soundOn = DEFAULT_SOUND_ON;
   if (cfg.autoSync > 1) cfg.autoSync = DEFAULT_AUTO_SYNC;
   if (cfg.obdOn > 1) cfg.obdOn = DEFAULT_OBD_ON;
+#if OBD_LOCKED
+  cfg.obdOn = 0;  // sparrat tills vidare, se config.h
+#endif
   if (cfg.ecoSoftIdx >= kEcoSoftCount) cfg.ecoSoftIdx = DEFAULT_ECO_SOFT_INDEX;
   if (cfg.ecoHardIdx >= kEcoHardCount) cfg.ecoHardIdx = DEFAULT_ECO_HARD_INDEX;
   if (cfg.ecoBubbleIdx >= kEcoBubbleCount) {
@@ -207,6 +210,12 @@ void handleButton() {
 
 void setup() {
   Serial.begin(115200);
+#if ARDUINO_USB_CDC_ON_BOOT
+  // Usb-konsolen far aldrig bromsa skarmen. Utan mottagare slangs raderna
+  // direkt, men en dator som haller porten oppen utan att lasa fick varje
+  // utskrift att vanta i 100 ms - och skarmen skriver flera i sekunden.
+  Serial.setTxTimeoutMs(5);
+#endif
   // Webbflasharens konsol hinner inte koppla upp sig forran usb-porten raknats
   // upp pa nytt efter omstarten. Utan pausen forsvinner rubriken.
   delay(1500);

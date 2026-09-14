@@ -644,8 +644,17 @@ namespace obd {
 
 void begin(bool enabled) {
   if (!g_mutex) g_mutex = xSemaphoreCreateMutex();
-  g_data.state = enabled ? OBD_SEARCHING : OBD_OFF;
   g_sum.fuelStartPct = 0xFF;
+#if OBD_LOCKED
+  // Sparrat: ingen trad, ingen bluetooth-stack, ingenting som kan starta om
+  // enheten. Skarmen visar att tillvalet ar avstangt tills vidare.
+  (void)enabled;
+  g_data.state = OBD_OFF;
+  g_enabled = false;
+  logg::event("obd: tillvalet ar sparrat i den har versionen");
+  return;
+#endif
+  g_data.state = enabled ? OBD_SEARCHING : OBD_OFF;
   g_enabled = enabled;
 
   // Traden startas alltid, men utan tillvalet gor den ingenting alls -
@@ -654,6 +663,10 @@ void begin(bool enabled) {
 }
 
 void setEnabled(bool on) {
+#if OBD_LOCKED
+  (void)on;
+  return;
+#endif
   if (g_enabled == on) return;
   g_enabled = on;
   if (on) setState(OBD_SEARCHING);

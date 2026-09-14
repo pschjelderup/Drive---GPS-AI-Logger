@@ -22,6 +22,14 @@ bool g_up = false;
 uint32_t g_tripEndedMs = 0;
 bool g_sawTrip = false;
 
+// Servern och natet ror bara en trad i taget: webbtraden i sitt varv, och
+// synktraden nar den lagger ner natet (se suspend). Antalet anslutna
+// telefoner cachas har, sa att skarmen slipper fraga wifi-drivrutinen sju
+// ganger i sekunden.
+SemaphoreHandle_t g_lock = nullptr;
+volatile uint8_t g_clients = 0;
+uint32_t g_clientsMs = 0;
+
 // Uppladdningen skrivs forst till en tillfallig fil och flyttas nar den ar
 // hel. En halv kamerafil som redan ligger pa sin riktiga plats ar varre an
 // ingen alls.
@@ -562,6 +570,7 @@ void stopAp() {
   // sig sjalv nar resan borjar.
   WiFi.enableAP(false);
   g_up = false;
+  g_clients = 0;
 }
 
 // Ett varv: natet upp eller ner efter resans tillstand, och servern betjanad.
@@ -598,6 +607,11 @@ void service() {
 
   g_dns.processNextRequest();
   g_server.handleClient();
+
+  if (millis() - g_clientsMs > 1000) {
+    g_clientsMs = millis();
+    g_clients = WiFi.softAPgetStationNum();
+  }
 }
 
 // Egen trad, pa karna 0 - skarmen och molnsynken bor pa karna 1. Med natet
@@ -605,7 +619,10 @@ void service() {
 // tillstand tio ganger i sekunden.
 void webTask(void *) {
   for (;;) {
-    service();
+    if (xSemaphoreTake(g_lock, portMAX_DELAY) == pdTRUE) {
+      service();
+      xSemaphoreGive(g_lock);
+    }
     delay(g_up ? 5 : 100);
   }
 }
@@ -614,9 +631,22 @@ void webTask(void *) {
 
 namespace websync {
 
-void suspend(bool on) { g_suspend = on; }
+void suspend(bool on) {
+  g_suspend = on;
+  if (!on || !g_lock) return;
+  // Natet laggs ner har och nu, inte nar webbtraden rakar fa tid: den kan
+  // sta i en filstromning till en telefon, eller svalta pa en karna dar
+  // nagot annat har brattom. Laset ser till att servern inte rycks undan
+  // mitt i ett svar - och hinner vi inte fa det pa tre sekunder tar
+  // webbtraden ner natet sjalv i sitt nasta varv, som forut.
+  if (xSemaphoreTake(g_lock, pdMS_TO_TICKS(3000)) == pdTRUE) {
+    if (g_up) stopAp();
+    xSemaphoreGive(g_lock);
+  }
+}
 
 void begin() {
+  if (!g_lock) g_lock = xSemaphoreCreateMutex();
   // Stacken racker till sidans stranghantering och en filstromning; sjalva
   // sidan ligger i flashminnet och kopieras aldrig till stacken.
   xTaskCreatePinnedToCore(webTask, "websync", 8192, nullptr, 1, nullptr, 0);
@@ -628,6 +658,6 @@ const char *ssid() { return WIFI_AP_SSID; }
 
 String ipString() { return g_up ? WiFi.softAPIP().toString() : String(""); }
 
-uint8_t clientCount() { return g_up ? WiFi.softAPgetStationNum() : 0; }
+uint8_t clientCount() { return g_up ? g_clients : 0; }
 
 }  // namespace websync

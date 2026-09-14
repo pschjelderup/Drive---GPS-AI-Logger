@@ -79,7 +79,19 @@ void setState(CloudState s, const char *detail) {
 
 // Resan har alltid foretrade. Kontrolleras mellan varje steg och varje block,
 // sa att en resa som borjar mitt i en nedladdning inte behover vanta pa den.
-bool mustAbort() { return trip::status().active; }
+// Och rundan har en tidsgrans: efter SYNC_ROUND_MAX_S bryts den var den an
+// star, sa att ett svar som aldrig kommer inte haller radion i evighet.
+uint32_t g_roundDeadlineMs = 0;
+volatile bool g_timedOut = false;
+
+bool mustAbort() {
+  if (trip::status().active) return true;
+  if (g_roundDeadlineMs && (int32_t)(millis() - g_roundDeadlineMs) > 0) {
+    g_timedOut = true;
+    return true;
+  }
+  return false;
+}
 
 // ------------------------------------------------------------ http-hjalp ---
 
@@ -153,7 +165,12 @@ bool g_httpInit = false;
 bool httpBegin(const String &path) {
   if (!g_httpInit) {
     g_tls.setInsecure();  // se blocket overst
+    // Handskakningen far en halv minut, inte bibliotekets tva: pa en
+    // hotspot som tappar bararen mitt i ar det skillnaden mellan en runda
+    // som borjar om och en som star still.
+    g_tls.setHandshakeTimeout(30);
     g_http.setReuse(true);
+    g_http.setConnectTimeout(15000);
     g_http.setTimeout(30000);
     g_httpInit = true;
   }
@@ -693,12 +710,14 @@ void postStatus() {
   const int n = snprintf(
       rad, sizeof(rad),
       "%s status: fritt %lu, storsta block %lu, kort %lu/%lu MB ledigt, "
-      "tappade loggrader %lu\n",
+      "tappade loggrader %lu, stack avlasning %lu synk %lu\n",
       stamp,
       (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
       (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
       (unsigned long)(sdOk ? (ledigt >> 20) : 0),
-      (unsigned long)(sdOk ? (total >> 20) : 0), logg::lostLines());
+      (unsigned long)(sdOk ? (total >> 20) : 0), logg::lostLines(),
+      (unsigned long)sensors::samplerStackFree(),
+      (unsigned long)uxTaskGetStackHighWaterMark(nullptr));
   Serial.printf("moln: %s", rad);
   if (n > 0) postLog(rad, (size_t)n);
 }
@@ -751,7 +770,15 @@ bool runSync() {
   {
     HTTPClient &http = g_http;
     if (!httpBegin("/config")) return false;
-    const int code = http.GET();
+    int code = http.GET();
+    if (code <= 0 && !mustAbort()) {
+      // Forsta handslaget efter att natet gatt upp faller ibland pa rena
+      // tidsskal - namnuppslag och arp ar inte riktigt klara. Ett omtag
+      // efter en halv sekund ar billigt och skiljer det fran ett riktigt fel.
+      httpDrop();
+      delay(500);
+      if (httpBegin("/config")) code = http.GET();
+    }
     if (code != 200) {
       httpDrop();
       char msg[48];
@@ -871,6 +898,8 @@ bool runSync() {
 void syncTask(void *) {
   uint32_t nextAttemptMs = 0;
   uint32_t backoffS = 120;
+  uint8_t connectFails = 0;
+  char msg[64];
 
   for (;;) {
     delay(1000);
@@ -913,6 +942,26 @@ void syncTask(void *) {
     // bluetooth ar nere gav synken 7 kB storsta block och kod -1.
     for (uint8_t w = 0; w < 100 && (websync::isUp() || obd::bleUp()); w++) {
       delay(100);
+    }
+
+    // Tls-handskakningen behover ett sammanhangande block om ~40 kB. Finns
+    // det inte ar det ingen ide att ens forsoka - da sags det rakt ut, med
+    // siffran, i stallet for ett "kod -1" som kan betyda vad som helst.
+    {
+      const uint32_t block =
+          heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+      if (block < 36000) {
+        snprintf(msg, sizeof(msg), "for lite internminne (%lu kB block)",
+                 (unsigned long)(block / 1024));
+        setState(CLOUD_ERROR, msg);
+        logg::event("synk: %s, fritt %lu", msg,
+                    (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+        websync::suspend(false);
+        obd::suspend(false);
+        nextAttemptMs = millis() + backoffS * 1000UL;
+        backoffS = min<uint32_t>(backoffS * 2, 900);
+        continue;
+      }
     }
 
     setState(CLOUD_CONNECTING, "soker naten");
@@ -959,7 +1008,6 @@ void syncTask(void *) {
       g_rr = (uint8_t)((g_rr + 1) % cloudsync::kNetMax);
     }
 
-    char msg[64];
     bool up = false;
     int pick = -1;
     for (uint8_t k = 0; k < nOrder && !up; k++) {
@@ -981,18 +1029,36 @@ void syncTask(void *) {
     }
 
     if (!up) {
+      // Drivrutinens eget besked skiljer "natet finns inte har" fran "natet
+      // sa nej" - och det senare ar nastan alltid losenordet.
+      const wl_status_t st = WiFi.status();
       WiFi.disconnect(true);
+      const char *why =
+          st == WL_NO_SSID_AVAIL ? "natet syns inte - 2,4 GHz? hotspot pa?"
+          : st == WL_CONNECT_FAILED ? "natet sa nej - ratt losenord?"
+          // Vanligaste orsakerna i den har ordningen: naten sander bara pa
+          // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
+          // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
+          : "inget av naten nas - 2,4 GHz? hotspot pa?";
+      logg::event("synk: inget av %u nat gick att na (wifi-status %d)",
+                  (unsigned)nOrder, (int)st);
+      if (++connectFails >= 3) {
+        // Tre rundor i rad utan kontakt: radion startas om fran grunden.
+        // En wifi-stack som fastnat i ett mellanlage svarar bara pa det -
+        // och det ar billigare an att vanta pa att nagon drar ur sladden.
+        connectFails = 0;
+        WiFi.mode(WIFI_OFF);
+        delay(1000);
+        logg::event("synk: radion omstartad efter tre rundor utan kontakt");
+      }
       websync::suspend(false);
       obd::suspend(false);
-      // Vanligaste orsakerna i den har ordningen: naten sander bara pa
-      // 5 GHz (radion har hor bara 2,4), hotspoten ar inte igang, eller
-      // telefonen med hotspoten ar sjalv ansluten till enhetens wifi.
-      setState(CLOUD_IDLE, "inget av naten nas - 2,4 GHz? hotspot pa?");
-      logg::event("synk: inget av %u nat gick att na", (unsigned)nOrder);
+      setState(CLOUD_IDLE, why);
       nextAttemptMs = millis() + backoffS * 1000UL;
       backoffS = min<uint32_t>(backoffS * 2, 900);
       continue;
     }
+    connectFails = 0;
 
     strncpy(g_active, g_ssids[pick], sizeof(g_active) - 1);
     g_active[sizeof(g_active) - 1] = '\0';
@@ -1027,10 +1093,18 @@ void syncTask(void *) {
     const CloudStatus fore = g_status;
     unlock();
 
+    g_timedOut = false;
+    g_roundDeadlineMs = millis() + SYNC_ROUND_MAX_S * 1000UL;
     const bool ok = runSync();
+    g_roundDeadlineMs = 0;
     // Rundan ar slut, oavsett hur: forbindelsen slapps och tls-minnet
     // lamnas tillbaka innan accesspunkten far radion igen.
     httpDrop();
+    if (g_timedOut) {
+      setState(CLOUD_ERROR, "synken tog for lang tid - avbruten");
+      logg::event("synk: bruten efter %u s utan att bli klar",
+                  (unsigned)SYNC_ROUND_MAX_S);
+    }
 
     lock();
     const CloudStatus efter = g_status;
@@ -1086,11 +1160,13 @@ void begin() {
 
   setState(anyNet() ? CLOUD_IDLE : CLOUD_OFF, anyNet() ? "redo" : "");
 
-  // TLS behover rejalt med stack. Kor pa karna 1, dar aven huvudloopen med
-  // gui:t bor - men med SAMMA prioritet, inte hogre: med prioritet 2 svalte
-  // en langre nedladdning skarmen helt, och det kandes som att hela enheten
-  // hangde sig. Lika prioritet ger turordning, och gui:t far sina varv.
-  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 1, nullptr, 1);
+  // TLS behover rejalt med stack. Traden bor pa karna 0, hos wifi och
+  // natstacken - inte pa skarmens karna. Den lag pa karna 1 med samma
+  // prioritet som gui:t, och varje handskakning (en sekund ren rakning)
+  // tog da halva skarmens tid; med hogre prioritet tog den all. Pa karna 0
+  // far skarmen vara ifred, och synken far vika sig for avlasningstraden
+  // (prioritet 5), som ar den som ska ga forst.
+  xTaskCreatePinnedToCore(syncTask, "cloudsync", 16384, nullptr, 2, nullptr, 0);
 }
 
 void configureNets(const char *ssids[kNetMax], const char *passwords[kNetMax],
