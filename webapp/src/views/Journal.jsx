@@ -642,6 +642,12 @@ function TripModal({ trip, customers, vehicles, patch, onDelete, onClose }) {
                 : ""))}
             {t.obd.tank_start != null && kv("Tank",
               `${t.obd.tank_start} % → ${t.obd.tank_slut} %`)}
+            {t.obd.el_km != null && kv("Elkörning",
+              `${t.obd.el_km.toFixed(1).replace(".", ",")} km` +
+              (t.distance_m > 0
+                ? ` · ${Math.round((t.obd.el_km * 1000 * 100) / t.distance_m)} % av sträckan`
+                : ""))}
+            {t.obd.kalla === "toyota" && kv("Källa", "bilen via Toyota")}
           </div>
         )}
 

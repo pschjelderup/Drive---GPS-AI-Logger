@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase.js";
 import { fmtDateTime } from "../lib/fmt.js";
 import { RATE_KINDS, vehicleLabel } from "../lib/vehicles.js";
+import ToyotaCard from "./ToyotaCard.jsx";
 
 // Kundens kontorsposition: soks upp via Places pa bolagsnamnet och gar att
 // finjustera for hand. Positionen ar det som later journalen kanna igen ett
@@ -365,7 +366,8 @@ function DeviceCard() {
   const [status, setStatus] = useState("");
 
   const load = () => {
-    supabase.from("drive_devices").select("*").order("id")
+    // Toyota-kopplingar har sitt eget kort - har visas bara Hikaya-enheterna.
+    supabase.from("drive_devices").select("*").neq("kind", "toyota").order("id")
       .then(({ data }) => setDevices(data ?? []));
   };
   useEffect(() => {
@@ -570,7 +572,7 @@ function SyncLogCard() {
   );
 }
 
-export default function Settings() {
+export default function Settings({ onTripsChanged }) {
   const [customers, setCustomers] = useState([]);
   const [newName, setNewName] = useState("");
   const [status, setStatus] = useState("");
@@ -622,6 +624,7 @@ export default function Settings() {
       <FleetCard />
       <PlacesCard />
       <BillingCard />
+      <ToyotaCard onTripsChanged={onTripsChanged} />
       <DeviceCard />
       <SyncLogCard />
 
