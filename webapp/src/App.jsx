@@ -14,6 +14,7 @@ import Eco from "./views/Eco.jsx";
 import Ai from "./views/Ai.jsx";
 import DataFiles from "./views/DataFiles.jsx";
 import Settings from "./views/Settings.jsx";
+import { syncAllToyota } from "./lib/toyota.js";
 
 function Logo({ className }) {
   return <img src="/brand/app-icon.svg" alt="" className={className} />;
@@ -87,6 +88,21 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Toyota-kopplade bilar hamtas in av sig sjalva: nar appen oppnas och
+  // sedan varje halvtimme den star oppen, for de bilar som inte synkat pa
+  // en kvart. Kom det nya resor laddar journalen om.
+  const loggedIn = !!session;
+  useEffect(() => {
+    if (!loggedIn) return;
+    let alive = true;
+    const run = () => syncAllToyota()
+      .then((n) => { if (alive && n > 0) setEpoch((e) => e + 1); })
+      .catch(() => {});
+    run();
+    const t = setInterval(run, 30 * 60 * 1000);
+    return () => { alive = false; clearInterval(t); };
+  }, [loggedIn]);
+
   if (session === undefined) return null;
   if (!session) return <Login />;
 
@@ -117,7 +133,7 @@ export default function App() {
       {view("ai", <Ai />)}
       {view("import", <Import onImported={() => setEpoch((e) => e + 1)} />)}
       {view("data", <DataFiles />)}
-      {view("install", <Settings />)}
+      {view("install", <Settings onTripsChanged={() => setEpoch((e) => e + 1)} />)}
     </div>
   );
 }

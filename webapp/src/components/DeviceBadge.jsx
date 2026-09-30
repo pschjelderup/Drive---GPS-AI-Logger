@@ -20,7 +20,7 @@ export default function DeviceBadge() {
     let alive = true;
     const load = async () => {
       const { data } = await supabase
-        .from("drive_devices").select("id, name, last_seen, last_synced_trip")
+        .from("drive_devices").select("id, name, kind, connector, last_seen, last_synced_trip")
         .order("id");
       if (alive) setDevices(data ?? []);
     };
@@ -40,6 +40,22 @@ export default function DeviceBadge() {
         // Med flera enheter ar namnet det som skiljer brickorna at; med en
         // racker "enheten", precis som forut.
         const who = many ? (d.name ?? d.id) : "enheten";
+        // En Toyota-koppling ar ingen radio i bilen: "uppkopplad" vore fel
+        // ord. Den har synkat, eller behover en ny inloggning.
+        if (d.kind === "toyota") {
+          const c = d.connector ?? {};
+          return (
+            <span key={d.id} className={c.last_error ? "badge" : online ? "badge online" : "badge"}
+              title={c.last_error ?? `Toyota-koppling · synkad t.o.m. resa ${d.last_synced_trip}`}>
+              <span className="dot" />
+              {c.needs_login
+                ? `${d.name ?? "Toyota"}: logga in igen`
+                : c.last_sync
+                  ? `${d.name ?? "Toyota"} synkad ${fmtDateTime(c.last_sync)}`
+                  : `${d.name ?? "Toyota"} har aldrig synkat`}
+            </span>
+          );
+        }
         return (
           <span key={d.id} className={online ? "badge online" : "badge"}
             title={`Synkad t.o.m. resa ${d.last_synced_trip}`}>

@@ -357,6 +357,18 @@ svg { display: block; margin: 8pt auto; }
 </table>
 <p>Alla API-nycklar (Trafikverket, Anthropic, Google Maps) ligger i Vercels miljövariabler bakom inloggade proxyer och når aldrig webbläsaren.</p>
 
+<h3>Toyota-kopplingen – bilen som egen källa</h3>
+<p>En Toyota eller Lexus med Toyota Connected Services kan kopplas in utan någon enhet i bilen. Molnfunktionen <code>drive-toyota</code> loggar in på Toyota-kontot, hämtar bilens resor (start, mål, sträcka, tid, förbrukning, körpoäng, elkörning och rutten) och bokför dem som resor i journalen med GPX-spår, som om de kom från en Hikaya-enhet. I appen är kopplingen en "enhet" av sorten <code>toyota</code>, knuten till en av flottans bilar.</p>
+<ul>
+<li><b>Inloggning:</b> under Inställningar → Toyota-koppling. Lösenordet används en gång och sparas aldrig. Toyotas token ligger i <code>drive_connector_accounts</code>, en tabell utan RLS-policy som bara funktionen når.</li>
+<li><b>Synk:</b> när appen öppnas och varje halvtimme den står öppen, för bilar som inte synkat på en kvart. Första gången de senaste 60 dagarna; äldre historik (3 mån–2 år) hämtas med en knapp. Funktionen arbetar i korta varv, två sidor om tio resor per anrop, och appen fortsätter tills Toyota inte har fler.</li>
+<li><b>Resorna:</b> syfte <i>omärkt</i> tills någon markerar dem; ingen kallstartslucka att fylla (Toyotas rutt börjar där bilen startade); Toyotas resa-id i <code>ext_id</code> så att ingen resa bokförs två gånger. Rutten saknar tidsstämplar, så kartans fartlager visar "vet ej" för dem.</li>
+<li><b>Bilens läge:</b> mätarställning, tank/batteri, räckvidd och senaste parkeringsplats visas på kortet. Mätarställningen blir en avstämning i <code>drive_odometer</code> (märkt "Toyota") när den ändrats med minst en kilometer.</li>
+<li><b>Om Toyota-inloggningen går ut</b> står det på kortet och i sidhuvudet ("logga in igen"); en ny inloggning på samma konto tar över direkt.</li>
+<li><b>Samma bil med både Hikaya-enhet och Toyota-koppling</b> ger dubbla resor – kortet varnar för det.</li>
+<li>Vägen är inofficiell – samma som MyToyota-appen och de öppna projekten pytoyoda och tyta – och Toyota kan ändra den utan förvarning.</li>
+</ul>
+
 <h2>14. Filerna på kortet</h2>
 <table>
 <tr><th>Fil</th><th>Innehåll</th></tr>
